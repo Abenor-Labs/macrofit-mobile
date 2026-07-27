@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "MacroFit",
+    "slug": "macrofit",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "macrofit",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.macrofit.app",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "MacroFit needs photo access so you can analyse a meal photo and attach progress photos.",
+        "NSCameraUsageDescription": "MacroFit uses the camera to analyse meals and take progress photos."
+      }
+    },
+    "android": {
+      "package": "com.macrofit.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0C8261",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "MacroFit needs photo access so you can analyse a meal photo and attach progress photos."
+        }
+      ],
+      "expo-splash-screen"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
