@@ -1,0 +1,82 @@
+name: Android Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, for example v1.0.0
+        required: true
+        default: v1.0.0
+
+permissions:
+  contents: write
+
+jobs:
+  build-release-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout mobile app
+        uses: actions/checkout@v4
+        with:
+          path: macrofit-mobile
+
+      - name: Checkout web source for shared core
+        uses: actions/checkout@v4
+        with:
+          repository: warpirate/Macro-tracker
+          ref: claude/food-macro-tracker-app-NmYBH
+          path: Macro-tracker
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: macrofit-mobile/package-lock.json
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install dependencies
+        working-directory: macrofit-mobile
+        run: npm ci
+
+      - name: Write production environment
+        working-directory: macrofit-mobile
+        run: |
+          cat > .env <<'EOF'
+          EXPO_PUBLIC_SUPABASE_URL=${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+          EXPO_PUBLIC_API_URL=${{ secrets.EXPO_PUBLIC_API_URL }}
+          EXPO_PUBLIC_USDA_API_KEY=${{ secrets.EXPO_PUBLIC_USDA_API_KEY }}
+          EOF
+
+      - name: Typecheck
+        working-directory: macrofit-mobile
+        run: npm run typecheck
+
+      - name: Generate Android project
+        working-directory: macrofit-mobile
+        run: npx expo prebuild --platform android --clean --non-interactive
+
+      - name: Build release APK
+        working-directory: macrofit-mobile/android
+        run: ./gradlew assembleRelease
+
+      - name: Rename APK
+        working-directory: macrofit-mobile
+        run: |
+          mkdir -p release
+          cp android/app/build/outputs/apk/release/app-release.apk "release/MacroFit-${{ inputs.tag }}.apk"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: MacroFit ${{ inputs.tag }}
+          files: macrofit-mobile/release/MacroFit-${{ inputs.tag }}.apk
+          make_latest: true

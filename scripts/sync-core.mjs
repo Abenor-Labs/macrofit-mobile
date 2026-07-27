@@ -21,7 +21,11 @@ import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(here, '..')
-const webSrc = path.resolve(projectRoot, '..', 'src')
+const webSrcCandidates = [
+  path.resolve(projectRoot, '..', 'src'),
+  path.resolve(projectRoot, '..', 'Macro-tracker', 'src'),
+]
+const webSrc = webSrcCandidates.find(candidate => existsSync(candidate))
 const coreDir = path.resolve(projectRoot, 'src', 'core')
 
 /** Only pure, platform-agnostic modules. Nothing here may touch the DOM or React. */
@@ -32,8 +36,8 @@ const ENTRIES = [
   { from: 'store/appState.ts', to: 'store/appState.ts' },
 ]
 
-if (!existsSync(webSrc)) {
-  console.error(`[sync-core] cannot find the web source at ${webSrc}`)
+if (!webSrc) {
+  console.error(`[sync-core] cannot find the web source. Tried: ${webSrcCandidates.join(', ')}`)
   process.exit(1)
 }
 
