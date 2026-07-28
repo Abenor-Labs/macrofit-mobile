@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
-import { ArrowDown, ArrowUp, Check, Minus, Scale, TriangleAlert } from 'lucide-react-native'
+import { ArrowDown, ArrowUp, CalendarClock, Check, Minus, Scale, TriangleAlert } from 'lucide-react-native'
 
 import { getWeightTargetProgress, type TrackStatus } from '@core/utils/weightTarget'
 import { getTodayString } from '@core/utils/calculations'
@@ -21,7 +21,7 @@ const STATUS_META: Record<
   { label: string; tone: 'good' | 'warning' | 'critical' | 'neutral' }
 > = {
   no_target: { label: 'No goal set', tone: 'neutral' },
-  insufficient_data: { label: 'Need more weigh-ins', tone: 'neutral' },
+  insufficient_data: { label: 'Projected from your plan', tone: 'neutral' },
   reached: { label: 'Goal reached', tone: 'good' },
   on_track: { label: 'On track', tone: 'good' },
   ahead: { label: 'Faster than planned', tone: 'warning' },
@@ -111,6 +111,36 @@ export const WeightTargetCard: React.FC<{ compact?: boolean }> = ({ compact = fa
             </View>
           )}
 
+          {/* The countdown. The single most-read number here, so it gets its own row
+              rather than being buried in the status sentence. */}
+          {progress.etaDays !== null && (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: spacing.sm,
+                padding: spacing.md,
+                borderRadius: radius.control,
+                borderWidth: StyleSheet.hairlineWidth * 2,
+                borderColor: theme.border,
+                backgroundColor: theme.surface,
+              }}
+            >
+              <CalendarClock size={16} color={theme.textSecondary} strokeWidth={2} />
+              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
+                <StatValue size={20}>{String(progress.etaDays)}</StatValue>
+                <Body size={13} tone="secondary">
+                  {`days left (${progress.etaWeeks} week${progress.etaWeeks === 1 ? '' : 's'})`}
+                </Body>
+              </View>
+              {progress.etaIsProjected && (
+                <Body size={11} tone="muted">
+                  planned pace
+                </Body>
+              )}
+            </View>
+          )}
+
           <View
             style={{
               flexDirection: 'row',
@@ -140,9 +170,11 @@ export const WeightTargetCard: React.FC<{ compact?: boolean }> = ({ compact = fa
                 <Label>Trend</Label>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                   <TrendIcon size={14} color={theme.textSecondary} strokeWidth={2.2} />
-                  <StatValue size={18}>{String(Math.abs(progress.trendKgPerWeek))}</StatValue>
+                  <StatValue size={18}>
+                    {String(toDisplay(Math.abs(progress.trendKgPerWeek)))}
+                  </StatValue>
                   <Body size={12} tone="muted">
-                    kg/week
+                    {`${unit}/week`}
                   </Body>
                 </View>
               </View>

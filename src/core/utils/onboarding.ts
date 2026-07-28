@@ -231,6 +231,15 @@ export const describeHorizon = (weeks: number | null): string | null => {
   return `About ${months} month${months === 1 ? '' : 's'} at this pace.`
 }
 
+/**
+ * Step goal every new account starts on.
+ *
+ * 8,000 rather than the folk-wisdom 10,000 — the higher figure comes from a 1960s
+ * pedometer brand name, and starting someone 2,000 short of a number they will not hit is
+ * a worse first week than starting them on one they will. Editable in Profile.
+ */
+export const DEFAULT_STEP_GOAL = 8000
+
 /** The answers the flow collects, before they become a profile. */
 export interface OnboardingAnswers {
   name: string
@@ -258,4 +267,5 @@ export const answersToProfile = (a: OnboardingAnswers): Partial<UserProfile> => 
   goal: a.goal,
   targetWeightKg: a.targetWeightKg,
   targetRateKgPerWeek: signedRate(a.goal, a.paceKgPerWeek),
+  stepGoal: DEFAULT_STEP_GOAL,
 })
