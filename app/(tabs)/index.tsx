@@ -27,6 +27,8 @@ import { MacroRing, ProgressTrack } from '@/components/MacroRing'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
 import { IconButton } from '@/components/Button'
 import { Screen } from '@/components/Layout'
+import { StepsCard } from '@/components/StepsCard'
+import { WeightTargetCard } from '@/components/WeightTarget'
 import { HIT_SIZE, jade, radius, spacing } from '@/theme/tokens'
 
 /**
@@ -130,6 +132,14 @@ export default function DashboardScreen() {
       <MealsCard theme={theme} mealTotals={mealTotals} />
 
       <WaterCard theme={theme} date={today} intakeMl={day.waterIntake} goalMl={goals.water} />
+
+      {/* Steps come from Health Connect and render nothing when the platform cannot
+          supply them — an empty "0 steps" tile would be a lie, not an empty state. */}
+      <StepsCard />
+
+      {/* Daily weigh-in plus an honest read on whether the trend is heading toward the
+          goal. Compact here; the full breakdown lives on Profile. */}
+      <WeightTargetCard compact />
 
       <GlanceRow
         theme={theme}

@@ -47,6 +47,7 @@ import { GlassSurface, Surface } from '@/components/Glass'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
 import { Button } from '@/components/Button'
 import { EmptyState, Field, Pill, Screen } from '@/components/Layout'
+import { RestTimer } from '@/components/RestTimer'
 
 // ---------------------------------------------------------------------------
 // Units
@@ -634,6 +635,9 @@ const ActiveWorkout: React.FC<{ session: WorkoutSession; unit: WeightUnit }> = (
   const workoutLog = useStore(s => s.workoutLog)
   const addSet = useStore(s => s.addSet)
   const updateSet = useStore(s => s.updateSet)
+
+  // Bumped whenever a working set is ticked off; that is what (re)starts the rest clock.
+  const [restKey, setRestKey] = useState(0)
   const removeSet = useStore(s => s.removeSet)
   const removeExerciseFromWorkout = useStore(s => s.removeExerciseFromWorkout)
   const endWorkout = useStore(s => s.endWorkout)
@@ -760,6 +764,9 @@ const ActiveWorkout: React.FC<{ session: WorkoutSession; unit: WeightUnit }> = (
         <Button label="Finish workout" full haptic onPress={endWorkout} />
       </GlassSurface>
 
+      {/* Starts itself when a working set is ticked off. Renders nothing until then. */}
+      <RestTimer triggerKey={restKey} onDismiss={() => setRestKey(0)} />
+
       {exercises.length === 0 ? (
         <Surface style={{ padding: spacing.lg }}>
           <EmptyState
@@ -784,7 +791,15 @@ const ActiveWorkout: React.FC<{ session: WorkoutSession; unit: WeightUnit }> = (
             unit={unit}
             suggestion={suggestions.get(exercise.liftId) ?? null}
             prSetIds={prSetIds}
-            onChangeSet={(setId, patch) => updateSet(session.id, exercise.id, setId, patch)}
+            onChangeSet={(setId, patch) => {
+              updateSet(session.id, exercise.id, setId, patch)
+              // Only a completed WORKING set starts a rest period — warmups, and edits to
+              // weight or reps, must not reset the clock mid-set.
+              const target = exercise.sets.find(entry => entry.id === setId)
+              if (patch.completed === true && target && !target.isWarmup) {
+                setRestKey(key => key + 1)
+              }
+            }}
             onRemoveSet={setId => removeSet(session.id, exercise.id, setId)}
             onAddSet={() =>
               addSet(session.id, exercise.id, {

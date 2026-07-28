@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native'
 import { useRouter } from 'expo-router'
+import { BlurView } from 'expo-blur'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { v4 as uuidv4 } from 'uuid'
 import {
@@ -511,17 +512,26 @@ export default function ChatScreen() {
           ) : null}
         </ScrollView>
 
+        {/* Frosted composer: the conversation scrolls underneath it, so a solid bar
+            would look pasted on. Same material as the header and the tab bar. */}
         <View
           style={{
             borderTopWidth: StyleSheet.hairlineWidth * 2,
-            borderTopColor: theme.border,
-            backgroundColor: theme.surface,
+            borderTopColor: theme.glass.border,
+            overflow: 'hidden',
             paddingHorizontal: spacing.lg,
             paddingTop: spacing.md,
             paddingBottom: Math.max(insets.bottom, spacing.md),
             gap: spacing.md,
           }}
         >
+          <BlurView
+            tint={theme.glass.tint}
+            intensity={theme.glass.intensity + 20}
+            experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.glass.overlay }]} />
           <Button
             label="Suggest a meal"
             variant="secondary"
