@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { AppState } from 'react-native'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { describeAuthError, normalizeEmail, type AuthResult } from '@/lib/authErrors'
+import { describeAuthError, normalizeEmail, type AuthResult } from '@core/utils/authErrors'
 import { useStore } from '@/store/useStore'
 
 export type SyncStatus = 'idle' | 'saving' | 'saved' | 'error'

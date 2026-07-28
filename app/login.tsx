@@ -6,7 +6,7 @@ import Svg, { Circle, G } from 'react-native-svg'
 import { AlertTriangle, MailCheck } from 'lucide-react-native'
 
 import { useAuth } from '@/lib/AuthProvider'
-import type { AuthResult } from '@/lib/authErrors'
+import type { AuthResult } from '@core/utils/authErrors'
 import { useTheme } from '@/theme/useTheme'
 import { GlassSurface } from '@/components/Glass'
 import { Body, Label } from '@/components/Text'

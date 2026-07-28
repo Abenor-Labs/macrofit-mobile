@@ -43,6 +43,13 @@ export const describeAuthError = (error: AuthError, email: string): string => {
     return 'Could not reach the server. Check your connection and try again.'
   }
 
+  // 504 from the auth server means its mailer hung, which is a server-side problem the
+  // user cannot fix by retrying. Saying so beats the raw body, which arrives as plain
+  // text and renders as "{}" once the client fails to parse it as JSON.
+  if (error.status === 504 || error.status === 502 || /timeout/i.test(error.message)) {
+    return 'The sign-in server timed out sending email. Use a password instead, or try again in a minute.'
+  }
+
   switch (error.code) {
     case 'invalid_credentials':
       return (
