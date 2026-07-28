@@ -50,3 +50,4 @@ yarn-error.*
 
 # Release signing material — never commit
 credentials/
+.env.from-nested
