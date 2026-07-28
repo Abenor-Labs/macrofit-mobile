@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
-import { Link } from 'expo-router'
+import { Link, useRouter } from 'expo-router'
 import { LinearGradient } from 'expo-linear-gradient'
 import {
   AlertTriangle,
@@ -25,8 +25,10 @@ import { useTheme, type Theme } from '@/theme/useTheme'
 import { GlassSurface, Surface } from '@/components/Glass'
 import { MacroRing, ProgressTrack } from '@/components/MacroRing'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
-import { IconButton } from '@/components/Button'
+import { Button, IconButton } from '@/components/Button'
 import { Screen } from '@/components/Layout'
+import { StepsCard } from '@/components/StepsCard'
+import { WeightTargetCard } from '@/components/WeightTarget'
 import { HIT_SIZE, jade, radius, spacing } from '@/theme/tokens'
 
 /**
@@ -95,6 +97,7 @@ export default function DashboardScreen() {
   // A day the user has not touched yet has no row in the diary. Building the empty shape
   // in a memo rather than inline in the selector keeps the object identity stable, so
   // getDayNutrition is not re-run on every unrelated store change.
+  const router = useRouter()
   const day = useMemo<DiaryDay>(
     () => storedDay ?? { date: today, entries: [], waterIntake: 0, exercises: [] },
     [storedDay, today]
@@ -118,11 +121,12 @@ export default function DashboardScreen() {
       title="Today"
       subtitle={`${formatDate(today)} · ${WEEKDAYS[new Date().getDay()]}`}
       right={
-        <Link href="/chat" asChild>
-          <IconButton accessibilityLabel="Open AI Assistant">
-            <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
-          </IconButton>
-        </Link>
+        <IconButton
+          accessibilityLabel="Open the nutrition assistant"
+          onPress={() => router.push('/chat')}
+        >
+          <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
+        </IconButton>
       }
     >
       <HeroCard theme={theme} nutrition={nutrition} goalCalories={goals.calories} />
@@ -137,9 +141,13 @@ export default function DashboardScreen() {
             <Body size={12} tone="muted">Log meals, water or weight by speaking</Body>
           </View>
         </View>
-        <Link href="/chat" asChild>
-          <Button label="Ask AI" variant="primary" haptic icon={<Sparkles size={14} color={theme.brandOn} />} />
-        </Link>
+        <Button
+          label="Ask AI"
+          variant="primary"
+          haptic
+          onPress={() => router.push('/chat')}
+          icon={<Sparkles size={14} color={theme.brandOn} />}
+        />
       </Surface>
 
       <MacroCard
@@ -155,6 +163,14 @@ export default function DashboardScreen() {
       <MealsCard theme={theme} mealTotals={mealTotals} />
 
       <WaterCard theme={theme} date={today} intakeMl={day.waterIntake} goalMl={goals.water} />
+
+      {/* Steps come from Health Connect and render nothing when the platform cannot
+          supply them — an empty "0 steps" tile would be a lie, not an empty state. */}
+      <StepsCard />
+
+      {/* Daily weigh-in plus an honest read on whether the trend is heading toward the
+          goal. Compact here; the full breakdown lives on Profile. */}
+      <WeightTargetCard compact />
 
       <GlanceRow
         theme={theme}

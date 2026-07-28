@@ -1,10 +1,10 @@
 import React from 'react'
 import { Platform, Pressable, StyleSheet, View } from 'react-native'
-import { Tabs } from 'expo-router'
+import { Tabs, useRouter } from 'expo-router'
 import { BlurView } from 'expo-blur'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
-import { BookOpen, Dumbbell, Home, TrendingUp, User } from 'lucide-react-native'
+import { BookOpen, Dumbbell, Home, Sparkles, TrendingUp, User } from 'lucide-react-native'
 
 /**
  * expo-router bundles its own copy of the bottom-tabs types. Importing them from
@@ -129,14 +129,74 @@ const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
   )
 }
 
+/**
+ * Floating assistant button.
+ *
+ * app/chat.tsx existed and was registered in the root Stack, but nothing anywhere
+ * navigated to it — so the assistant was unreachable and simply never appeared. This is
+ * its entry point, mounted once here so it is available from every tab rather than
+ * duplicated per screen.
+ */
+const AssistantButton: React.FC = () => {
+  const theme = useTheme()
+  const insets = useSafeAreaInsets()
+  const router = useRouter()
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Open the nutrition assistant"
+      onPress={() => {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+        router.push('/chat')
+      }}
+      style={({ pressed }) => ({
+        position: 'absolute',
+        right: 18,
+        // Clears the tab bar, whose own height already accounts for the safe area.
+        bottom: Math.max(insets.bottom, 8) + 74,
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden',
+        borderWidth: StyleSheet.hairlineWidth * 2,
+        borderColor: theme.glass.border,
+        opacity: pressed ? 0.85 : 1,
+        transform: [{ scale: pressed ? 0.96 : 1 }],
+        // A soft lift so it reads as floating above the content it blurs.
+        shadowColor: '#1C1917',
+        shadowOpacity: theme.mode === 'light' ? 0.18 : 0.4,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 6 },
+        elevation: 6,
+      })}
+    >
+      <BlurView
+        tint={theme.glass.tint}
+        intensity={theme.glass.intensity + 30}
+        experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
+        style={StyleSheet.absoluteFill}
+      />
+      {/* Jade wash rather than a flat fill, so the blur still shows through. */}
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.brand + 'E6' }]} />
+      <Sparkles size={24} color="#FFFFFF" strokeWidth={2} />
+    </Pressable>
+  )
+}
+
 export default function TabsLayout() {
   return (
-    <Tabs screenOptions={{ headerShown: false }} tabBar={props => <GlassTabBar {...props} />}>
-      <Tabs.Screen name="index" />
-      <Tabs.Screen name="diary" />
-      <Tabs.Screen name="workout" />
-      <Tabs.Screen name="progress" />
-      <Tabs.Screen name="profile" />
-    </Tabs>
+    <>
+      <Tabs screenOptions={{ headerShown: false }} tabBar={props => <GlassTabBar {...props} />}>
+        <Tabs.Screen name="index" />
+        <Tabs.Screen name="diary" />
+        <Tabs.Screen name="workout" />
+        <Tabs.Screen name="progress" />
+        <Tabs.Screen name="profile" />
+      </Tabs>
+      <AssistantButton />
+    </>
   )
 }

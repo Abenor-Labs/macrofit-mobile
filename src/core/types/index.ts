@@ -101,6 +101,15 @@ export interface UserProfile {
   heightUnit: 'cm' | 'ft'
   goal: WeightGoal
   avatar?: string
+  /** Goal bodyweight in kg. Undefined until the user sets one. */
+  targetWeightKg?: number
+  /**
+   * Intended rate of change in kg/week: negative to lose, positive to gain.
+   * Undefined means "no explicit pace" and progress is judged on direction only.
+   */
+  targetRateKgPerWeek?: number
+  /** Daily step goal, used when step data is available from the platform. */
+  stepGoal?: number
 }
 
 export type ActivityLevel =

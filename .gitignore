@@ -48,5 +48,5 @@ yarn-error.*
 # Local tooling config
 .claude/
 
-# Release signing material - never commit
+# Release signing material — never commit
 credentials/

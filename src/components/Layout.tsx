@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, fonts, radius, spacing } from '@/theme/tokens'
 import { Body, Label, SectionTitle } from './Text'
+import { Backdrop } from './Backdrop'
 
 /** Height the floating tab bar occupies, so scroll content can clear it. */
 export const TAB_BAR_SPACE = 76
@@ -51,6 +52,10 @@ export const Screen: React.FC<ScreenProps> = ({
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.canvas }}>
+      {/* Gives every frosted surface on the screen something to refract. Without it a
+          BlurView over the flat canvas just reads as a grey rectangle. */}
+      <Backdrop />
+
       {title !== undefined && (
         <View
           style={{
