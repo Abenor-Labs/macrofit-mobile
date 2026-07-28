@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { AppState } from 'react-native'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { describeAuthError, normalizeEmail, type AuthResult } from '@/lib/authErrors'
 import { useStore } from '@/store/useStore'
 
 export type SyncStatus = 'idle' | 'saving' | 'saved' | 'error'
@@ -10,8 +11,10 @@ interface AuthContextValue {
   user: User | null
   session: Session | null
   loading: boolean
-  signIn: (email: string, password: string) => Promise<{ error: Error | null }>
-  signUp: (email: string, password: string) => Promise<{ error: Error | null }>
+  signIn: (email: string, password: string) => Promise<AuthResult>
+  signUp: (email: string, password: string) => Promise<AuthResult>
+  /** Re-sends the sign-up confirmation email for an address that never got one. */
+  resendConfirmation: (email: string) => Promise<AuthResult>
   signOut: () => Promise<void>
   syncStatus: SyncStatus
 }
@@ -137,14 +140,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => sub.remove()
   }, [])
 
-  const signIn: AuthContextValue['signIn'] = async (email, password) => {
+  const signIn: AuthContextValue['signIn'] = async (rawEmail, password) => {
+    const email = normalizeEmail(rawEmail)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
-    return { error: error ? new Error(error.message) : null }
+    if (!error) return { error: null, notice: null }
+    return {
+      error: describeAuthError(error, email),
+      notice: null,
+      awaitingConfirmation: error.code === 'email_not_confirmed',
+    }
   }
 
-  const signUp: AuthContextValue['signUp'] = async (email, password) => {
-    const { error } = await supabase.auth.signUp({ email, password })
-    return { error: error ? new Error(error.message) : null }
+  const signUp: AuthContextValue['signUp'] = async (rawEmail, password) => {
+    const email = normalizeEmail(rawEmail)
+    const { data, error } = await supabase.auth.signUp({ email, password })
+    if (error) return { error: describeAuthError(error, email), notice: null }
+
+    // GoTrue refuses to leak whether an address is registered: signing up an existing one
+    // succeeds, returning a fabricated user whose `identities` array is empty. Without
+    // this branch the screen would claim an account was created and the password silently
+    // would not be the one on the account.
+    if (data.user && data.user.identities?.length === 0) {
+      return {
+        error: `${email} already has an account. Switch to "Sign in".`,
+        notice: null,
+      }
+    }
+
+    // A session comes back only when the project auto-confirms addresses; otherwise the
+    // account exists but cannot sign in until the emailed link is opened.
+    if (data.session) return { error: null, notice: null }
+
+    return {
+      error: null,
+      notice: `Account created. Open the confirmation link we emailed to ${email}, then sign in.`,
+      awaitingConfirmation: true,
+    }
+  }
+
+  const resendConfirmation: AuthContextValue['resendConfirmation'] = async rawEmail => {
+    const email = normalizeEmail(rawEmail)
+    const { error } = await supabase.auth.resend({ type: 'signup', email })
+    if (error) return { error: describeAuthError(error, email), notice: null }
+    return { error: null, notice: `Confirmation email sent again to ${email}.` }
   }
 
   const signOut = async () => {
@@ -154,7 +192,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider
-      value={{ user, session, loading, signIn, signUp, signOut, syncStatus }}
+      value={{ user, session, loading, signIn, signUp, resendConfirmation, signOut, syncStatus }}
     >
       {children}
     </AuthContext.Provider>

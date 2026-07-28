@@ -3,9 +3,10 @@ import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Svg, { Circle, G } from 'react-native-svg'
-import { AlertTriangle } from 'lucide-react-native'
+import { AlertTriangle, MailCheck } from 'lucide-react-native'
 
 import { useAuth } from '@/lib/AuthProvider'
+import type { AuthResult } from '@/lib/authErrors'
 import { useTheme } from '@/theme/useTheme'
 import { GlassSurface } from '@/components/Glass'
 import { Body, Label } from '@/components/Text'
@@ -54,24 +55,57 @@ const RingMark: React.FC<{ size?: number }> = ({ size = 72 }) => {
   )
 }
 
+/** An inline result line. Errors read critical, confirmations read positive. */
+const Message: React.FC<{ text: string; kind: 'error' | 'notice' }> = ({ text, kind }) => {
+  const theme = useTheme()
+  const color = kind === 'error' ? theme.status.critical : theme.status.good
+  const Icon = kind === 'error' ? AlertTriangle : MailCheck
+  return (
+    <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
+      <Icon size={16} color={color} style={{ marginTop: 2 }} />
+      <Body size={13} style={{ color, flex: 1 }}>
+        {text}
+      </Body>
+    </View>
+  )
+}
+
 export default function LoginScreen() {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
-  const { signIn, signUp } = useAuth()
+  const { signIn, signUp, resendConfirmation } = useAuth()
 
   const [mode, setMode] = useState<'in' | 'up'>('in')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  // The address is registered but unverified, so offer another confirmation email.
+  const [awaiting, setAwaiting] = useState(false)
   const [busy, setBusy] = useState(false)
 
-  const submit = async () => {
+  const run = async (action: () => Promise<AuthResult>, keepAwaiting = false) => {
     setBusy(true)
     setError(null)
-    const { error: err } = mode === 'in' ? await signIn(email, password) : await signUp(email, password)
-    if (err) setError(err.message)
+    setNotice(null)
+    const result = await action()
+    setError(result.error)
+    setNotice(result.notice)
+    if (!keepAwaiting) setAwaiting(result.awaitingConfirmation === true)
     setBusy(false)
+    return result
   }
+
+  const submit = async () => {
+    const result = await run(() =>
+      mode === 'in' ? signIn(email, password) : signUp(email, password),
+    )
+    // A brand new account cannot sign in until it is confirmed, so leave the user on the
+    // form they will need next rather than on the one they just used.
+    if (mode === 'up' && result.notice) setMode('in')
+  }
+
+  const resend = () => run(() => resendConfirmation(email), true)
 
   const canSubmit = email.trim().length > 3 && password.length >= 6 && !busy
 
@@ -136,6 +170,7 @@ export default function LoginScreen() {
                     onPress={() => {
                       setMode(m)
                       setError(null)
+                      setNotice(null)
                     }}
                     style={{ flex: 1 }}
                   />
@@ -163,14 +198,8 @@ export default function LoginScreen() {
               autoComplete={mode === 'in' ? 'current-password' : 'new-password'}
             />
 
-            {error ? (
-              <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
-                <AlertTriangle size={16} color={theme.status.critical} />
-                <Body size={13} style={{ color: theme.status.critical, flex: 1 }}>
-                  {error}
-                </Body>
-              </View>
-            ) : null}
+            {error ? <Message text={error} kind="error" /> : null}
+            {notice ? <Message text={notice} kind="notice" /> : null}
 
             <Button
               label={mode === 'in' ? 'Sign in' : 'Create account'}
@@ -180,6 +209,16 @@ export default function LoginScreen() {
               full
               haptic
             />
+
+            {awaiting && email.trim().length > 3 ? (
+              <Button
+                label="Resend confirmation email"
+                variant="ghost"
+                onPress={resend}
+                disabled={busy}
+                full
+              />
+            ) : null}
           </GlassSurface>
 
           <Label style={{ textAlign: 'center', marginTop: spacing.lg }}>
