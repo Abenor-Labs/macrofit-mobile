@@ -17,6 +17,15 @@ interface AuthContextValue {
   resendConfirmation: (email: string) => Promise<AuthResult>
   signOut: () => Promise<void>
   syncStatus: SyncStatus
+  /**
+   * A background fetch of the user's saved data is in flight.
+   *
+   * Only true for a sign-in that happens while the app is already running; the cold start
+   * is covered by `loading`. Routing that branches on saved state — the setup flow above
+   * all — has to wait for this, or a returning user is bounced into an account setup they
+   * finished months ago.
+   */
+  hydrating: boolean
 }
 
 const AuthContext = createContext<AuthContextValue>(null!)
@@ -32,7 +41,7 @@ const SYNC_FIELDS = [
   'profile', 'currentWeightKg', 'goals', 'diary', 'weightLog',
   'mealTemplates', 'customFoods', 'recentFoodIds', 'streak',
   'darkMode', 'bodyMeasurements', 'fastingSession', 'progressPhotos',
-  'recommendation', 'recommendationSeenAt',
+  'recommendation', 'recommendationSeenAt', 'onboardedAt',
   'workoutLog', 'customLifts', 'workoutTemplates', 'activeWorkoutId',
 ] as const
 
@@ -43,6 +52,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle')
+  const [hydrating, setHydrating] = useState(false)
 
   const userRef = useRef<User | null>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -114,7 +124,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       userRef.current = nextSession?.user ?? null
       // SIGNED_IN also fires on token refresh; getSession above already covers the
       // initial load, so this must not touch `loading` or it re-shows the splash.
-      if (event === 'SIGNED_IN' && nextSession?.user) void loadUserData(nextSession.user.id)
+      if (event === 'SIGNED_IN' && nextSession?.user) {
+        setHydrating(true)
+        void loadUserData(nextSession.user.id).finally(() => setHydrating(false))
+      }
     })
 
     return () => sub.subscription.unsubscribe()
@@ -192,7 +205,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider
-      value={{ user, session, loading, signIn, signUp, resendConfirmation, signOut, syncStatus }}
+      value={{ user, session, loading, signIn, signUp, resendConfirmation, signOut, syncStatus, hydrating }}
     >
       {children}
     </AuthContext.Provider>

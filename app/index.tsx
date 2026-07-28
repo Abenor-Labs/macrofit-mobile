@@ -2,6 +2,7 @@ import React from 'react'
 import { Redirect } from 'expo-router'
 
 import { useAuth } from '@/lib/AuthProvider'
+import { useStore } from '@/store/useStore'
 
 /**
  * The entry route, and the app's single redirect authority.
@@ -16,8 +17,14 @@ import { useAuth } from '@/lib/AuthProvider'
  */
 export default function Index() {
   const { user, loading } = useAuth()
+  const onboardedAt = useStore(s => s.onboardedAt)
 
   if (loading) return null
   if (!user) return <Redirect href="/login" />
+  // Setup has to clear before the tabs: the store's defaults describe a 30-year-old
+  // 175 cm male, so an unconfigured account shows targets that look authoritative and
+  // belong to nobody. `loading` above already covers the fetch of saved data, so a
+  // returning user never lands here.
+  if (onboardedAt === null) return <Redirect href="/onboarding" />
   return <Redirect href="/(tabs)" />
 }

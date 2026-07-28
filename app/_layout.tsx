@@ -16,7 +16,7 @@ import { Figtree_500Medium } from '@expo-google-fonts/figtree/500Medium'
 import { Figtree_600SemiBold } from '@expo-google-fonts/figtree/600SemiBold'
 
 import { useTheme } from '@/theme/useTheme'
-import { useStoreHydrated } from '@/store/useStore'
+import { useStore, useStoreHydrated } from '@/store/useStore'
 import { AuthProvider, useAuth } from '@/lib/AuthProvider'
 
 // Hold the native splash until fonts AND persisted state are ready. Without the store
@@ -26,7 +26,8 @@ void SplashScreen.preventAutoHideAsync()
 
 const RootNavigator: React.FC = () => {
   const theme = useTheme()
-  const { user, loading } = useAuth()
+  const { user, loading, hydrating } = useAuth()
+  const onboardedAt = useStore(s => s.onboardedAt)
   const segments = useSegments()
   const router = useRouter()
 
@@ -38,12 +39,23 @@ const RootNavigator: React.FC = () => {
     only thing watching `user` continuously.
   */
   const onLoginScreen = segments[0] === 'login'
+  const onOnboarding = segments[0] === 'onboarding'
+  const needsSetup = onboardedAt === null
 
   useEffect(() => {
-    if (loading) return
-    if (!user && !onLoginScreen) router.replace('/login')
-    else if (user && onLoginScreen) router.replace('/(tabs)')
-  }, [user, loading, onLoginScreen, router])
+    // `hydrating` is the fetch that follows a fresh sign-in. Routing before it lands would
+    // read a store that has not received the account's saved profile yet.
+    if (loading || hydrating) return
+    if (!user) {
+      if (!onLoginScreen) router.replace('/login')
+      return
+    }
+    if (needsSetup) {
+      if (!onOnboarding) router.replace('/onboarding')
+      return
+    }
+    if (onLoginScreen || onOnboarding) router.replace('/(tabs)')
+  }, [user, loading, hydrating, needsSetup, onLoginScreen, onOnboarding, router])
 
   return (
     <>
@@ -57,6 +69,7 @@ const RootNavigator: React.FC = () => {
       >
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="login" options={{ animation: 'fade' }} />
+        <Stack.Screen name="onboarding" options={{ animation: 'fade', gestureEnabled: false }} />
         <Stack.Screen
           name="food-search"
           options={{ presentation: 'modal', animation: 'slide_from_bottom' }}

@@ -88,6 +88,16 @@ export interface AppState {
   startFasting: (targetHours: number) => void
   stopFasting: () => void
 
+  /**
+   * When the setup flow was finished, or null while it never has been.
+   *
+   * The defaults below describe a 30-year-old 175 cm male, which is nobody in particular:
+   * without this flag a new account silently inherits that body and every calorie target
+   * derived from it looks authoritative while being wrong.
+   */
+  onboardedAt: number | null
+  completeOnboarding: () => void
+
   // Coach
   recommendation: Recommendation | null
   recommendationSeenAt: number | null
@@ -187,6 +197,7 @@ export const createAppState: StateCreator<AppState, [['zustand/immer', never]], 
   bodyMeasurements: [],
   progressPhotos: [],
   fastingSession: null,
+  onboardedAt: null,
   recommendation: null,
   recommendationSeenAt: null,
   workoutLog: [],
@@ -424,6 +435,12 @@ export const createAppState: StateCreator<AppState, [['zustand/immer', never]], 
   }),
   stopFasting: () => set((state) => { state.fastingSession = null }),
 
+  // --- Onboarding ---
+
+  completeOnboarding: () => set((state) => {
+    state.onboardedAt = Date.now()
+  }),
+
   // --- Coach ---
 
   setRecommendation: (rec) => set((state) => {
@@ -590,13 +607,21 @@ export const createAppState: StateCreator<AppState, [['zustand/immer', never]], 
       'profile', 'currentWeightKg', 'goals', 'diary', 'weightLog',
       'mealTemplates', 'customFoods', 'recentFoodIds', 'streak',
       'darkMode', 'bodyMeasurements', 'fastingSession', 'progressPhotos',
-      'recommendation', 'recommendationSeenAt',
+      'recommendation', 'recommendationSeenAt', 'onboardedAt',
       'workoutLog', 'customLifts', 'workoutTemplates', 'activeWorkoutId',
     ] as const
     for (const key of syncFields) {
       if (key in data && data[key] !== undefined) {
         (state as Record<string, unknown>)[key] = data[key]
       }
+    }
+
+    // Accounts that predate the setup flow have no `onboardedAt`, and sending someone who
+    // has been logging for months back to "what should we call you?" would look like their
+    // data had been lost. Anything they have actually recorded stands in for having
+    // finished setup.
+    if (state.onboardedAt === null && (state.weightLog.length > 0 || Object.keys(state.diary).length > 0)) {
+      state.onboardedAt = Date.now()
     }
   }),
 })
