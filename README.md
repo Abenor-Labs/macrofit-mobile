@@ -38,10 +38,17 @@ yours to maintain.
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key |
 | `EXPO_PUBLIC_API_URL` | Base URL of the deployed web app, which hosts the AI endpoints |
 | `EXPO_PUBLIC_USDA_API_KEY` | USDA FoodData Central key (defaults to `DEMO_KEY`) |
+| `EXPO_PUBLIC_ENABLE_HEALTH_CONNECT` | Enable Google Fit / Health Connect integration (Android) |
 
 `EXPO_PUBLIC_API_URL` must be a LAN IP or a deployed URL — **not** `localhost`. On a
 phone or emulator, `localhost` means the device itself, not your dev machine. This is the
 single most common setup mistake.
+
+### Health Data (Health Connect)
+
+On Android, MacroFit imports past weight, height, steps, and body fat metrics via Android 14+ Health Connect.
+1. Make sure Health Connect is enabled in Google Fit (`Google Fit > Profile > Settings > Sync Fit with Health Connect`).
+2. Native builds are required for testing (`npm run android`). Expo Go does not support custom native plugins.
 
 ## Shared business logic
 

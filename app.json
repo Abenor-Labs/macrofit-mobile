@@ -23,6 +23,7 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
+      "minSdkVersion": 26,
       "predictiveBackGestureEnabled": false
     },
     "web": {
@@ -35,6 +36,17 @@
         "expo-image-picker",
         {
           "photosPermission": "MacroFit needs photo access so you can analyse a meal photo and attach progress photos."
+        }
+      ],
+      [
+        "react-native-health-connect",
+        {
+          "permissions": [
+            "READ_WEIGHT",
+            "READ_HEIGHT",
+            "READ_BODY_FAT",
+            "READ_STEPS"
+          ]
         }
       ],
       "expo-splash-screen"

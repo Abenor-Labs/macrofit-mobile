@@ -114,8 +114,33 @@ export default function DashboardScreen() {
   }, [day])
 
   return (
-    <Screen title="Today" subtitle={`${formatDate(today)} · ${WEEKDAYS[new Date().getDay()]}`}>
+    <Screen
+      title="Today"
+      subtitle={`${formatDate(today)} · ${WEEKDAYS[new Date().getDay()]}`}
+      right={
+        <Link href="/chat" asChild>
+          <IconButton accessibilityLabel="Open AI Assistant">
+            <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
+          </IconButton>
+        </Link>
+      }
+    >
       <HeroCard theme={theme} nutrition={nutrition} goalCalories={goals.calories} />
+
+      <Surface style={{ padding: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
+          <View style={{ width: 36, height: 36, borderRadius: radius.control, backgroundColor: theme.brand, alignItems: 'center', justifyContent: 'center' }}>
+            <Sparkles size={18} color={theme.brandOn} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Body size={14} weight="semibold">AI Nutrition Assistant</Body>
+            <Body size={12} tone="muted">Log meals, water or weight by speaking</Body>
+          </View>
+        </View>
+        <Link href="/chat" asChild>
+          <Button label="Ask AI" variant="primary" haptic icon={<Sparkles size={14} color={theme.brandOn} />} />
+        </Link>
+      </Surface>
 
       <MacroCard
         theme={theme}

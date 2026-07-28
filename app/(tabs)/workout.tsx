@@ -18,11 +18,13 @@ import {
   Gauge,
   Plus,
   Repeat,
+  Sparkles,
   Timer,
   Trash2,
   Trophy,
   X,
 } from 'lucide-react-native'
+import { IconButton } from '@/components/Button'
 
 import type {
   UserProfile,
@@ -1121,7 +1123,15 @@ export default function WorkoutScreen() {
   }
 
   return (
-    <Screen title="Workout" subtitle={activeSession ? 'Session in progress' : undefined}>
+    <Screen
+      title="Workout"
+      subtitle={activeSession ? 'Session in progress' : undefined}
+      right={
+        <IconButton accessibilityLabel="Open AI Assistant" onPress={() => router.push('/chat')}>
+          <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
+        </IconButton>
+      }
+    >
       {activeSession && <ActiveWorkout session={activeSession} unit={unit} />}
 
       {neverTrained && (

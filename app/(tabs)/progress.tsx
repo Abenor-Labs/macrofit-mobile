@@ -2,9 +2,12 @@ import React, { useMemo, useState } from 'react'
 import { Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native'
 import Svg, { Circle, Line, Path, Rect } from 'react-native-svg'
 import {
+  Activity,
+  CheckCircle2,
   Dumbbell,
   Flame,
   Minus,
+  RefreshCw,
   Scale,
   TrendingDown,
   TrendingUp,
@@ -12,6 +15,7 @@ import {
   Utensils,
 } from 'lucide-react-native'
 
+import { Button } from '@/components/Button'
 import { Surface } from '@/components/Glass'
 import { EmptyState, Screen } from '@/components/Layout'
 import { ProgressTrack } from '@/components/MacroRing'
@@ -19,6 +23,13 @@ import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
 import { useStore } from '@/store/useStore'
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
+import {
+  getHealthConnectStatus,
+  getHistoricalData,
+  openHealthConnectPlayStore,
+  requestHealthPermissions,
+  type HealthRecordNormalized,
+} from '@/lib/health'
 import {
   formatDate,
   getDayNutrition,
@@ -615,6 +626,67 @@ export default function ProgressScreen() {
   const weightLog = useStore(s => s.weightLog)
   const workoutLog = useStore(s => s.workoutLog)
   const weightUnit = useStore(s => s.profile.weightUnit)
+  const addWeightEntry = useStore(s => s.addWeightEntry)
+  const updateProfile = useStore(s => s.updateProfile)
+
+  const [healthSyncLoading, setHealthSyncLoading] = useState(false)
+  const [healthSyncResult, setHealthSyncResult] = useState<HealthRecordNormalized | null>(null)
+  const [healthSyncMessage, setHealthSyncMessage] = useState<string | null>(null)
+
+  const handleHealthSync = async () => {
+    setHealthSyncLoading(true)
+    setHealthSyncMessage(null)
+    setHealthSyncResult(null)
+
+    const status = await getHealthConnectStatus()
+    if (status === 'not_installed') {
+      setHealthSyncMessage('Health Connect is not installed. Tap below to install it from Play Store.')
+      setHealthSyncLoading(false)
+      return
+    }
+
+    if (status === 'not_supported') {
+      setHealthSyncMessage('Health Connect is only supported on Android devices.')
+      setHealthSyncLoading(false)
+      return
+    }
+
+    const granted = await requestHealthPermissions()
+    if (!granted) {
+      setHealthSyncMessage('Permission to read Google Fit / Health Connect was not granted.')
+      setHealthSyncLoading(false)
+      return
+    }
+
+    const syncRes = await getHistoricalData({ daysBack: 365 })
+    setHealthSyncLoading(false)
+
+    if (!syncRes.success || !syncRes.data) {
+      setHealthSyncMessage(syncRes.error || 'Could not fetch historical data.')
+      return
+    }
+
+    setHealthSyncResult(syncRes.data)
+  }
+
+  const handleConfirmImport = () => {
+    if (!healthSyncResult) return
+
+    for (const w of healthSyncResult.weights) {
+      addWeightEntry({
+        date: w.date,
+        weight: weightUnit === 'lbs' ? kgToLbs(w.weight) : w.weight,
+        notes: w.notes,
+      })
+    }
+
+    if (healthSyncResult.latestHeightCm) {
+      updateProfile({ heightCm: healthSyncResult.latestHeightCm })
+    }
+
+    setHealthSyncMessage(`Successfully imported ${healthSyncResult.weights.length} weigh-in entries!`)
+    setHealthSyncResult(null)
+  }
 
   const unitLabel = weightUnit === 'lbs' ? 'lb' : 'kg'
   // Volume comes out of workoutMath in kg. Convert only here, at the display edge.
@@ -996,6 +1068,72 @@ export default function ProgressScreen() {
             .
           </Body>
         ) : null}
+      </Surface>
+
+      <Surface style={{ padding: spacing.lg, gap: spacing.md }}>
+        <CardHeader
+          title="Import from Google Fit"
+          caption="Sync weight, height & body composition historical records via Health Connect"
+        />
+
+        {healthSyncResult ? (
+          <View style={{ gap: spacing.md }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+              <CheckCircle2 size={20} color={theme.brand} />
+              <Body size={14} weight="semibold">
+                Found {healthSyncResult.totalRecordsFound} historical entries
+              </Body>
+            </View>
+            <Body size={13} tone="secondary">
+              • {healthSyncResult.weights.length} weigh-in logs{'\n'}
+              {healthSyncResult.latestHeightCm ? `• Latest height: ${healthSyncResult.latestHeightCm} cm\n` : ''}
+              {healthSyncResult.latestBodyFatPct ? `• Body Fat: ${healthSyncResult.latestBodyFatPct}%\n` : ''}
+            </Body>
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <Button
+                label="Confirm & Import"
+                onPress={handleConfirmImport}
+                variant="primary"
+                haptic
+              />
+              <Button
+                label="Cancel"
+                onPress={() => setHealthSyncResult(null)}
+                variant="ghost"
+              />
+            </View>
+          </View>
+        ) : (
+          <View style={{ gap: spacing.md }}>
+            <Body size={13} tone="secondary">
+              Import past body metrics from Google Fit in 1 tap. Make sure Health Connect is enabled in Google Fit settings.
+            </Body>
+
+            {healthSyncMessage ? (
+              <Body size={13} tone="muted" style={{ color: theme.macro.protein }}>
+                {healthSyncMessage}
+              </Body>
+            ) : null}
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }}>
+              <Button
+                label="Sync from Google Fit"
+                onPress={handleHealthSync}
+                loading={healthSyncLoading}
+                variant="secondary"
+                icon={<Activity size={16} color={theme.text} />}
+                haptic
+              />
+              {healthSyncMessage?.includes('not installed') ? (
+                <Button
+                  label="Install Health Connect"
+                  onPress={openHealthConnectPlayStore}
+                  variant="ghost"
+                />
+              ) : null}
+            </View>
+          </View>
+        )}
       </Surface>
     </>
   )

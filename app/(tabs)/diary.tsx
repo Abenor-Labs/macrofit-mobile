@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Minus,
   Plus,
+  Sparkles,
   Trash2,
 } from 'lucide-react-native'
 
@@ -663,6 +664,7 @@ const SavedMeals: React.FC<{ date: string }> = ({ date }) => {
 // --- Screen -----------------------------------------------------------------
 
 export default function DiaryScreen() {
+  const theme = useTheme()
   // Recomputed every render rather than held in state: an app left open past midnight
   // would otherwise keep calling yesterday "Today".
   const today = getTodayString()
@@ -682,7 +684,14 @@ export default function DiaryScreen() {
   }, [day])
 
   return (
-    <Screen title="Diary">
+    <Screen
+      title="Diary"
+      right={
+        <IconButton accessibilityLabel="Open AI Assistant" onPress={() => router.push('/chat')}>
+          <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
+        </IconButton>
+      }
+    >
       <DateNavigator date={date} today={today} onChange={setDate} />
       <DayTotals day={day} />
 
