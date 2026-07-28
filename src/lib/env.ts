@@ -9,10 +9,24 @@
  * See `mobile/.env.example` for the variables and how to set them.
  */
 
-/** Returns the trimmed value, or null when the variable is unset or blank. */
+/**
+ * Zero-width space, non-joiner, joiner, and the byte-order mark. Built from escapes on
+ * purpose: a literal one of these in source would be invisible and unreviewable.
+ */
+const INVISIBLE = new RegExp('[\u200B\u200C\u200D\uFEFF]', 'g')
+
+/**
+ * Returns the cleaned value, or null when the variable is unset or blank.
+ *
+ * Strips zero-width and BOM characters as well as whitespace and wrapping quotes. The
+ * anon key is sent as an HTTP header, and a header value containing a code point above
+ * U+00FF makes fetch throw before the request leaves the device. A leading U+FEFF picked
+ * up from a copy-paste is invisible and breaks every request with an error that names
+ * neither the header nor the variable - this happened in production.
+ */
 const read = (value: string | undefined): string | null => {
   if (typeof value !== 'string') return null
-  const trimmed = value.trim()
+  const trimmed = value.replace(INVISIBLE, '').trim().replace(/^["']|["']$/g, '')
   return trimmed.length > 0 ? trimmed : null
 }
 
