@@ -63,9 +63,42 @@ jobs:
         working-directory: macrofit-mobile
         run: npx expo prebuild --platform android --clean --non-interactive
 
+      # Without this the release build is signed with the DEBUG keystore, because a
+      # freshly generated project points signingConfigs.release at it. A debug-signed
+      # release cannot be installed as an update over a properly signed one, and must
+      # never be handed to users.
+      - name: Restore release signing material
+        working-directory: macrofit-mobile
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "ANDROID_KEYSTORE_BASE64 is not set - refusing to publish a debug-signed release" >&2
+            exit 1
+          fi
+          mkdir -p credentials
+          printf '%s' "$KEYSTORE_B64" | base64 -d > credentials/macrofit-release.keystore
+          cat > credentials/keystore.properties <<EOF
+          MACROFIT_UPLOAD_STORE_FILE=macrofit-release.keystore
+          MACROFIT_UPLOAD_KEY_ALIAS=$KEY_ALIAS
+          MACROFIT_UPLOAD_STORE_PASSWORD=$STORE_PASSWORD
+          MACROFIT_UPLOAD_KEY_PASSWORD=$KEY_PASSWORD
+          EOF
+          node scripts/apply-signing.mjs
+
       - name: Build release APK
         working-directory: macrofit-mobile/android
         run: ./gradlew assembleRelease
+
+      - name: Verify the APK is signed with the release key
+        working-directory: macrofit-mobile
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
+          "$APKSIGNER" verify --print-certs android/app/build/outputs/apk/release/app-release.apk | tee /tmp/certs.txt
+          grep -q "CN=MacroFit" /tmp/certs.txt || { echo "APK is NOT signed with the MacroFit release key" >&2; exit 1; }
 
       - name: Rename APK
         working-directory: macrofit-mobile
