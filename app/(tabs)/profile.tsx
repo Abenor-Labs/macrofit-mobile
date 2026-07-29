@@ -20,14 +20,26 @@ import {
   User as UserIcon,
 } from 'lucide-react-native'
 
-import type { ActivityLevel, BodyMeasurement, WeightGoal } from '@core/types'
+import type {
+  ActivityLevel,
+  BodyMeasurement,
+  MacroGoals,
+  Recommendation,
+  UserProfile,
+  WeightGoal,
+} from '@core/types'
 import {
   calculateBMI,
+  calculateBMR,
+  calculateCalorieGoal,
+  calculateMacroGoals,
+  calculateTDEE,
   cmToFeetInches,
   formatDate,
   getBMICategory,
   getTodayString,
 } from '@core/utils/calculations'
+import { AGE_RANGE, HEIGHT_CM_RANGE } from '@core/utils/onboarding'
 import { estimateBodyComposition, latestUsableMeasurement } from '@core/utils/bodyComposition'
 
 import { useStore } from '@/store/useStore'
@@ -42,6 +54,40 @@ import { Field, Pill, Screen } from '@/components/Layout'
 import { WeightTargetCard } from '@/components/WeightTarget'
 
 const LBS_PER_KG = 2.20462
+
+/**
+ * Where the user's current targets came from.
+ *
+ * There is no flag in the store recording this, so it is derived: run the same formula
+ * `recalculateGoals` uses and compare. If the targets match it, nothing has been chosen and
+ * the formula is free to move them. If they match the accepted coach plan, they are a
+ * decision. Anything else is a number the user typed.
+ */
+type GoalsOrigin = 'formula' | 'coach' | 'manual'
+
+const goalsOriginOf = (
+  profile: UserProfile,
+  currentWeightKg: number,
+  goals: MacroGoals,
+  recommendation: Recommendation | null
+): GoalsOrigin => {
+  const bmr = calculateBMR(profile, currentWeightKg)
+  const tdee = calculateTDEE(bmr, profile.activityLevel)
+  const calories = calculateCalorieGoal(tdee, profile.goal)
+  const formula = calculateMacroGoals(
+    calories,
+    goals.proteinPct,
+    goals.carbsPct,
+    goals.fatPct,
+    currentWeightKg
+  )
+  const matches = (a: MacroGoals | typeof formula, b: MacroGoals): boolean =>
+    a.calories === b.calories && a.protein === b.protein && a.carbs === b.carbs && a.fat === b.fat
+
+  if (matches(formula, goals)) return 'formula'
+  if (recommendation && matches(recommendation as unknown as MacroGoals, goals)) return 'coach'
+  return 'manual'
+}
 
 const ACTIVITY_LABELS: Record<ActivityLevel, string> = {
   sedentary: 'Sedentary',
@@ -196,6 +242,8 @@ export default function ProfileScreen() {
   const profile = useStore(s => s.profile)
   const updateProfile = useStore(s => s.updateProfile)
   const recalculateGoals = useStore(s => s.recalculateGoals)
+  const goals = useStore(s => s.goals)
+  const recommendation = useStore(s => s.recommendation)
   const currentWeightKg = useStore(s => s.currentWeightKg)
   const weightLog = useStore(s => s.weightLog)
   const removeWeightEntry = useStore(s => s.removeWeightEntry)
@@ -291,18 +339,78 @@ export default function ProfileScreen() {
     profile.weightUnit,
   ])
 
+  const [basicsError, setBasicsError] = useState<string | null>(null)
+
+  /**
+   * Apply a change to the body details that feed the calorie formula, then decide what
+   * that means for the targets.
+   *
+   * It used to mean "recalculate, always". Correcting a typo in your own name therefore
+   * replaced an accepted coach plan, or targets you had set by hand, with the flat plus or
+   * minus 500 — silently, from four different controls, with no undo.
+   *
+   * Targets that still match the formula are not a decision, so they follow it. A coach
+   * plan is a decision and is never overwritten; the coach raises its own alert when it
+   * goes stale. Anything hand-set is a decision too, but one the user may want to revisit,
+   * so it asks.
+   */
+  const applyBodyChange = (mutate: () => void) => {
+    const origin = goalsOriginOf(profile, currentWeightKg, goals, recommendation)
+    mutate()
+    if (origin === 'formula') {
+      recalculateGoals()
+      return
+    }
+    if (origin === 'coach') return
+    Alert.alert(
+      'Update your targets?',
+      'Your calorie and macro targets were set by hand. Recalculate them from your new details, or keep what you have?',
+      [
+        { text: 'Keep mine', style: 'cancel' },
+        { text: 'Recalculate', onPress: () => recalculateGoals() },
+      ]
+    )
+  }
+
   const commitBasics = () => {
     const parsedAge = Number(age)
     const parsedHeight = Number(heightCm)
-    updateProfile({
-      name: name.trim() || 'You',
-      age: Number.isFinite(parsedAge) && parsedAge > 0 ? Math.round(parsedAge) : profile.age,
-      heightCm:
-        Number.isFinite(parsedHeight) && parsedHeight > 0
-          ? Math.round(parsedHeight)
-          : profile.heightCm,
+
+    /*
+      Onboarding enforces these bounds; this screen used to accept anything positive, so a
+      slipped decimal could set a height of 17 cm and drive BMR, TDEE and every target from
+      it. Same ranges, same source.
+    */
+    const nextAge =
+      Number.isFinite(parsedAge) && parsedAge >= AGE_RANGE.min && parsedAge <= AGE_RANGE.max
+        ? Math.round(parsedAge)
+        : null
+    const nextHeight =
+      Number.isFinite(parsedHeight) &&
+      parsedHeight >= HEIGHT_CM_RANGE.min &&
+      parsedHeight <= HEIGHT_CM_RANGE.max
+        ? Math.round(parsedHeight)
+        : null
+
+    setBasicsError(
+      nextAge === null && age.trim() !== ''
+        ? `Age should be between ${AGE_RANGE.min} and ${AGE_RANGE.max}.`
+        : nextHeight === null && heightCm.trim() !== ''
+          ? 'That height looks off. Check the number and the unit.'
+          : null
+    )
+
+    // A rejected value leaves the stored one alone rather than silently keeping the text.
+    if (nextAge === null) setAge(String(profile.age))
+    if (nextHeight === null) setHeightCm(String(profile.heightCm))
+
+    applyBodyChange(() => {
+      updateProfile({
+        name: name.trim() || 'You',
+        age: nextAge ?? profile.age,
+        heightCm: nextHeight ?? profile.heightCm,
+      })
     })
-    recalculateGoals()
   }
 
   const commitTargetWeight = () => {
@@ -569,6 +677,17 @@ export default function ProfileScreen() {
           </View>
         </Row>
 
+        {/* A rejected value snaps back to the stored one, which reads as the app eating the
+            input unless it says why. Icon and words, never colour alone. */}
+        {basicsError ? (
+          <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
+            <TriangleAlert size={15} color={theme.status.critical} strokeWidth={2} />
+            <Body size={13} style={{ flex: 1, color: theme.status.critical }}>
+              {basicsError}
+            </Body>
+          </View>
+        ) : null}
+
         <Choice
           label="Goal"
           value={profile.goal}
@@ -576,10 +695,7 @@ export default function ProfileScreen() {
             value: v,
             label: GOAL_LABELS[v],
           }))}
-          onChange={v => {
-            updateProfile({ goal: v })
-            recalculateGoals()
-          }}
+          onChange={v => applyBodyChange(() => updateProfile({ goal: v }))}
         />
 
         <Choice
@@ -589,10 +705,7 @@ export default function ProfileScreen() {
             value: v,
             label: ACTIVITY_LABELS[v],
           }))}
-          onChange={v => {
-            updateProfile({ activityLevel: v })
-            recalculateGoals()
-          }}
+          onChange={v => applyBodyChange(() => updateProfile({ activityLevel: v }))}
         />
 
         <Choice
@@ -603,10 +716,7 @@ export default function ProfileScreen() {
             { value: 'female' as const, label: 'Female' },
             { value: 'other' as const, label: 'Other' },
           ]}
-          onChange={v => {
-            updateProfile({ gender: v })
-            recalculateGoals()
-          }}
+          onChange={v => applyBodyChange(() => updateProfile({ gender: v }))}
         />
 
         <Row>
