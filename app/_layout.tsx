@@ -1,14 +1,19 @@
 import 'react-native-get-random-values'
 import '../global.css'
 
-import React, { useCallback, useEffect } from 'react'
-import { View } from 'react-native'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { Alert, Pressable, StyleSheet, View } from 'react-native'
 import { Stack, useRouter, useSegments } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import * as SplashScreen from 'expo-splash-screen'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
-import { SafeAreaProvider } from 'react-native-safe-area-context'
+import {
+  SafeAreaInsetsContext,
+  SafeAreaProvider,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context'
 import { useFonts } from 'expo-font'
+import { CloudOff } from 'lucide-react-native'
 import { Fraunces_600SemiBold } from '@expo-google-fonts/fraunces/600SemiBold'
 import { Fraunces_700Bold } from '@expo-google-fonts/fraunces/700Bold'
 import { Figtree_400Regular } from '@expo-google-fonts/figtree/400Regular'
@@ -18,15 +23,150 @@ import { Figtree_600SemiBold } from '@expo-google-fonts/figtree/600SemiBold'
 import { useTheme } from '@/theme/useTheme'
 import { useStore, useStoreHydrated } from '@/store/useStore'
 import { AuthProvider, useAuth } from '@/lib/AuthProvider'
+import { LaunchScreen } from '@/components/LaunchScreen'
+import { BrandMark } from '@/components/BrandMark'
+import { Button } from '@/components/Button'
+import { Body, SectionTitle } from '@/components/Text'
+import { HIT_SIZE, spacing } from '@/theme/tokens'
 
 // Hold the native splash until fonts AND persisted state are ready. Without the store
 // gate, the first frame renders default goals and an empty diary before AsyncStorage
 // rehydrates — the user sees their data "reset" for a moment on every cold start.
 void SplashScreen.preventAutoHideAsync()
 
+/**
+ * Standing notice that the app could not reach the server and is running read-only.
+ *
+ * It sits in the layout flow rather than floating: a degraded session should look
+ * different, and an overlay would cover the very headers the user needs to tap. Status is
+ * carried by an icon and words, never by colour alone.
+ */
+const SyncBlockedBanner: React.FC<{ topInset: number }> = ({ topInset }) => {
+  const theme = useTheme()
+  const { retrySync, hydrating } = useAuth()
+
+  return (
+    <View
+      style={{
+        paddingTop: topInset + spacing.sm,
+        paddingBottom: spacing.sm,
+        paddingHorizontal: spacing.lg,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        backgroundColor: theme.surface,
+        borderBottomWidth: StyleSheet.hairlineWidth * 2,
+        borderBottomColor: theme.status.critical,
+      }}
+    >
+      <CloudOff size={18} color={theme.status.critical} />
+      <Body size={13} style={{ flex: 1, color: theme.text }}>
+        Not synced — we could not reach your account. Everything you log stays safely on
+        this device until it clears.
+      </Body>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Retry syncing your account"
+        accessibilityState={{ disabled: hydrating, busy: hydrating }}
+        disabled={hydrating}
+        onPress={() => void retrySync()}
+        style={({ pressed }) => ({
+          // The design system's floor. A 13pt label alone measures well under it.
+          minHeight: HIT_SIZE,
+          minWidth: HIT_SIZE,
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: pressed || hydrating ? 0.6 : 1,
+        })}
+      >
+        <Body size={13} weight="semibold" style={{ color: theme.brandText }}>
+          {hydrating ? 'Retrying…' : 'Retry'}
+        </Body>
+      </Pressable>
+    </View>
+  )
+}
+
+/**
+ * Shown when the account is unreachable AND this device has never read it.
+ *
+ * There is deliberately no way past this screen. Read-only mode needs a local copy to be
+ * read-only *of*; without one the store is the app's factory defaults — a 30-year-old
+ * 175 cm profile and an empty diary. Letting someone log a day against that produces work
+ * that can neither be kept (the next successful load overwrites it) nor published (it would
+ * replace their real account with defaults). The honest move is not to start.
+ */
+const SyncUnavailableScreen: React.FC = () => {
+  const theme = useTheme()
+  const insets = useSafeAreaInsets()
+  const { retrySync, hydrating, signOut } = useAuth()
+  // signOut never sets `hydrating`, so without its own busy state the button gives no
+  // feedback and can be fired re-entrantly on the one screen the user cannot leave.
+  const [signingOut, setSigningOut] = useState(false)
+  const busy = hydrating || signingOut
+
+  const escape = () => {
+    setSigningOut(true)
+    void signOut()
+      .then(result => {
+        if (result.error) Alert.alert('Still signed in', result.error)
+      })
+      .catch(() =>
+        Alert.alert(
+          'Still signed in',
+          'Something went wrong signing out. Check your connection and try again.'
+        )
+      )
+      .finally(() => setSigningOut(false))
+  }
+
+  return (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: theme.canvas,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.lg,
+        paddingHorizontal: spacing.xl,
+        paddingTop: insets.top,
+        paddingBottom: insets.bottom,
+      }}
+    >
+      <BrandMark />
+      <SectionTitle style={{ textAlign: 'center' }}>Can&apos;t reach your account</SectionTitle>
+      <Body tone="secondary" style={{ textAlign: 'center' }}>
+        This device has not downloaded your data yet, so there is nothing to show offline.
+        Connect and try again — nothing has been lost.
+      </Body>
+      {/* No haptic: retrying a fetch is not a commit, and the design rules reserve haptics
+          for the moments something is actually recorded. */}
+      <Button
+        label={hydrating ? 'Trying…' : 'Try again'}
+        onPress={() => void retrySync()}
+        disabled={busy}
+        loading={hydrating}
+        full
+      />
+      <Button
+        label="Sign out"
+        variant="ghost"
+        onPress={escape}
+        disabled={busy}
+        loading={signingOut}
+        full
+      />
+    </View>
+  )
+}
+
+/** Routes registered with `presentation: 'modal'` in the Stack below. */
+const MODAL_ROUTES = new Set(['food-search', 'lift-picker', 'chat'])
+
 const RootNavigator: React.FC = () => {
   const theme = useTheme()
-  const { user, loading, hydrating } = useAuth()
+  const insets = useSafeAreaInsets()
+  const { user, loading, hydrating, syncBlocked, syncUnavailable } = useAuth()
   const onboardedAt = useStore(s => s.onboardedAt)
   const segments = useSegments()
   const router = useRouter()
@@ -46,6 +186,9 @@ const RootNavigator: React.FC = () => {
     // `hydrating` is the fetch that follows a fresh sign-in. Routing before it lands would
     // read a store that has not received the account's saved profile yet.
     if (loading || hydrating) return
+    // The navigator is unmounted in this state (SyncUnavailableScreen replaces it), so a
+    // replace() here dispatches into a tree that is not there. Routing resumes when it is.
+    if (user && syncUnavailable) return
     if (!user) {
       if (!onLoginScreen) router.replace('/login')
       return
@@ -55,33 +198,99 @@ const RootNavigator: React.FC = () => {
       return
     }
     if (onLoginScreen || onOnboarding) router.replace('/(tabs)')
-  }, [user, loading, hydrating, needsSetup, onLoginScreen, onOnboarding, router])
+  }, [user, loading, hydrating, syncUnavailable, needsSetup, onLoginScreen, onOnboarding, router])
+
+  const showBanner = syncBlocked && !!user
+  /*
+    The banner has consumed the status-bar area, so the screens below must stop reserving
+    it too — every screen header and scroll view pads by `insets.top` of its own, which
+    would otherwise leave a full status bar of dead space under the banner. Overriding the
+    context is the supported way to say "that inset is already spent".
+
+    Modally-presented routes are excluded: react-native-screens presents them at the native
+    level, above the banner rather than below it, so they still own the status bar and need
+    the real inset. The screens underneath keep their padding while covered, which nobody
+    can see.
+  */
+  const onModalRoute = MODAL_ROUTES.has(segments[0] ?? '')
+  const overrideTop = showBanner && !onModalRoute
+  // Memoised: a fresh object here would change the context value on every render of this
+  // component and re-render every inset consumer in the tree along with it.
+  const insetsForStack = useMemo(
+    () => (overrideTop ? { ...insets, top: 0 } : insets),
+    [overrideTop, insets]
+  )
+
+  // After every hook: no local copy to fall back on, so hold here rather than let the user
+  // work against factory defaults they will lose either way.
+  if (user && syncUnavailable) {
+    return (
+      <>
+        <StatusBar style={theme.mode === 'dark' ? 'light' : 'dark'} />
+        <SyncUnavailableScreen />
+      </>
+    )
+  }
 
   return (
     <>
       <StatusBar style={theme.mode === 'dark' ? 'light' : 'dark'} />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: theme.canvas },
-          animation: 'slide_from_right',
-        }}
-      >
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="login" options={{ animation: 'fade' }} />
-        <Stack.Screen name="onboarding" options={{ animation: 'fade', gestureEnabled: false }} />
-        <Stack.Screen
-          name="food-search"
-          options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
-        />
-        <Stack.Screen
-          name="lift-picker"
-          options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
-        />
-        <Stack.Screen name="goals" />
-        <Stack.Screen name="chat" options={{ presentation: 'modal' }} />
-      </Stack>
+      {showBanner ? <SyncBlockedBanner topInset={insets.top} /> : null}
+      <SafeAreaInsetsContext.Provider value={insetsForStack}>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: theme.canvas },
+            animation: 'slide_from_right',
+          }}
+        >
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="login" options={{ animation: 'fade' }} />
+          <Stack.Screen
+            name="onboarding"
+            options={{ animation: 'fade', gestureEnabled: false }}
+          />
+          <Stack.Screen
+            name="food-search"
+            options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+          />
+          <Stack.Screen
+            name="lift-picker"
+            options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+          />
+          <Stack.Screen name="goals" />
+          <Stack.Screen name="chat" options={{ presentation: 'modal' }} />
+        </Stack>
+      </SafeAreaInsetsContext.Provider>
     </>
+  )
+}
+
+/**
+ * Releases the splash and decides what the very first frame is.
+ *
+ * This lives *inside* AuthProvider so the Supabase session restore starts in parallel with
+ * font loading and AsyncStorage rehydration. Previously the provider was mounted only
+ * after those finished, which made the network round trip strictly serial with them and
+ * pushed the worst-case cold start past eight seconds.
+ */
+const LaunchGate: React.FC<{ localReady: boolean }> = ({ localReady }) => {
+  const { loading } = useAuth()
+
+  const onLayout = useCallback(() => {
+    if (localReady) void SplashScreen.hideAsync()
+  }, [localReady])
+
+  useEffect(() => {
+    if (localReady) void SplashScreen.hideAsync()
+  }, [localReady])
+
+  if (!localReady) return null
+
+  return (
+    <View style={{ flex: 1 }} onLayout={onLayout}>
+      {loading ? <LaunchScreen /> : <RootNavigator />}
+    </View>
   )
 }
 
@@ -97,25 +306,13 @@ export default function RootLayout() {
 
   // A font that fails to download must not deadlock the splash forever — fall through
   // and let the platform fall back rather than showing an infinite launch screen.
-  const ready = (fontsLoaded || !!fontError) && hydrated
-
-  const onLayout = useCallback(() => {
-    if (ready) void SplashScreen.hideAsync()
-  }, [ready])
-
-  useEffect(() => {
-    if (ready) void SplashScreen.hideAsync()
-  }, [ready])
-
-  if (!ready) return null
+  const localReady = (fontsLoaded || !!fontError) && hydrated
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }} onLayout={onLayout}>
+    <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AuthProvider>
-          <View style={{ flex: 1 }}>
-            <RootNavigator />
-          </View>
+          <LaunchGate localReady={localReady} />
         </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

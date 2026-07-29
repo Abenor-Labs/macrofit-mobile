@@ -3,23 +3,27 @@ import { Redirect } from 'expo-router'
 
 import { useAuth } from '@/lib/AuthProvider'
 import { useStore } from '@/store/useStore'
+import { LaunchScreen } from '@/components/LaunchScreen'
 
 /**
- * The entry route, and the app's single redirect authority.
+ * The entry route, and the cold-start redirect authority.
  *
  * `/` resolves here rather than to `(tabs)/index` — the root `index` config sorts ahead
  * of the group's index for the empty path — so every cold start lands on this gate before
- * any screen renders. Nothing else in the tree redirects on auth state; login.tsx only
- * signs in, and the tab screens assume they are already behind the gate.
+ * any screen renders. It handles the first frame only; `RootNavigator` in `app/_layout.tsx`
+ * owns routing for the rest of the session, because a <Redirect> unmounts as soon as it
+ * fires and so cannot react to a later sign-in or sign-out.
  *
- * While the session is still resolving we render null on purpose: the native splash is
- * still up at that point, so a spinner here would only flash a second loading state.
+ * `LaunchGate` already withholds this whole tree while the session resolves, so `loading`
+ * is false by the time this renders. The branded fallback below is defensive only — it
+ * exists so that any future change which mounts this route earlier degrades to the launch
+ * screen rather than to the blank canvas that used to sit here.
  */
 export default function Index() {
   const { user, loading } = useAuth()
   const onboardedAt = useStore(s => s.onboardedAt)
 
-  if (loading) return null
+  if (loading) return <LaunchScreen />
   if (!user) return <Redirect href="/login" />
   // Setup has to clear before the tabs: the store's defaults describe a 30-year-old
   // 175 cm male, so an unconfigured account shows targets that look authoritative and

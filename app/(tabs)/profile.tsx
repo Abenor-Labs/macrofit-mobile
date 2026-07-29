@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import {
   Activity,
@@ -191,7 +191,7 @@ const Row: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 
 export default function ProfileScreen() {
   const theme = useTheme()
-  const { user, signOut, syncStatus } = useAuth()
+  const { user, signOut, syncStatus, syncBlocked, hasUnsyncedChanges } = useAuth()
 
   const profile = useStore(s => s.profile)
   const updateProfile = useStore(s => s.updateProfile)
@@ -234,6 +234,62 @@ export default function ProfileScreen() {
     profile.stepGoal === undefined ? '' : String(profile.stepGoal),
   )
   const [measurement, setMeasurement] = useState<Record<string, string>>({})
+
+  /*
+    These fields seed themselves once, at mount. A hydration replaces the store's profile
+    wholesale — a sync retry, or signing in after an outage — and without this the inputs
+    keep their pre-hydration text, so the next blur commits stale values back over the
+    fresh ones and calls recalculateGoals() with them.
+
+    Comparing against the last *store* value rather than the current text means the user's
+    own edits re-seed to what they just typed (a no-op), while a change from anywhere else
+    wins.
+  */
+  const seededRef = useRef({
+    name: profile.name,
+    age: profile.age,
+    heightCm: profile.heightCm,
+    targetWeightKg: profile.targetWeightKg,
+    stepGoal: profile.stepGoal,
+    weightUnit: profile.weightUnit,
+  })
+  useEffect(() => {
+    const seeded = seededRef.current
+    if (profile.name !== seeded.name) setName(profile.name)
+    if (profile.age !== seeded.age) setAge(String(profile.age))
+    if (profile.heightCm !== seeded.heightCm) setHeightCm(String(profile.heightCm))
+    // Target weight is displayed in the user's unit, so a unit change has to re-render the
+    // text even when the underlying kg value did not move — otherwise the next blur commits
+    // a lbs figure as if it were the kg one.
+    if (
+      profile.targetWeightKg !== seeded.targetWeightKg ||
+      profile.weightUnit !== seeded.weightUnit
+    ) {
+      setTargetWeight(
+        profile.targetWeightKg === undefined ? '' : String(toDisplay(profile.targetWeightKg))
+      )
+    }
+    if (profile.stepGoal !== seeded.stepGoal) {
+      setStepGoal(profile.stepGoal === undefined ? '' : String(profile.stepGoal))
+    }
+    seededRef.current = {
+      name: profile.name,
+      age: profile.age,
+      heightCm: profile.heightCm,
+      targetWeightKg: profile.targetWeightKg,
+      stepGoal: profile.stepGoal,
+      weightUnit: profile.weightUnit,
+    }
+    // `toDisplay` closes over `unit`, which is `profile.weightUnit` — already a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    profile.name,
+    profile.age,
+    profile.heightCm,
+    profile.targetWeightKg,
+    profile.stepGoal,
+    profile.weightUnit,
+  ])
 
   const commitBasics = () => {
     const parsedAge = Number(age)
@@ -287,21 +343,57 @@ export default function ProfileScreen() {
     setMeasurement({})
   }
 
-  const confirmSignOut = () => {
-    Alert.alert('Sign out?', 'Your data stays synced to your account.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign out', style: 'destructive', onPress: () => void signOut() },
-    ])
+  const runSignOut = (warned: boolean) => {
+    void signOut({ warnedAboutUnsyncedChanges: warned })
+      .then(result => {
+        // A sign-out that could not reach the server leaves the session intact. Saying so is
+        // the only honest option: the alternative is a user who believes they are signed out
+        // handing the phone over while still signed in.
+        if (result.error) Alert.alert('Still signed in', result.error)
+      })
+      .catch(() =>
+        Alert.alert(
+          'Still signed in',
+          'Something went wrong signing out. Check your connection and try again.'
+        )
+      )
   }
 
-  const syncLabel =
-    syncStatus === 'saving'
+  const confirmSignOut = () => {
+    // Captured as the dialog opens: this is exactly what the user is being asked to agree
+    // to, and it is what gets passed back to signOut as their consent.
+    const warned = hasUnsyncedChanges
+    Alert.alert(
+      'Sign out?',
+      warned
+        ? 'Some of what you logged has not reached your account yet, and signing out clears this device. That work would be lost.'
+        : 'Your data is saved to your account, and this device will be cleared.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: warned ? 'Sign out anyway' : 'Sign out',
+          style: 'destructive',
+          onPress: () => runSignOut(warned),
+        },
+      ]
+    )
+  }
+
+  // `syncBlocked` outranks `syncStatus`: while the account is unreachable no save is even
+  // attempted, so syncStatus sits at its 'idle' default — which used to render as
+  // "Synced", directly contradicting the not-synced banner at the top of the screen.
+  const syncFailed = syncBlocked || syncStatus === 'error'
+  const syncLabel = syncBlocked
+    ? 'Not synced — saved on this device only'
+    : syncStatus === 'saving'
       ? 'Saving…'
       : syncStatus === 'saved'
         ? 'All changes saved'
         : syncStatus === 'error'
           ? 'Sync failed — will retry'
-          : 'Synced'
+          : hasUnsyncedChanges
+            ? 'Some changes still waiting to sync'
+            : 'Synced'
 
   return (
     <Screen title="Profile" subtitle={user?.email ?? undefined}>
@@ -738,14 +830,24 @@ export default function ProfileScreen() {
 
       <Surface style={{ padding: spacing.lg, gap: spacing.md }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-          {syncStatus === 'error' ? (
+          {/* The icon has to agree with the sentence beside it — an affirmative cloud over
+              "still waiting to sync" is the same contradiction, just quieter. */}
+          {syncFailed ? (
             <CloudOff size={15} color={theme.status.critical} strokeWidth={2} />
+          ) : hasUnsyncedChanges ? (
+            <CloudOff size={15} color={theme.status.warning} strokeWidth={2} />
           ) : (
             <Cloud size={15} color={theme.status.good} strokeWidth={2} />
           )}
           <Body
             size={12}
-            style={{ color: syncStatus === 'error' ? theme.status.critical : theme.textSecondary }}
+            style={{
+              color: syncFailed
+                ? theme.status.critical
+                : hasUnsyncedChanges
+                  ? theme.status.warning
+                  : theme.textSecondary,
+            }}
           >
             {syncLabel}
           </Body>
