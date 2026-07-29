@@ -308,23 +308,35 @@ export default function ProfileScreen() {
   const commitTargetWeight = () => {
     const raw = targetWeight.replace(',', '.').trim()
     if (raw === '') {
+      seededRef.current.targetWeightKg = undefined
       updateProfile({ targetWeightKg: undefined })
       return
     }
     const value = Number(raw)
     if (!Number.isFinite(value) || value <= 0) return
     const kg = unit === 'lbs' ? value / LBS_PER_KG : value
-    updateProfile({ targetWeightKg: Math.round(kg * 10) / 10 })
+    const rounded = Math.round(kg * 10) / 10
+    /*
+      Claim the new value before writing it, so the re-seed effect sees no change and leaves
+      the field alone. Otherwise the value the user typed is round-tripped through kg and
+      handed back rounded: 180 lb becomes 81.6 kg becomes "179.9" under their cursor.
+    */
+    seededRef.current.targetWeightKg = rounded
+    updateProfile({ targetWeightKg: rounded })
   }
 
   const commitStepGoal = () => {
     if (stepGoal.trim() === '') {
+      seededRef.current.stepGoal = undefined
       updateProfile({ stepGoal: undefined })
       return
     }
     const value = Number(stepGoal.trim())
     if (!Number.isFinite(value) || value <= 0) return
-    updateProfile({ stepGoal: Math.round(value) })
+    const rounded = Math.round(value)
+    // Same reason as commitTargetWeight: claim it first so the re-seed leaves it alone.
+    seededRef.current.stepGoal = rounded
+    updateProfile({ stepGoal: rounded })
   }
 
   const addMeasurement = () => {

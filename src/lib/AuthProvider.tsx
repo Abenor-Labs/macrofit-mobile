@@ -410,14 +410,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const seq = changeSeqRef.current
       const saved = await saveUserData(current.id, collect())
 
-      if (generation !== generationRef.current) return saved ? 'saved' : 'failed'
       if (saved) {
+        /*
+          The upload landed, so the device is clean whether or not the session moved on.
+          Gating this on the generation left dirtyRef set after a successful save, which
+          made the next flush re-upload with a dead token and mint a publish licence on a
+          device that already matched the server.
+        */
         if (changeSeqRef.current === seq) {
           dirtyRef.current = false
-          clearUnsynced()
+          // Session-scoped state and the licence key belong to the generation that started
+          // this save; a newer one has already reset them for itself.
+          if (generation === generationRef.current) clearUnsynced()
         }
         return 'saved'
       }
+      if (generation !== generationRef.current) return 'failed'
       // A rejected upload leaves this device the only copy, exactly like an outage does.
       markUnsynced(current.id)
       return 'failed'
@@ -452,18 +460,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const loadedOwner = valueFor(LOADED_KEY)
 
         /*
-          Defence in depth for the paths where sign-out's reset never ran.
+          An unclaimed store: it holds someone's data but nothing records whose.
 
-          A NULL owner deliberately does not count as a switch. It is tempting to treat an
-          unclaimed store that still holds data as someone else's leftovers, but the tell
-          for "holds data" (`onboardedAt !== null`) is also true of every device already
-          running the previous build, where STORE_OWNER_KEY has never existed — so that
-          reading wipes every existing install the first time this version launches.
+          This is the state every device carries into the first launch of this build —
+          STORE_OWNER_KEY did not exist before it — and it is also what the previous
+          build's sign-out left behind, because that version cleared the session and
+          nothing else. So it covers both "this is the owner upgrading" and "this is
+          somebody else's leftovers", and there is nothing on disk to tell them apart:
+          the store records a name, never a user id.
 
-          It is also unnecessary: STORE_OWNER_KEY is now removed *after* resetStore, so an
-          interrupted sign-out leaves the owner key intact alongside the data it guards.
-          Owner-null-with-data is not a state this code can produce.
+          Neither guess is safe on its own. Adopting it hands one user's health record to
+          another; wiping it deletes a legitimate upgrader's data. So we do not guess — the
+          server decides, below, once the load comes back.
         */
+        const unclaimedStore = previousOwner === null && useStore.getState().onboardedAt !== null
         const switchingAccount = previousOwner !== null && previousOwner !== nextUser.id
         if (switchingAccount) {
           // Ownership keys go before the data. A device whose keys are gone is treated as
@@ -489,9 +499,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           Arm the owner guard the moment we know whose device this is, rather than after a
           successful load. On a device where every load fails the old ordering never wrote
           the key at all, which left the next account free to inherit this one's data.
+
+          The unclaimed case is the exception: claiming it now would permanently attribute
+          data of unknown provenance to whoever happens to be signed in, and a failed load
+          would bake that in. It stays unclaimed until the server settles it.
         */
-        await AsyncStorage.setItem(STORE_OWNER_KEY, nextUser.id)
-        if (generation !== generationRef.current) return
+        if (!unclaimedStore) {
+          await AsyncStorage.setItem(STORE_OWNER_KEY, nextUser.id)
+          if (generation !== generationRef.current) return
+        }
 
         /*
           All three conditions are required. The account must match, this device must have
@@ -513,12 +529,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         )
         if (generation !== generationRef.current) return
 
+        /*
+          The server settles the unclaimed store.
+
+          'ok'    — hydrateStore has just overwritten every synced field with this account's
+                    own data, so whatever was here is gone either way and the device is now
+                    unambiguously theirs. Correct for the upgrader and for the stranger.
+          'empty' — this account has no server row, so the data sitting here cannot be
+                    theirs. It is the previous user's, and it must not be shown to them or
+                    uploaded into their account.
+          'failed' — still unknown. Nothing is claimed and nothing is destroyed; the app
+                    holds on the retry screen (hasLoadedAccount is false) until it can ask
+                    again.
+        */
+        if (unclaimedStore && outcome === 'empty') {
+          isHydratingRef.current = true
+          try {
+            await resetStore()
+          } finally {
+            isHydratingRef.current = false
+          }
+          setLocalEdits(false)
+          epochRef.current = await getStoreEpoch()
+          if (generation !== generationRef.current) return
+        }
+
         setHydrationOutcome(outcome)
         // Only a load that actually told us what the server holds earns the right to write.
         canSaveRef.current = outcome === 'ok' || outcome === 'empty'
         if (canSaveRef.current) {
           setLoaded(true)
-          await AsyncStorage.setItem(LOADED_KEY, nextUser.id)
+          await AsyncStorage.multiSet([
+            [STORE_OWNER_KEY, nextUser.id],
+            [LOADED_KEY, nextUser.id],
+          ])
         }
         // Held edits go up now that there is somewhere to put them.
         if (canSaveRef.current && localEditsRef.current) await flushSave()
