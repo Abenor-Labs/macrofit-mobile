@@ -61,11 +61,16 @@ interface AuthContextValue {
    */
   syncBlocked: boolean
   /**
-   * The account is unreachable AND this device has never read it. There is no local copy to
-   * fall back on, so the app must not be entered: the store is defaults, and letting the
-   * user log against it produces work that can neither be kept nor published.
+   * The account is unreachable and this device has never read it.
+   *
+   * On its own this is NOT a reason to keep the user out — the caller must also establish
+   * that there is nothing on the device worth showing. A store with data in it is the
+   * user's data whether or not this build has ever spoken to the server, and hiding it
+   * behind a wall is worse than the risk it was meant to avoid.
    */
   syncUnavailable: boolean
+  /** This session was created by signing up in this launch, so there is no row to wait for. */
+  isNewAccount: boolean
   /** Retry the failed load. Unblocks saving if it succeeds. */
   retrySync: () => Promise<void>
   /**
@@ -158,6 +163,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [sessionEndedReason, setSessionEndedReason] = useState<string | null>(null)
   const [hasUnsyncedChanges, setHasUnsyncedChanges] = useState(false)
   const [hasLoadedAccount, setHasLoadedAccount] = useState(false)
+  const [isNewAccount, setIsNewAccount] = useState(false)
 
   const userRef = useRef<User | null>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -708,10 +714,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // edits are lost.
   useEffect(() => {
     const sub = AppState.addEventListener('change', next => {
-      if (next === 'background' || next === 'inactive') void flushSave()
+      if (next === 'background' || next === 'inactive') {
+        void flushSave()
+        return
+      }
+      /*
+        Coming back to the foreground is the most likely moment for signal to have returned,
+        and it is the only automatic retry there is. Without it the banner's promise that
+        things resume "until it clears" is false: retrySync only ever ran from a tap, so a
+        user who regained signal in their pocket stayed blocked, and unsaved for the rest of
+        the session.
+      */
+      if (next === 'active' && userRef.current && !canSaveRef.current && !signingOutRef.current) {
+        void retrySync()
+      }
     })
     return () => sub.remove()
-  }, [flushSave])
+  }, [flushSave, retrySync])
 
   const signIn: AuthContextValue['signIn'] = useCallback(async (rawEmail, password) => {
     const email = normalizeEmail(rawEmail)
@@ -742,7 +761,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // A session comes back only when the project auto-confirms addresses; otherwise the
     // account exists but cannot sign in until the emailed link is opened.
-    if (data.session) return { error: null, notice: null }
+    if (data.session) {
+      // An account created seconds ago has no server row to wait for, so a failed load must
+      // not hold them behind the "can't reach your account" wall — there is nothing there.
+      setIsNewAccount(true)
+      return { error: null, notice: null }
+    }
 
     return {
       error: null,
@@ -900,6 +924,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // nothing to show and nothing safe to log against, so the two states are distinct.
       syncBlocked: hydrationOutcome === 'failed' && hasLoadedAccount,
       syncUnavailable: hydrationOutcome === 'failed' && !hasLoadedAccount,
+      isNewAccount,
       retrySync,
       hasUnsyncedChanges,
       sessionEndedReason,
@@ -917,6 +942,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       hydrating,
       hydrationOutcome,
       hasLoadedAccount,
+      isNewAccount,
       retrySync,
       hasUnsyncedChanges,
       sessionEndedReason,

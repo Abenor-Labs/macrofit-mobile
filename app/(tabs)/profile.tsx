@@ -340,6 +340,9 @@ export default function ProfileScreen() {
   ])
 
   const [basicsError, setBasicsError] = useState<string | null>(null)
+  /** What just happened to the targets. Profile shows no calorie number, so without this
+      the user gets no feedback at all from a control that changes one. */
+  const [targetsNotice, setTargetsNotice] = useState<string | null>(null)
 
   /**
    * Apply a change to the body details that feed the calorie formula, then decide what
@@ -354,20 +357,45 @@ export default function ProfileScreen() {
    * goes stale. Anything hand-set is a decision too, but one the user may want to revisit,
    * so it asks.
    */
-  const applyBodyChange = (mutate: () => void) => {
-    const origin = goalsOriginOf(profile, currentWeightKg, goals, recommendation)
+  const applyBodyChange = (changed: boolean, mutate: () => void) => {
     mutate()
+    /*
+      Only a real change to a number the formula reads is worth asking about. Without this,
+      the dialog fired on every blur of the Name field, and on tapping into Age and straight
+      back out — asking whether to recalculate calories because someone fixed a typo.
+    */
+    if (!changed) return
+
+    const origin = goalsOriginOf(profile, currentWeightKg, goals, recommendation)
     if (origin === 'formula') {
       recalculateGoals()
       return
     }
-    if (origin === 'coach') return
+    // A coach plan is a decision. Say that it was left alone rather than doing nothing
+    // visible: this screen shows no calorie number, so silence is indistinguishable from
+    // the app ignoring the change.
+    if (origin === 'coach') {
+      setTargetsNotice('Your accepted coach plan is unchanged. Refresh it on Goals to use your new details.')
+      return
+    }
     Alert.alert(
       'Update your targets?',
-      'Your calorie and macro targets were set by hand. Recalculate them from your new details, or keep what you have?',
+      'Your targets came from your setup answers. Recalculate them from your new details, or keep what you have?',
       [
         { text: 'Keep mine', style: 'cancel' },
-        { text: 'Recalculate', onPress: () => recalculateGoals() },
+        {
+          text: 'Recalculate',
+          onPress: () => {
+            const before = useStore.getState().goals.calories
+            recalculateGoals()
+            const after = useStore.getState().goals.calories
+            setTargetsNotice(
+              before === after
+                ? 'Your daily target is unchanged.'
+                : `Your daily target moved from ${before.toLocaleString()} to ${after.toLocaleString()} kcal.`
+            )
+          },
+        },
       ]
     )
   }
@@ -396,7 +424,9 @@ export default function ProfileScreen() {
       nextAge === null && age.trim() !== ''
         ? `Age should be between ${AGE_RANGE.min} and ${AGE_RANGE.max}.`
         : nextHeight === null && heightCm.trim() !== ''
-          ? 'That height looks off. Check the number and the unit.'
+          ? // Names the range, like the age message. The old wording told the user to check
+            // a unit on a field labelled "Height (cm)" that has no unit control.
+            `Height should be between ${HEIGHT_CM_RANGE.min} and ${HEIGHT_CM_RANGE.max} cm.`
           : null
     )
 
@@ -404,11 +434,16 @@ export default function ProfileScreen() {
     if (nextAge === null) setAge(String(profile.age))
     if (nextHeight === null) setHeightCm(String(profile.heightCm))
 
-    applyBodyChange(() => {
+    const finalAge = nextAge ?? profile.age
+    const finalHeight = nextHeight ?? profile.heightCm
+    // The name is not an input to any formula, so editing it must never raise the dialog.
+    const bodyChanged = finalAge !== profile.age || finalHeight !== profile.heightCm
+
+    applyBodyChange(bodyChanged, () => {
       updateProfile({
         name: name.trim() || 'You',
-        age: nextAge ?? profile.age,
-        heightCm: nextHeight ?? profile.heightCm,
+        age: finalAge,
+        heightCm: finalHeight,
       })
     })
   }
@@ -688,6 +723,18 @@ export default function ProfileScreen() {
           </View>
         ) : null}
 
+        {/* This screen never shows a calorie number, so a control that changes one has to
+            say what it did — otherwise "recalculated", "left alone" and "ignored" all look
+            identical from here. */}
+        {targetsNotice ? (
+          <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
+            <Target size={15} color={theme.brandText} strokeWidth={2} />
+            <Body size={13} style={{ flex: 1, color: theme.textSecondary }}>
+              {targetsNotice}
+            </Body>
+          </View>
+        ) : null}
+
         <Choice
           label="Goal"
           value={profile.goal}
@@ -695,7 +742,7 @@ export default function ProfileScreen() {
             value: v,
             label: GOAL_LABELS[v],
           }))}
-          onChange={v => applyBodyChange(() => updateProfile({ goal: v }))}
+          onChange={v => applyBodyChange(v !== profile.goal, () => updateProfile({ goal: v }))}
         />
 
         <Choice
@@ -705,7 +752,7 @@ export default function ProfileScreen() {
             value: v,
             label: ACTIVITY_LABELS[v],
           }))}
-          onChange={v => applyBodyChange(() => updateProfile({ activityLevel: v }))}
+          onChange={v => applyBodyChange(v !== profile.activityLevel, () => updateProfile({ activityLevel: v }))}
         />
 
         <Choice
@@ -716,7 +763,7 @@ export default function ProfileScreen() {
             { value: 'female' as const, label: 'Female' },
             { value: 'other' as const, label: 'Other' },
           ]}
-          onChange={v => applyBodyChange(() => updateProfile({ gender: v }))}
+          onChange={v => applyBodyChange(v !== profile.gender, () => updateProfile({ gender: v }))}
         />
 
         <Row>

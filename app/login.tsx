@@ -140,6 +140,13 @@ export default function LoginScreen() {
           </View>
 
           <GlassSurface style={{ padding: spacing.lg, gap: spacing.lg }}>
+            {/*
+              First thing in the card, above the controls. The whole screen just replaced
+              whatever the user was doing — possibly a live workout — so the explanation
+              cannot sit under the password field as the last thing they read.
+            */}
+            {sessionEndedReason ? <Message text={sessionEndedReason} kind="info" /> : null}
+
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
               {(['in', 'up'] as const).map(m => {
                 const active = mode === m
@@ -179,10 +186,6 @@ export default function LoginScreen() {
               autoComplete={mode === 'in' ? 'current-password' : 'new-password'}
             />
 
-            {/* Why they are looking at this form again, when they did not ask to be. */}
-            {sessionEndedReason && !error && !notice ? (
-              <Message text={sessionEndedReason} kind="info" />
-            ) : null}
             {error ? <Message text={error} kind="error" /> : null}
             {notice ? <Message text={notice} kind="notice" /> : null}
             {hydrating ? <Message text="Restoring your data…" kind="info" /> : null}

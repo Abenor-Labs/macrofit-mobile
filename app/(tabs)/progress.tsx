@@ -20,6 +20,7 @@ import { Surface } from '@/components/Glass'
 import { EmptyState, Screen } from '@/components/Layout'
 import { ProgressTrack } from '@/components/MacroRing'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
+import { WeightTargetCard } from '@/components/WeightTarget'
 import { useStore } from '@/store/useStore'
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
@@ -912,13 +913,20 @@ export default function ProgressScreen() {
 
   const weightTab = (
     <>
+      {/*
+        The tab that answers "is my weight going the right way" had no way to weigh in and
+        no on-track verdict — it sent people to another tab to do the one thing this screen
+        is about. This is the same card the dashboard uses.
+      */}
+      <WeightTargetCard />
+
       <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
         <CardHeader title="Weight" caption={`Weigh-ins in ${unitLabel}, ${rangeWords}`} />
         {weightPoints.length === 0 ? (
           <EmptyState
             icon={<Scale size={24} color={theme.textMuted} strokeWidth={1.8} />}
             title="No weigh-ins yet"
-            message={`Log your weight from the Profile tab. Two entries in the ${rangeWords} draw a trend.`}
+            message={`Add today's weight above. Two entries in the ${rangeWords} draw a trend.`}
           />
         ) : (
           <ChartArea
@@ -1004,30 +1012,6 @@ export default function ProgressScreen() {
         ) : null}
       </Surface>
 
-      {/*
-        The Google Fit importer used to live here too, with the opposite behaviour to the
-        one on Profile: it replaced days the user had already weighed in by hand, and
-        because it wrote newest-first while addWeightEntry sets currentWeightKg from every
-        call, it finished on the OLDEST record — silently resetting current weight to a
-        year ago and taking BMI, TDEE, the coach's protein target and every ETA with it.
-        Profile owns the import now; it dedupes by date and writes oldest-first.
-      */}
-      <Surface style={{ padding: spacing.lg, gap: spacing.md }}>
-        <CardHeader
-          title="Import from Google Fit"
-          caption="Bring past weigh-ins in from Health Connect"
-        />
-        <Body size={13} tone="secondary">
-          Importing lives with your other connections, on Profile. Days you logged yourself
-          are never overwritten.
-        </Body>
-        <Button
-          label="Open Profile"
-          variant="secondary"
-          onPress={() => router.push('/(tabs)/profile')}
-          icon={<Activity size={16} color={theme.text} />}
-        />
-      </Surface>
     </>
   )
 

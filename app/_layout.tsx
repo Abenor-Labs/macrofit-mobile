@@ -61,8 +61,8 @@ const SyncBlockedBanner: React.FC<{ topInset: number }> = ({ topInset }) => {
     >
       <CloudOff size={18} color={theme.status.critical} />
       <Body size={13} style={{ flex: 1, color: theme.text }}>
-        Not synced — we could not reach your account. Everything you log stays safely on
-        this device until it clears.
+        Not synced — we couldn&apos;t reach your account. Everything you log stays safely on
+        this device.
       </Body>
       <Pressable
         accessibilityRole="button"
@@ -99,25 +99,47 @@ const SyncBlockedBanner: React.FC<{ topInset: number }> = ({ topInset }) => {
 const SyncUnavailableScreen: React.FC = () => {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
-  const { retrySync, hydrating, signOut } = useAuth()
+  const { retrySync, hydrating, signOut, user } = useAuth()
   // signOut never sets `hydrating`, so without its own busy state the button gives no
   // feedback and can be fired re-entrantly on the one screen the user cannot leave.
   const [signingOut, setSigningOut] = useState(false)
+  // Two failed attempts look identical, so people tap Try again over and over with no idea
+  // whether anything happened. Counting them lets the screen say so.
+  const [attempts, setAttempts] = useState(0)
   const busy = hydrating || signingOut
 
+  const tryAgain = () => {
+    void retrySync().finally(() => setAttempts(n => n + 1))
+  }
+
   const escape = () => {
-    setSigningOut(true)
-    void signOut()
-      .then(result => {
-        if (result.error) Alert.alert('Still signed in', result.error)
-      })
-      .catch(() =>
-        Alert.alert(
-          'Still signed in',
-          'Something went wrong signing out. Check your connection and try again.'
-        )
-      )
-      .finally(() => setSigningOut(false))
+    // Signing out here wipes the device. Profile confirms this every time; the one screen
+    // the user cannot leave must not be the exception.
+    Alert.alert(
+      'Sign out and clear this device?',
+      'Anything saved only on this phone will be removed. Your account is not affected.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign out',
+          style: 'destructive',
+          onPress: () => {
+            setSigningOut(true)
+            void signOut({ warnedAboutUnsyncedChanges: true })
+              .then(result => {
+                if (result.error) Alert.alert('Still signed in', result.error)
+              })
+              .catch(() =>
+                Alert.alert(
+                  'Still signed in',
+                  'Something went wrong signing out. Check your connection and try again.'
+                )
+              )
+              .finally(() => setSigningOut(false))
+          },
+        },
+      ]
+    )
   }
 
   return (
@@ -135,21 +157,35 @@ const SyncUnavailableScreen: React.FC = () => {
     >
       <BrandMark />
       <SectionTitle style={{ textAlign: 'center' }}>Can&apos;t reach your account</SectionTitle>
+      {/* States the problem as a connection failure, which is what it is, and says the one
+          thing the user actually wants to know. The old copy claimed the device held no
+          data, which was untrue for a new account and untrue for anyone upgrading. */}
       <Body tone="secondary" style={{ textAlign: 'center' }}>
-        This device has not downloaded your data yet, so there is nothing to show offline.
-        Connect and try again — nothing has been lost.
+        We can&apos;t reach the server right now, so we can&apos;t load your account. Nothing
+        on your account has changed.
       </Body>
+      {user?.email ? (
+        <Body size={13} tone="muted" style={{ textAlign: 'center' }}>
+          Signed in as {user.email}
+        </Body>
+      ) : null}
       {/* No haptic: retrying a fetch is not a commit, and the design rules reserve haptics
           for the moments something is actually recorded. */}
       <Button
         label={hydrating ? 'Trying…' : 'Try again'}
-        onPress={() => void retrySync()}
+        onPress={tryAgain}
         disabled={busy}
         loading={hydrating}
         full
       />
+      {/* Two failed attempts render identically, so without this the button feels dead. */}
+      {attempts > 0 && !hydrating ? (
+        <Body size={13} tone="muted" style={{ textAlign: 'center' }}>
+          Still no connection. We&apos;ll keep trying whenever you reopen the app.
+        </Body>
+      ) : null}
       <Button
-        label="Sign out"
+        label="Sign out and clear this device"
         variant="ghost"
         onPress={escape}
         disabled={busy}
@@ -166,7 +202,7 @@ const MODAL_ROUTES = new Set(['food-search', 'lift-picker', 'chat'])
 const RootNavigator: React.FC = () => {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
-  const { user, loading, hydrating, syncBlocked, syncUnavailable } = useAuth()
+  const { user, loading, hydrating, syncBlocked, syncUnavailable, isNewAccount } = useAuth()
   const onboardedAt = useStore(s => s.onboardedAt)
   const segments = useSegments()
   const router = useRouter()
@@ -188,7 +224,7 @@ const RootNavigator: React.FC = () => {
     if (loading || hydrating) return
     // The navigator is unmounted in this state (SyncUnavailableScreen replaces it), so a
     // replace() here dispatches into a tree that is not there. Routing resumes when it is.
-    if (user && syncUnavailable) return
+    if (user && syncUnavailable && needsSetup && !isNewAccount) return
     if (!user) {
       if (!onLoginScreen) router.replace('/login')
       return
@@ -198,7 +234,17 @@ const RootNavigator: React.FC = () => {
       return
     }
     if (onLoginScreen || onOnboarding) router.replace('/(tabs)')
-  }, [user, loading, hydrating, syncUnavailable, needsSetup, onLoginScreen, onOnboarding, router])
+  }, [
+    user,
+    loading,
+    hydrating,
+    syncUnavailable,
+    isNewAccount,
+    needsSetup,
+    onLoginScreen,
+    onOnboarding,
+    router,
+  ])
 
   const showBanner = syncBlocked && !!user
   /*
@@ -221,9 +267,20 @@ const RootNavigator: React.FC = () => {
     [overrideTop, insets]
   )
 
-  // After every hook: no local copy to fall back on, so hold here rather than let the user
-  // work against factory defaults they will lose either way.
-  if (user && syncUnavailable) {
+  /*
+    After every hook. The wall is for one narrow case: an account we could not read, on a
+    device holding nothing to show.
+
+    `needsSetup` is the test for "nothing to show" — a store that has been through setup
+    holds the user's real data, whether it arrived from this build's loader or was simply
+    already there before this build existed. Walling that user hides weeks of their own
+    logging behind a connection error, which is worse than the risk the wall exists for.
+    They get the not-synced banner instead, and their edits are held.
+
+    A brand-new account is let through for the opposite reason: there is no server row to
+    wait for, so the setup flow is exactly where they should be.
+  */
+  if (user && syncUnavailable && needsSetup && !isNewAccount) {
     return (
       <>
         <StatusBar style={theme.mode === 'dark' ? 'light' : 'dark'} />

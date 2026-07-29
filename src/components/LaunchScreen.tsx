@@ -2,8 +2,9 @@ import React from 'react'
 import { ActivityIndicator, View } from 'react-native'
 
 import { useTheme } from '@/theme/useTheme'
-import { spacing } from '@/theme/tokens'
+import { fonts, spacing } from '@/theme/tokens'
 import { BrandMark } from './BrandMark'
+import { Body } from './Text'
 
 /**
  * Shown while the session and the account's saved data are still resolving.
@@ -29,7 +30,16 @@ export const LaunchScreen: React.FC = () => {
       accessibilityLabel="Loading your account"
     >
       <BrandMark />
+      {/* The mark alone is wordless, and on a slow connection this is the first thing a new
+          user sees for several seconds — long enough to read as a hang. The name says what
+          they opened; the line below says the app is working, not stuck. */}
+      <Body style={{ fontFamily: fonts.displayBold, fontSize: 28, color: theme.text }}>
+        MacroFit
+      </Body>
       <ActivityIndicator color={theme.brand} />
+      <Body size={13} tone="muted">
+        Loading your account…
+      </Body>
     </View>
   )
 }
