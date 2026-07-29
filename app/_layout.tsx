@@ -196,13 +196,88 @@ const SyncUnavailableScreen: React.FC = () => {
   )
 }
 
+/**
+ * Asked once, when there is data on this phone and the signed-in account has none on the
+ * server, and nothing on disk records whose the data is.
+ *
+ * Both guesses are destructive in one direction: assume it is theirs and a handed-down
+ * phone leaks one person's health record into another's account; assume it is not and an
+ * upgrade whose row never synced deletes months of logging. The person holding the phone
+ * is the only one who knows, so they are asked before anything is written or erased.
+ */
+const UnclaimedDataScreen: React.FC = () => {
+  const theme = useTheme()
+  const insets = useSafeAreaInsets()
+  const { unclaimedConflict, resolveUnclaimed } = useAuth()
+  const [busy, setBusy] = useState(false)
+
+  const choose = (choice: 'keep' | 'discard') => {
+    setBusy(true)
+    void resolveUnclaimed(choice).finally(() => setBusy(false))
+  }
+
+  const confirmDiscard = () => {
+    Alert.alert(
+      'Delete the data on this phone?',
+      'It has not been saved to any account, so this cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete it', style: 'destructive', onPress: () => choose('discard') },
+      ]
+    )
+  }
+
+  return (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: theme.canvas,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.lg,
+        paddingHorizontal: spacing.xl,
+        paddingTop: insets.top,
+        paddingBottom: insets.bottom,
+      }}
+    >
+      <BrandMark />
+      <SectionTitle style={{ textAlign: 'center' }}>Is this your data?</SectionTitle>
+      <Body tone="secondary" style={{ textAlign: 'center' }}>
+        There&apos;s a diary and weight history saved on this phone, but nothing saved to
+        this account yet. If this phone was yours all along, keep it — we&apos;ll save it to
+        your account now.
+      </Body>
+      {unclaimedConflict?.email ? (
+        <Body size={13} tone="muted" style={{ textAlign: 'center' }}>
+          Signed in as {unclaimedConflict.email}
+        </Body>
+      ) : null}
+      <Button
+        label="Keep it — it&apos;s mine"
+        onPress={() => choose('keep')}
+        disabled={busy}
+        loading={busy}
+        full
+      />
+      <Button
+        label="Not mine — start fresh"
+        variant="ghost"
+        onPress={confirmDiscard}
+        disabled={busy}
+        full
+      />
+    </View>
+  )
+}
+
 /** Routes registered with `presentation: 'modal'` in the Stack below. */
 const MODAL_ROUTES = new Set(['food-search', 'lift-picker', 'chat'])
 
 const RootNavigator: React.FC = () => {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
-  const { user, loading, hydrating, syncBlocked, syncUnavailable, isNewAccount } = useAuth()
+  const { user, loading, hydrating, syncBlocked, syncUnavailable, isNewAccount, unclaimedConflict } =
+    useAuth()
   const onboardedAt = useStore(s => s.onboardedAt)
   const segments = useSegments()
   const router = useRouter()
@@ -224,6 +299,7 @@ const RootNavigator: React.FC = () => {
     if (loading || hydrating) return
     // The navigator is unmounted in this state (SyncUnavailableScreen replaces it), so a
     // replace() here dispatches into a tree that is not there. Routing resumes when it is.
+    if (user && unclaimedConflict) return
     if (user && syncUnavailable && needsSetup && !isNewAccount) return
     if (!user) {
       if (!onLoginScreen) router.replace('/login')
@@ -240,6 +316,7 @@ const RootNavigator: React.FC = () => {
     hydrating,
     syncUnavailable,
     isNewAccount,
+    unclaimedConflict,
     needsSetup,
     onLoginScreen,
     onOnboarding,
@@ -280,6 +357,16 @@ const RootNavigator: React.FC = () => {
     A brand-new account is let through for the opposite reason: there is no server row to
     wait for, so the setup flow is exactly where they should be.
   */
+  // Asked before anything is written or erased, so it outranks every other state here.
+  if (user && unclaimedConflict) {
+    return (
+      <>
+        <StatusBar style={theme.mode === 'dark' ? 'light' : 'dark'} />
+        <UnclaimedDataScreen />
+      </>
+    )
+  }
+
   if (user && syncUnavailable && needsSetup && !isNewAccount) {
     return (
       <>

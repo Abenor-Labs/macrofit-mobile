@@ -71,6 +71,14 @@ interface AuthContextValue {
   syncUnavailable: boolean
   /** This session was created by signing up in this launch, so there is no row to wait for. */
   isNewAccount: boolean
+  /**
+   * There is data on this device, the signed-in account has nothing on the server, and
+   * nothing records whose the data is. Set for the one case where guessing is unsafe in
+   * both directions, and cleared by `resolveUnclaimed`.
+   */
+  unclaimedConflict: { userId: string; email: string | null } | null
+  /** `keep` publishes the device to this account; `discard` erases it. */
+  resolveUnclaimed: (choice: 'keep' | 'discard') => Promise<void>
   /** Retry the failed load. Unblocks saving if it succeeds. */
   retrySync: () => Promise<void>
   /**
@@ -164,6 +172,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [hasUnsyncedChanges, setHasUnsyncedChanges] = useState(false)
   const [hasLoadedAccount, setHasLoadedAccount] = useState(false)
   const [isNewAccount, setIsNewAccount] = useState(false)
+  const [unclaimedConflict, setUnclaimedConflict] = useState<{
+    userId: string
+    email: string | null
+  } | null>(null)
 
   const userRef = useRef<User | null>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -541,23 +553,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           'ok'    — hydrateStore has just overwritten every synced field with this account's
                     own data, so whatever was here is gone either way and the device is now
                     unambiguously theirs. Correct for the upgrader and for the stranger.
-          'empty' — this account has no server row, so the data sitting here cannot be
-                    theirs. It is the previous user's, and it must not be shown to them or
-                    uploaded into their account.
+          'empty' — the account has no server row, and the data on this device could be
+                    either the same person's (a row that never synced) or the previous
+                    user's. Guessing wrong in one direction leaks a health record; guessing
+                    wrong in the other deletes one. So the person holding the phone is
+                    asked, once, before anything is destroyed. See `unclaimedConflict`.
           'failed' — still unknown. Nothing is claimed and nothing is destroyed; the app
                     holds on the retry screen (hasLoadedAccount is false) until it can ask
                     again.
         */
         if (unclaimedStore && outcome === 'empty') {
-          isHydratingRef.current = true
-          try {
-            await resetStore()
-          } finally {
-            isHydratingRef.current = false
-          }
-          setLocalEdits(false)
-          epochRef.current = await getStoreEpoch()
-          if (generation !== generationRef.current) return
+          setUnclaimedConflict({ userId: nextUser.id, email: nextUser.email ?? null })
+          // Saving stays off until they answer: this data must not reach the account until
+          // someone confirms it belongs there.
+          canSaveRef.current = false
+          setHydrationOutcome('pending')
+          return
         }
 
         setHydrationOutcome(outcome)
@@ -901,6 +912,48 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { error: null }
   }, [flushSave, setLoaded, setLocalEdits])
 
+  /**
+   * Settle an unclaimed store once the person holding the phone has said whose it is.
+   *
+   * `keep` is the upgrade case: their own logging, from a build that had no ownership
+   * keys, on an account whose row never made it to the server. It is claimed and published.
+   * `discard` is the handed-down-phone case: someone else's data, which must not be shown
+   * to them or uploaded to their account.
+   */
+  const resolveUnclaimed = useCallback<AuthContextValue['resolveUnclaimed']>(
+    async choice => {
+      const conflict = unclaimedConflict
+      if (!conflict) return
+      setUnclaimedConflict(null)
+
+      if (choice === 'discard') {
+        isHydratingRef.current = true
+        try {
+          await resetStore()
+        } finally {
+          isHydratingRef.current = false
+        }
+        setLocalEdits(false)
+      }
+
+      epochRef.current = await getStoreEpoch()
+      setLoaded(true)
+      canSaveRef.current = true
+      await AsyncStorage.multiSet([
+        [STORE_OWNER_KEY, conflict.userId],
+        [LOADED_KEY, conflict.userId],
+      ])
+      setHydrationOutcome('empty')
+      // Kept data has never reached the server, so publish it now rather than waiting for
+      // the next incidental edit.
+      if (choice === 'keep') {
+        dirtyRef.current = true
+        await flushSave()
+      }
+    },
+    [flushSave, setLoaded, setLocalEdits, unclaimedConflict]
+  )
+
   const clearSessionEndedReason = useCallback(() => setSessionEndedReason(null), [])
 
   /**
@@ -925,6 +978,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       syncBlocked: hydrationOutcome === 'failed' && hasLoadedAccount,
       syncUnavailable: hydrationOutcome === 'failed' && !hasLoadedAccount,
       isNewAccount,
+      unclaimedConflict,
+      resolveUnclaimed,
       retrySync,
       hasUnsyncedChanges,
       sessionEndedReason,
@@ -943,6 +998,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       hydrationOutcome,
       hasLoadedAccount,
       isNewAccount,
+      unclaimedConflict,
+      resolveUnclaimed,
       retrySync,
       hasUnsyncedChanges,
       sessionEndedReason,
