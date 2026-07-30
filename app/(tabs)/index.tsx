@@ -49,7 +49,7 @@ import { IconButton } from '@/components/Button'
 import { Screen } from '@/components/Layout'
 import { StepsCard } from '@/components/StepsCard'
 import { WeightTargetCard, WeightVerdict } from '@/components/WeightTarget'
-import { DateNavigator } from '@/components/DateNavigator'
+import { DateNavigator, parseISODate } from '@/components/DateNavigator'
 import { HIT_SIZE, jade, radius, spacing } from '@/theme/tokens'
 
 /**
@@ -145,7 +145,9 @@ export default function DashboardScreen() {
   return (
     <Screen
       title="Today"
-      subtitle={`${formatDate(today)} · ${WEEKDAYS[new Date().getDay()]}`}
+      /* Follows the day being viewed, not the clock. A header reading "Jul 30" above Jul 29's
+         meals is the same lie the card title was telling. */
+      subtitle={`${formatDate(date)} · ${WEEKDAYS[parseISODate(date).getDay()]}`}
       right={
         <IconButton
           accessibilityLabel="Open the nutrition assistant"
@@ -272,7 +274,11 @@ const MacroCard: React.FC<{
             gap: spacing.md,
           }}
         >
-          <SectionTitle>Today</SectionTitle>
+          {/* "Intake", not "Today". The card was titled Today when today was the only day it
+              could show; with a date navigator directly above it, that title sat over Jul 29's
+              numbers and claimed they were this morning's. The navigator owns the date, so the
+              card says what the figures are instead of when they are. */}
+          <SectionTitle>Intake</SectionTitle>
           {/* The affordance. Without it a card this dense reads as a display, not a door. */}
           <ChevronRight size={20} color={theme.textMuted} />
         </View>
