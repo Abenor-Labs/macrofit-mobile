@@ -230,13 +230,10 @@ const MacroCard: React.FC<{
 
   return (
     /*
-      Opens the day in full: the Diary is this card's detail view. It carries the date control,
-      the complete macro set down to fibre, sugar and sodium, and every entry per meal — which
-      is what "see today's intake" means once the ring has already given the headline.
-
-      Not Progress. That is the week and the month, and it is where the Last 7 days card goes.
-      Ring to day, strip to trend, the same split Google Fit draws between its home rings and
-      the activity detail behind them.
+      Opens the intake detail on Day, showing the day this ring is showing, with Week and Month
+      a tap away in the same screen. That is the shape Google Fit uses: the home ring is a
+      headline, and one detail behind it answers today, this week and this month rather than
+      scattering the three across separate screens.
 
       Press feedback is opacity rather than a background change, the same choice CoachCard
       makes: the card is a Surface with its own fill, so a background swap underneath it would
@@ -246,8 +243,10 @@ const MacroCard: React.FC<{
       accessibilityRole="link"
       accessibilityLabel={`Today: ${formatNumber(nutrition.calories)} of ${formatNumber(
         goalCalories
-      )} kilocalories. Open today's diary.`}
-      onPress={() => router.push('/diary')}
+      )} kilocalories. Open intake detail.`}
+      onPress={() =>
+        router.push({ pathname: '/progress', params: { metric: 'calories', range: 'day' } })
+      }
       style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
     >
       <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
@@ -775,7 +774,9 @@ const WeekCard: React.FC<{
           ? 'Last 7 days, nothing finished yet. Open calorie history.'
           : `Last 7 days. ${summary} Open calorie history.`
       }
-      onPress={() => router.push({ pathname: '/progress', params: { metric: 'calories' } })}
+      onPress={() =>
+        router.push({ pathname: '/progress', params: { metric: 'calories', range: '7d' } })
+      }
       style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
     >
       <Surface style={{ padding: spacing.lg, gap: spacing.md }}>

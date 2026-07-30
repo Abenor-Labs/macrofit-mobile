@@ -22,6 +22,7 @@ import { EmptyState, Screen } from '@/components/Layout'
 import { ProgressTrack } from '@/components/MacroRing'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
 import { WeightTargetCard } from '@/components/WeightTarget'
+import { DateNavigator } from '@/components/DateNavigator'
 import { useStore } from '@/store/useStore'
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
@@ -59,7 +60,13 @@ const USABLE_H = CHART_H - PAD_Y * 2
 /** Scrub readout width. Wide enough for '2,427 kcal' plus a date under it. */
 const TOOLTIP_W = 116
 
-const RANGE_DAYS = { '7d': 7, '30d': 30 } as const
+/*
+  Day sits alongside the week and the month because the Intake ring on the dashboard opens here
+  and has to land on the day it was showing. Fit draws the same three: a detail screen answers
+  "today", "this week" and "this month" from one place rather than making the user guess which
+  screen owns which span.
+*/
+const RANGE_DAYS = { day: 1, '7d': 7, '30d': 30 } as const
 
 type RangeKey = keyof typeof RANGE_DAYS
 type TabKey = 'calories' | 'macros' | 'weight' | 'training'
@@ -688,8 +695,9 @@ const TABS: readonly SegmentedOption<TabKey>[] = [
 ]
 
 const RANGES: readonly SegmentedOption<RangeKey>[] = [
-  { key: '7d', label: '7d' },
-  { key: '30d', label: '30d' },
+  { key: 'day', label: 'Day' },
+  { key: '7d', label: 'Week' },
+  { key: '30d', label: 'Month' },
 ]
 
 const TAB_CAPTION: Record<TabKey, string> = {
@@ -710,12 +718,130 @@ interface DayStat {
   sodium: number
 }
 
+
+/* ------------------------------------------------------------------ *
+ * Day breakdown — one day, by the hour
+ * ------------------------------------------------------------------ */
+
+/** Bar height for the busiest hour of the day. */
+const HOUR_BAR_MAX = 92
+
+/**
+ * A single day's intake, hour by hour.
+ *
+ * The line chart is wrong at this span: one logged day is one point, and a point plotted
+ * between two axis labels both reading the same date says nothing at all. What a day actually
+ * has that a week does not is *timing* — every food entry carries a timestamp, and until now
+ * nothing in the app read it.
+ *
+ * So the day view answers questions the other spans cannot: when the calories went in, whether
+ * the day front-loads or back-loads, and how much of the target is still open. Fit's Day tab
+ * does the same thing with its hourly bars.
+ */
+const DayBreakdown: React.FC<{
+  entries: readonly { hour: number; calories: number }[]
+  total: number
+  goal: number
+}> = ({ entries, total, goal }) => {
+  const theme = useTheme()
+
+  const hours = React.useMemo(() => {
+    const buckets = Array.from({ length: 24 }, () => 0)
+    for (const entry of entries) {
+      if (entry.hour >= 0 && entry.hour < 24) buckets[entry.hour] += entry.calories
+    }
+    return buckets
+  }, [entries])
+
+  const busiest = Math.max(...hours, 1)
+  const remaining = goal - total
+  const over = remaining < 0
+
+  return (
+    <View style={{ gap: spacing.lg }}>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
+        <StatValue size={34} color={over ? theme.status.critical : undefined}>
+          {withCommas(total)}
+        </StatValue>
+        <Body size={13} tone="secondary">
+          {'of '}
+          <StatValue size={13} tone="secondary">
+            {withCommas(goal)}
+          </StatValue>
+          {' kcal'}
+        </Body>
+      </View>
+
+      <ProgressTrack
+        progress={total / Math.max(goal, 1)}
+        color={over ? theme.status.critical : theme.brand}
+        over={over}
+      />
+
+      <Body size={13} tone="secondary">
+        {total === 0
+          ? 'Nothing logged on this day.'
+          : over
+            ? `${withCommas(Math.abs(remaining))} kcal over the target.`
+            : `${withCommas(remaining)} kcal of the target still open.`}
+      </Body>
+
+      <View style={{ gap: 6 }}>
+        <Label>By hour</Label>
+        <View
+          accessible
+          accessibilityLabel={
+            total === 0
+              ? 'No intake to break down by hour'
+              : `Intake by hour. Busiest hour holds ${withCommas(busiest)} kilocalories.`
+          }
+          style={{
+            flexDirection: 'row',
+            alignItems: 'flex-end',
+            gap: 2,
+            height: HOUR_BAR_MAX,
+          }}
+        >
+          {hours.map((value, hour) => (
+            <View
+              key={hour}
+              style={{ flex: 1, height: HOUR_BAR_MAX, justifyContent: 'flex-end' }}
+            >
+              <View
+                style={{
+                  // A hairline for empty hours, so the day reads as 24 slots rather than as
+                  // however many happen to hold food.
+                  height: value > 0 ? Math.max((value / busiest) * HOUR_BAR_MAX, 4) : 2,
+                  borderRadius: 2,
+                  backgroundColor: value > 0 ? theme.brand : theme.border,
+                }}
+              />
+            </View>
+          ))}
+        </View>
+        {/* Four labels rather than twenty-four: the bars carry the shape, and a legible axis
+            matters more than naming every hour. */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+          {['00', '06', '12', '18', '24'].map(mark => (
+            <StatValue key={mark} size={11} tone="muted">
+              {mark}
+            </StatValue>
+          ))}
+        </View>
+      </View>
+    </View>
+  )
+}
+
 /* ------------------------------------------------------------------ *
  * Screen
  * ------------------------------------------------------------------ */
 
 const isTabKey = (value: string | undefined): value is TabKey =>
   value === 'calories' || value === 'macros' || value === 'weight' || value === 'training'
+
+const isRangeKey = (value: string | undefined): value is RangeKey =>
+  value === 'day' || value === '7d' || value === '30d'
 
 export default function ProgressScreen() {
   const theme = useTheme()
@@ -731,9 +857,14 @@ export default function ProgressScreen() {
     dashboard changed the URL and this screen never heard about it. The metric arrived, the tab
     did not move, and the link looked like it did nothing.
   */
-  const params = useGlobalSearchParams<{ metric?: string }>()
+  const params = useGlobalSearchParams<{ metric?: string; range?: string }>()
   const [tab, setTab] = useState<TabKey>(isTabKey(params.metric) ? params.metric : 'calories')
   const [range, setRange] = useState<RangeKey>('7d')
+  /*
+    Which day the Day range is showing. Separate from `range` because moving the cursor must not
+    reset the span, and switching to Week and back should return to the day you were on.
+  */
+  const [day, setDay] = useState(getTodayString())
 
   const diary = useStore(s => s.diary)
   const goals = useStore(s => s.goals)
@@ -758,13 +889,30 @@ export default function ProgressScreen() {
     router.setParams({ metric: undefined })
   }, [params.metric, router])
 
+  /*
+    The span can arrive as a param too, so the dashboard's Intake ring lands on the day it was
+    showing rather than on whatever span this screen was last left in. Cleared once applied, for
+    the same reason the metric is: a stale param must not drag the user off a span they chose.
+  */
+  useEffect(() => {
+    if (!isRangeKey(params.range)) return
+    setRange(params.range)
+    if (params.range === 'day') setDay(getTodayString())
+    router.setParams({ range: undefined })
+  }, [params.range, router])
+
   const unitLabel = weightUnit === 'lbs' ? 'lb' : 'kg'
   // Volume comes out of workoutMath in kg. Convert only here, at the display edge.
   const toDisplayWeight = (kg: number): number => (weightUnit === 'lbs' ? kgToLbs(kg) : kg)
 
   const dates = useMemo(
-    () => (range === '7d' ? getLast7Days() : getLast30Days()),
-    [range]
+    /*
+      Day is the one range that is not "the last N days ending now": it is a single chosen day,
+      so it carries its own cursor and the arrows move it. Week and month stay anchored to
+      today, which is what makes them comparable from one visit to the next.
+    */
+    () => (range === 'day' ? [day] : range === '7d' ? getLast7Days() : getLast30Days()),
+    [range, day]
   )
   const slots = dates.length
 
@@ -790,6 +938,26 @@ export default function ProgressScreen() {
     })
     return out
   }, [dates, diary])
+
+  /*
+    The selected day's entries reduced to (hour, calories). Only built for the day range, since
+    nothing else reads timestamps — a month of them would be work for a view that never shows
+    the result.
+  */
+  const dayHours = useMemo(() => {
+    if (range !== 'day') return []
+    const stored = diary[day]
+    if (!stored) return []
+    return (stored.entries ?? []).map(entry => ({
+      hour: new Date(entry.timestamp).getHours(),
+      calories: entry.food.calories * entry.servings,
+    }))
+  }, [range, diary, day])
+
+  const dayTotal = useMemo(
+    () => dayHours.reduce((sum, entry) => sum + entry.calories, 0),
+    [dayHours]
+  )
 
   const loggedDays = dayStats.length
 
@@ -859,11 +1027,22 @@ export default function ProgressScreen() {
     [workoutLog]
   )
 
-  const rangeWords = range === '7d' ? 'last 7 days' : 'last 30 days'
+  const rangeWords =
+    range === 'day' ? formatDate(day) : range === '7d' ? 'last 7 days' : 'last 30 days'
 
   /* --------------------------- Calories --------------------------- */
 
-  const caloriesTab = (
+  /*
+    The day gets its own card rather than a one-point line chart, and it replaces the Summary
+    too: an average over a single day is either that day's total or nothing, and "Avg intake"
+    over one date is a label with no meaning behind it.
+  */
+  const caloriesTab = range === 'day' ? (
+    <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
+      <CardHeader title="Calories" caption={`Intake on ${rangeWords}`} />
+      <DayBreakdown entries={dayHours} total={Math.round(dayTotal)} goal={goals.calories} />
+    </Surface>
+  ) : (
     <>
       <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
         <CardHeader title="Calories" caption={`Intake per day, ${rangeWords}`} />
@@ -1299,10 +1478,16 @@ export default function ProgressScreen() {
             {tabIcon}
             <Label>{rangeWords}</Label>
           </View>
-          <View style={{ width: 132 }}>
+          <View style={{ width: 168 }}>
             <Segmented options={RANGES} value={range} onChange={setRange} groupLabel="Range" />
           </View>
         </View>
+
+        {/* Only the Day range has a cursor to move. Week and month stay anchored to today,
+            which is what keeps them comparable between visits. */}
+        {range === 'day' ? (
+          <DateNavigator date={day} today={getTodayString()} onChange={setDay} />
+        ) : null}
       </View>
 
       {tab === 'calories' ? caloriesTab : null}
