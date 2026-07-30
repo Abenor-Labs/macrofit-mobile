@@ -48,16 +48,25 @@ COLD START
 │   ✖ no badge when activeWorkoutId is set                                       │
 └────────────────────────────────────────────────────────────────────────────────┘
 
-TAB 1 ─ app/(tabs)/index.tsx  "Today"          [header ► /chat  (line 123)]
-   HeroCard ······················ calories eaten (tone inverted for bulkers ⚠)
-   "AI Nutrition Assistant" card ► /chat   ← 2nd slot on the screen  ⚠ P2
-   MacroCard ····················· rings
-   CoachCard ► /goals  (line 350)  ← THE ONLY DOOR TO /goals IN THE APP  ⚠ P1
-   MealsCard rows ► /diary  (line 429)  ← says "Add food", navigates to a screen top
-        └ shows 4 of 6 meal types; rows never sum to the hero  ⚠ P2
-   WaterCard · StepsCard · WeightTargetCard(compact) · GlanceRow
-        └ "Kcal burned" tile reads a field nothing ever writes → permanent 0  ⚠ P1
+TAB 1 ─ app/(tabs)/index.tsx  "Today"          [header ► /chat]
+   MacroCard ► /progress?metric=calories ·· ring holds eaten / target, plus macro legend
+   WeightVerdict ► /progress?metric=weight  the trend read; renders nothing without a goal
+   WeekCard ► /progress?metric=calories ··· 7 bars, then avg kcal / protein hit / streak
+        └ today is drawn but never counted: a day in progress is not an average
+   CoachCard ► /goals  ← THE ONLY DOOR TO /goals IN THE APP  ⚠ P1
+   MealsCard rows ► /food-search {meal, date} when empty, ► /diary when already logged
+        └ shows 4 of 6 meal types; rows never sum to the ring  ⚠ P2
+   WaterCard · StepsCard · WeightTargetCard(compact)
    ✖ NO training presence at all: no live-session card, no start action
+   ✖ no date navigation: "Today" is a title, not a control  ⚠ P2
+   ✖ nothing states calories remaining, or warns when the day goes over  ⚠ P2
+
+   RESOLVED since this document was written:
+   · HeroCard removed — it printed the same total the ring already held, one card apart
+   · "AI Nutrition Assistant" card removed — /chat was reachable three ways from one screen
+   · GlanceRow removed — its "Kcal burned" tile did read a field nothing writes; the streak
+     it also held survives inside WeekCard
+   · Meal rows no longer all land on /diary; an empty row opens the picker set to that meal
 
 TAB 2 ─ app/(tabs)/diary.tsx  "Diary"          [header ► /chat  (line 690)]
    DateNavigator (own `date` state, never re-synced from today or from params ⚠)
