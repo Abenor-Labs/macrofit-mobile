@@ -4,6 +4,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-na
 import { Tabs, useRouter, useSegments } from 'expo-router'
 import { ChromeBlur } from '@/components/BlurTarget'
 import { LiquidGlass } from '@/components/LiquidGlass'
+import { useSnackbar } from '@/components/Snackbar'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
 import {
@@ -198,6 +199,7 @@ const QuickLogButton: React.FC = () => {
   const insets = useSafeAreaInsets()
   const router = useRouter()
   const addWater = useStore(s => s.addWater)
+  const snackbar = useSnackbar()
   const [open, setOpen] = useState(false)
 
   const spin = useSharedValue(0)
@@ -234,7 +236,20 @@ const QuickLogButton: React.FC = () => {
       key: 'water',
       label: `Log ${QUICK_WATER_ML} ml water`,
       icon: <Droplets size={18} color={theme.brandText} strokeWidth={2} />,
-      run: () => addWater(getTodayString(), QUICK_WATER_ML),
+      run: () => {
+        /*
+          The one action in this menu that commits immediately instead of opening a screen.
+          Everything else can be abandoned by going back; water is written the moment the
+          finger lifts, and the only correction used to be a minus button four swipes down
+          the dashboard, on a card the user was not looking at.
+        */
+        const date = getTodayString()
+        addWater(date, QUICK_WATER_ML)
+        snackbar.show(`${QUICK_WATER_ML} ml water logged`, {
+          label: 'Undo',
+          onPress: () => addWater(date, -QUICK_WATER_ML),
+        })
+      },
     },
     {
       key: 'food',

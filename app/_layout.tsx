@@ -27,6 +27,7 @@ import { BrandMark } from '@/components/BrandMark'
 import { Button } from '@/components/Button'
 import { Body, SectionTitle } from '@/components/Text'
 import { BlurTargetProvider } from '@/components/BlurTarget'
+import { SnackbarProvider } from '@/components/Snackbar'
 import { HIT_SIZE, spacing } from '@/theme/tokens'
 
 // Hold the native splash until fonts AND persisted state are ready. Without the store
@@ -384,6 +385,9 @@ const RootNavigator: React.FC = () => {
         {/* Above the Stack so the tab bar, which renders outside the screens, can still reach
             the focused screen's content to blur it. */}
         <BlurTargetProvider>
+          {/* Inside BlurTargetProvider so a toast renders above the tab bar rather than
+              beneath it, and above the Stack so any screen can raise one. */}
+          <SnackbarProvider>
           <Stack
             screenOptions={{
               headerShown: false,
@@ -408,6 +412,7 @@ const RootNavigator: React.FC = () => {
             <Stack.Screen name="goals" />
             <Stack.Screen name="chat" options={{ presentation: 'modal' }} />
           </Stack>
+          </SnackbarProvider>
         </BlurTargetProvider>
       </SafeAreaInsetsContext.Provider>
     </>
