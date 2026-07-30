@@ -689,8 +689,22 @@ export default function ProgressScreen() {
   }, [dates, diary])
 
   const loggedDays = dayStats.length
+
+  /*
+    Averages run over finished days only. Today is still plotted — it is a real data point and
+    the chart is a record of what happened — but it is a day in progress, and at lunchtime it
+    holds one meal. With a 7-day range and a single logged day that produced "You averaged
+    1,727 kcal below goal", which described nothing except the hour of the afternoon.
+
+    "Days logged" keeps counting today, because it is logged. The two figures answer different
+    questions and it would be worse to make either of them lie to match the other. The
+    dashboard's week card splits them the same way.
+  */
+  const today = getTodayString()
+  const settledStats = useMemo(() => dayStats.filter(d => d.date !== today), [dayStats, today])
+  const settledDays = settledStats.length
   const average = (pick: (d: DayStat) => number): number | null =>
-    loggedDays > 0 ? dayStats.reduce((total, d) => total + pick(d), 0) / loggedDays : null
+    settledDays > 0 ? settledStats.reduce((total, d) => total + pick(d), 0) / settledDays : null
 
   const avgCalories = average(d => d.calories)
   const avgProtein = average(d => d.protein)
@@ -802,7 +816,16 @@ export default function ProgressScreen() {
           <StatTile label="Daily goal" value={withCommas(goals.calories)} unit="kcal" />
           <StatTile label="Days logged" value={`${loggedDays}/${slots}`} />
         </View>
-        {avgCalories === null ? null : Math.round(avgCalories) === Math.round(goals.calories) ? (
+        {avgCalories === null ? (
+          /* An "Avg intake —" with nothing next to it reads as a bug rather than as a screen
+             waiting for data, and the reason differs: either today is the only logged day and
+             is not finished, or the range is genuinely empty. */
+          <Body size={13} tone="secondary">
+            {loggedDays > 0
+              ? 'Today is still in progress, so it is not in the average yet.'
+              : `Nothing logged in the ${rangeWords}.`}
+          </Body>
+        ) : Math.round(avgCalories) === Math.round(goals.calories) ? (
           <Body size={13} tone="secondary">
             You averaged exactly your calorie goal.
           </Body>
