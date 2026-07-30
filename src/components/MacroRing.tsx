@@ -98,7 +98,9 @@ export const ProgressTrack: React.FC<ProgressTrackProps> = ({
       style={{
         height,
         borderRadius: height / 2,
-        backgroundColor: theme.border,
+        // Not `border`: these bars sit on the jade-washed dashboard and weight-goal cards,
+        // where a stone-200 track is invisible and an empty bar reads as a missing one.
+        backgroundColor: theme.trackMuted,
         overflow: 'hidden',
       }}
     >

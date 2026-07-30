@@ -347,7 +347,7 @@ export default function OnboardingScreen() {
                     flex: 1,
                     height: 5,
                     borderRadius: radius.pill,
-                    backgroundColor: i <= step ? theme.status.good : theme.border,
+                    backgroundColor: i <= step ? theme.status.good : theme.trackMuted,
                   }}
                 />
               ))}

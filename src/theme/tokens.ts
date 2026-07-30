@@ -40,6 +40,15 @@ export interface Theme {
   surface: string
   surfaceRaised: string
   border: string
+  /**
+   * Unfilled portion of a progress track.
+   *
+   * Darker than `border` on purpose. `border` is tuned to sit against `surface`, and a
+   * 5px bar in that colour vanishes on the tinted washes the setup and dashboard screens
+   * use — the last segment of the onboarding bar disappeared entirely, so step 4 of 5
+   * looked like the bar simply ended.
+   */
+  trackMuted: string
   hairline: string
   text: string
   textSecondary: string
@@ -65,6 +74,7 @@ export const lightTheme: Theme = {
   surface: '#FFFFFF',
   surfaceRaised: '#FFFFFF',
   border: stone[200],
+  trackMuted: stone[400],
   hairline: 'rgba(28,25,23,0.08)',
   text: stone[900],
   textSecondary: stone[600],
@@ -90,6 +100,7 @@ export const darkTheme: Theme = {
   surface: stone[900],
   surfaceRaised: '#221F1D',
   border: stone[800],
+  trackMuted: stone[600],
   hairline: 'rgba(250,250,249,0.10)',
   text: stone[100],
   textSecondary: stone[400],
