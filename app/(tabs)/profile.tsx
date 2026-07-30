@@ -110,7 +110,56 @@ const MEASUREMENT_FIELDS: { key: keyof BodyMeasurement; label: string }[] = [
   { key: 'chest', label: 'Chest' },
 ]
 
-/** A disclosure section. Keeps the page scannable instead of one long wall of controls. */
+/**
+ * A named run of related sections, drawn as one card.
+ *
+ * Every section used to carry its own Surface, so the screen was eleven identically
+ * weighted cards with no order to them — Targets looked exactly as important as Meal
+ * templates, and finding either meant reading all eleven. Three named groups give the
+ * screen a shape you can skim, and drop eight card borders and the gaps between them.
+ */
+const SectionGroup: React.FC<{ label: string; children: React.ReactNode }> = ({
+  label,
+  children,
+}) => {
+  // Rendered rather than passed down, so a Section never has to know its own position.
+  const rows = React.Children.toArray(children).filter(React.isValidElement)
+
+  return (
+    <View style={{ gap: spacing.sm }}>
+      <Label style={{ paddingHorizontal: spacing.xs }}>{label}</Label>
+      <Surface>
+        {rows.map((row, index) => (
+          <React.Fragment key={row.key ?? index}>
+            {index > 0 ? <Divider /> : null}
+            {row}
+          </React.Fragment>
+        ))}
+      </Surface>
+    </View>
+  )
+}
+
+/** Hairline between two sections inside a group. */
+const Divider: React.FC = () => {
+  const theme = useTheme()
+  return (
+    <View
+      style={{
+        height: StyleSheet.hairlineWidth * 2,
+        backgroundColor: theme.border,
+        marginHorizontal: spacing.lg,
+      }}
+    />
+  )
+}
+
+/**
+ * A disclosure section. Keeps the page scannable instead of one long wall of controls.
+ *
+ * Draws no card of its own — SectionGroup owns that. The chevron still expands in place, so
+ * grouping costs nothing in reach: everything is one tap away exactly as it was.
+ */
 const Section: React.FC<{
   title: string
   icon: React.ReactNode
@@ -123,7 +172,7 @@ const Section: React.FC<{
   const Chevron = open ? ChevronDown : ChevronRight
 
   return (
-    <Surface>
+    <View>
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
@@ -174,7 +223,7 @@ const Section: React.FC<{
           {children}
         </View>
       )}
-    </Surface>
+    </View>
   )
 }
 
@@ -604,57 +653,7 @@ export default function ProfileScreen() {
       {/* The question this screen exists to answer: am I heading the right way? */}
       <WeightTargetCard />
 
-      {health.availability === 'available' && (
-        <Section
-          title="Health Connect"
-          icon={<Activity size={16} color={theme.brandText} strokeWidth={2} />}
-          subtitle={health.granted ? 'Connected' : 'Import steps and past weigh-ins'}
-          defaultOpen={!health.granted}
-        >
-          {health.granted ? (
-            <>
-              <Body size={13} tone="secondary">
-                Steps are read automatically. You can also pull in bodyweight recorded by
-                your phone or scale — days you already logged yourself are never
-                overwritten.
-              </Body>
-              <Button
-                label="Import weight history"
-                variant="secondary"
-                onPress={() => void health.importWeightHistory()}
-                loading={health.busy}
-                icon={<Download size={15} color={theme.text} strokeWidth={2} />}
-              />
-              {health.importedWeights !== null && (
-                <Body size={12} tone="muted">
-                  {health.importedWeights === 0
-                    ? 'No new weigh-ins found — everything on file is already logged.'
-                    : `Imported ${health.importedWeights} weigh-in${health.importedWeights === 1 ? '' : 's'}.`}
-                </Body>
-              )}
-              <Field
-                numeric
-                label="Daily step goal"
-                value={stepGoal}
-                onChangeText={setStepGoal}
-                onBlur={commitStepGoal}
-                placeholder="8000"
-                keyboardType="number-pad"
-                inputMode="numeric"
-              />
-            </>
-          ) : (
-            <>
-              <Body size={13} tone="secondary">
-                Let MacroFit read steps and bodyweight from Health Connect so you do not
-                have to enter data your phone already has.
-              </Body>
-              <Button label="Connect" onPress={() => void health.connect()} loading={health.busy} />
-            </>
-          )}
-        </Section>
-      )}
-
+      <SectionGroup label="Your numbers">
       <Section
         title="Targets"
         icon={<Target size={16} color={theme.brandText} strokeWidth={2} />}
@@ -902,7 +901,9 @@ export default function ProfileScreen() {
           </View>
         ))}
       </Section>
+      </SectionGroup>
 
+      <SectionGroup label="Saved by you">
       <Section
         title="Custom foods"
         icon={<Salad size={16} color={theme.brandText} strokeWidth={2} />}
@@ -971,6 +972,60 @@ export default function ProfileScreen() {
           ))
         )}
       </Section>
+      </SectionGroup>
+
+      <SectionGroup label="App">
+      {/* Setup you do once. It used to open itself at the top of the screen on every visit,
+          pushing everything the user actually came for below the fold. */}
+      {health.availability === 'available' && (
+        <Section
+          title="Health Connect"
+          icon={<Activity size={16} color={theme.brandText} strokeWidth={2} />}
+          subtitle={health.granted ? 'Connected' : 'Not connected'}
+        >
+          {health.granted ? (
+            <>
+              <Body size={13} tone="secondary">
+                Steps are read automatically. You can also pull in bodyweight recorded by
+                your phone or scale — days you already logged yourself are never
+                overwritten.
+              </Body>
+              <Button
+                label="Import weight history"
+                variant="secondary"
+                onPress={() => void health.importWeightHistory()}
+                loading={health.busy}
+                icon={<Download size={15} color={theme.text} strokeWidth={2} />}
+              />
+              {health.importedWeights !== null && (
+                <Body size={12} tone="muted">
+                  {health.importedWeights === 0
+                    ? 'No new weigh-ins found — everything on file is already logged.'
+                    : `Imported ${health.importedWeights} weigh-in${health.importedWeights === 1 ? '' : 's'}.`}
+                </Body>
+              )}
+              <Field
+                numeric
+                label="Daily step goal"
+                value={stepGoal}
+                onChangeText={setStepGoal}
+                onBlur={commitStepGoal}
+                placeholder="8000"
+                keyboardType="number-pad"
+                inputMode="numeric"
+              />
+            </>
+          ) : (
+            <>
+              <Body size={13} tone="secondary">
+                Let MacroFit read steps and bodyweight from Health Connect so you do not
+                have to enter data your phone already has.
+              </Body>
+              <Button label="Connect" onPress={() => void health.connect()} loading={health.busy} />
+            </>
+          )}
+        </Section>
+      )}
 
       <Section
         title="Appearance"
@@ -997,31 +1052,22 @@ export default function ProfileScreen() {
         />
       </Section>
 
-      <Surface style={{ padding: spacing.lg, gap: spacing.md }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-          {/* The icon has to agree with the sentence beside it — an affirmative cloud over
-              "still waiting to sync" is the same contradiction, just quieter. */}
-          {syncFailed ? (
-            <CloudOff size={15} color={theme.status.critical} strokeWidth={2} />
+      {/* Sync state rides on the row's subtitle rather than needing its own card. It is a
+          reassurance, not a task, and it was the only thing on this screen with no header. */}
+      <Section
+        title="Account"
+        icon={
+          syncFailed ? (
+            <CloudOff size={16} color={theme.status.critical} strokeWidth={2} />
           ) : hasUnsyncedChanges ? (
-            <CloudOff size={15} color={theme.status.warning} strokeWidth={2} />
+            <CloudOff size={16} color={theme.status.warning} strokeWidth={2} />
           ) : (
-            <Cloud size={15} color={theme.status.good} strokeWidth={2} />
-          )}
-          <Body
-            size={12}
-            style={{
-              color: syncFailed
-                ? theme.status.critical
-                : hasUnsyncedChanges
-                  ? theme.status.warning
-                  : theme.textSecondary,
-            }}
-          >
-            {syncLabel}
-          </Body>
-        </View>
-        <Body size={12} tone="muted">
+            <Cloud size={16} color={theme.status.good} strokeWidth={2} />
+          )
+        }
+        subtitle={syncLabel}
+      >
+        <Body size={13} tone="secondary">
           {user?.email ?? 'Not signed in'}
         </Body>
         <Button
@@ -1030,7 +1076,8 @@ export default function ProfileScreen() {
           onPress={confirmSignOut}
           icon={<LogOut size={15} color={theme.text} strokeWidth={2} />}
         />
-      </Surface>
+      </Section>
+      </SectionGroup>
     </Screen>
   )
 }
