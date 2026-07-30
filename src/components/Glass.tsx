@@ -1,5 +1,5 @@
 import React from 'react'
-import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
 import { BlurView } from 'expo-blur'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useTheme } from '@/theme/useTheme'
@@ -50,11 +50,18 @@ export const GlassSurface: React.FC<GlassSurfaceProps> = ({
         style,
       ]}
     >
+      {/*
+        No blurMethod, so Android draws the flat scrim the overlay below is already tuned for.
+        This used to ask for `dimezisBlurView`, which needs a `blurTarget` it was never given —
+        the library warned on every render and fell back to exactly this scrim anyway.
+
+        A real blur here would need these cards to sample the scroll content they sit inside, and
+        a BlurView cannot be part of its own target. The chrome that floats *above* content — tab
+        bar, headers — gets the real thing via ChromeBlur in ./BlurTarget.
+      */}
       <BlurView
         tint={g.tint}
         intensity={intensity ?? g.intensity}
-        // experimentalBlurMethod gives Android a real blur instead of a flat scrim.
-        experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
         style={StyleSheet.absoluteFill}
       />
       <View style={[StyleSheet.absoluteFill, { backgroundColor: g.overlay }]} />

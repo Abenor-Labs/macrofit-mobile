@@ -82,7 +82,18 @@ export interface Theme {
   glass: {
     tint: 'light' | 'dark'
     intensity: number
+    /**
+     * Tint for surfaces that cannot blur what is behind them — the in-content cards in
+     * Glass.tsx, which sit inside the very view the chrome samples. Opaque enough to read as
+     * deliberate material on its own, because for those it is the only material there is.
+     */
     overlay: string
+    /**
+     * Tint for the floating chrome — tab bar, screen headers — which does blur real content
+     * via ChromeBlur. Much lighter than `overlay`: at 0.55 the tint is doing the work and the
+     * blur is wasted underneath it. Kept at or above 0.28 so tab labels hold their contrast.
+     */
+    chromeOverlay: string
     border: string
     highlight: string
   }
@@ -114,6 +125,7 @@ export const lightTheme: Theme = {
     tint: 'light',
     intensity: 40,
     overlay: 'rgba(255,255,255,0.55)',
+    chromeOverlay: 'rgba(255,255,255,0.30)',
     border: 'rgba(28,25,23,0.10)',
     highlight: 'rgba(255,255,255,0.85)',
   },
@@ -144,6 +156,7 @@ export const darkTheme: Theme = {
     tint: 'dark',
     intensity: 50,
     overlay: 'rgba(28,25,23,0.55)',
+    chromeOverlay: 'rgba(28,25,23,0.32)',
     border: 'rgba(250,250,249,0.12)',
     highlight: 'rgba(250,250,249,0.16)',
   },
@@ -193,6 +206,7 @@ export const workoutTheme: Theme = {
     tint: 'dark',
     intensity: 50,
     overlay: 'rgba(8,9,10,0.62)',
+    chromeOverlay: 'rgba(8,9,10,0.36)',
     // A faint lime edge, so even the frosted chrome belongs to this mode.
     border: 'rgba(190,242,100,0.14)',
     highlight: 'rgba(243,246,248,0.14)',

@@ -525,10 +525,12 @@ export default function ChatScreen() {
             gap: spacing.md,
           }}
         >
+          {/* No blurMethod on purpose: the composer is inside the same content view the chrome
+              blurs, and a BlurView cannot sample a target it is itself part of. The overlay
+              below carries the material instead. */}
           <BlurView
             tint={theme.glass.tint}
             intensity={theme.glass.intensity + 20}
-            experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
             style={StyleSheet.absoluteFill}
           />
           <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.glass.overlay }]} />

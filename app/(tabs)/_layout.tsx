@@ -1,8 +1,8 @@
 import React, { useState } from 'react'
-import { Platform, Pressable, StyleSheet, View } from 'react-native'
+import { Pressable, StyleSheet, View } from 'react-native'
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { Tabs, useRouter, useSegments } from 'expo-router'
-import { BlurView } from 'expo-blur'
+import { ChromeBlur } from '@/components/BlurTarget'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
 import {
@@ -82,13 +82,8 @@ const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
         overflow: 'hidden',
       }}
     >
-      <BlurView
-        tint={theme.glass.tint}
-        intensity={theme.glass.intensity + 20}
-        experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
-        style={StyleSheet.absoluteFill}
-      />
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.glass.overlay }]} />
+      <ChromeBlur tint={theme.glass.tint} intensity={theme.glass.intensity + 20} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.glass.chromeOverlay }]} />
 
       <View style={{ flexDirection: 'row' }}>
         {state.routes.map((route, index) => {
@@ -341,12 +336,7 @@ const QuickLogButton: React.FC = () => {
           elevation: 6,
         })}
       >
-        <BlurView
-          tint={theme.glass.tint}
-          intensity={theme.glass.intensity + 30}
-          experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
-          style={StyleSheet.absoluteFill}
-        />
+        <ChromeBlur tint={theme.glass.tint} intensity={theme.glass.intensity + 30} />
         {/* Brand wash rather than a flat fill, so the blur still shows through. */}
         <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.brand + 'E6' }]} />
         {/* brandOn, not a hardcoded white: white on a light brand is unreadable. */}

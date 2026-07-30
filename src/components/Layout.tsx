@@ -1,6 +1,5 @@
 import React from 'react'
 import {
-  Platform,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -9,8 +8,8 @@ import {
   type TextInputProps,
   type ViewStyle,
 } from 'react-native'
-import { BlurView } from 'expo-blur'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { BlurTargetArea, ChromeBlur } from './BlurTarget'
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, fonts, radius, spacing } from '@/theme/tokens'
 import { Body, Label, SectionTitle } from './Text'
@@ -66,13 +65,10 @@ export const Screen: React.FC<ScreenProps> = ({
             zIndex: 10,
           }}
         >
-          <BlurView
-            tint={theme.glass.tint}
-            intensity={theme.glass.intensity + 20}
-            experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
-            style={StyleSheet.absoluteFill}
+          <ChromeBlur tint={theme.glass.tint} intensity={theme.glass.intensity + 20} />
+          <View
+            style={[StyleSheet.absoluteFill, { backgroundColor: theme.glass.chromeOverlay }]}
           />
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.glass.overlay }]} />
           <View
             style={{
               flexDirection: 'row',
@@ -96,20 +92,25 @@ export const Screen: React.FC<ScreenProps> = ({
         </View>
       )}
 
-      {scroll ? (
-        <ScrollView
-          contentContainerStyle={{
-            paddingTop: title === undefined ? insets.top + spacing.lg : spacing.lg,
-            paddingBottom: TAB_BAR_SPACE + insets.bottom + spacing.xl,
-          }}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          {body}
-        </ScrollView>
-      ) : (
-        body
-      )}
+      {/* This is what the header and the tab bar blur. Both float above it, so it has to be the
+          content and not the whole screen — a BlurView inside its own target is the one case
+          expo-blur cannot composite. */}
+      <BlurTargetArea style={{ flex: 1 }}>
+        {scroll ? (
+          <ScrollView
+            contentContainerStyle={{
+              paddingTop: title === undefined ? insets.top + spacing.lg : spacing.lg,
+              paddingBottom: TAB_BAR_SPACE + insets.bottom + spacing.xl,
+            }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            {body}
+          </ScrollView>
+        ) : (
+          body
+        )}
+      </BlurTargetArea>
     </View>
   )
 }

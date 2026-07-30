@@ -27,6 +27,7 @@ import { LaunchScreen } from '@/components/LaunchScreen'
 import { BrandMark } from '@/components/BrandMark'
 import { Button } from '@/components/Button'
 import { Body, SectionTitle } from '@/components/Text'
+import { BlurTargetProvider } from '@/components/BlurTarget'
 import { HIT_SIZE, spacing } from '@/theme/tokens'
 
 // Hold the native splash until fonts AND persisted state are ready. Without the store
@@ -381,30 +382,34 @@ const RootNavigator: React.FC = () => {
       <StatusBar style={theme.mode === 'dark' ? 'light' : 'dark'} />
       {showBanner ? <SyncBlockedBanner topInset={insets.top} /> : null}
       <SafeAreaInsetsContext.Provider value={insetsForStack}>
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: theme.canvas },
-            animation: 'slide_from_right',
-          }}
-        >
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="login" options={{ animation: 'fade' }} />
-          <Stack.Screen
-            name="onboarding"
-            options={{ animation: 'fade', gestureEnabled: false }}
-          />
-          <Stack.Screen
-            name="food-search"
-            options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
-          />
-          <Stack.Screen
-            name="lift-picker"
-            options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
-          />
-          <Stack.Screen name="goals" />
-          <Stack.Screen name="chat" options={{ presentation: 'modal' }} />
-        </Stack>
+        {/* Above the Stack so the tab bar, which renders outside the screens, can still reach
+            the focused screen's content to blur it. */}
+        <BlurTargetProvider>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: theme.canvas },
+              animation: 'slide_from_right',
+            }}
+          >
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="login" options={{ animation: 'fade' }} />
+            <Stack.Screen
+              name="onboarding"
+              options={{ animation: 'fade', gestureEnabled: false }}
+            />
+            <Stack.Screen
+              name="food-search"
+              options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+            />
+            <Stack.Screen
+              name="lift-picker"
+              options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+            />
+            <Stack.Screen name="goals" />
+            <Stack.Screen name="chat" options={{ presentation: 'modal' }} />
+          </Stack>
+        </BlurTargetProvider>
       </SafeAreaInsetsContext.Provider>
     </>
   )
