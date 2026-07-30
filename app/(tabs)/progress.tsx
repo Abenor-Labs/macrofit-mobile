@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native'
 import Svg, { Circle, Line, Path, Rect } from 'react-native-svg'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -633,6 +633,21 @@ export default function ProgressScreen() {
   const weightUnit = useStore(s => s.profile.weightUnit)
 
   const router = useRouter()
+
+  /*
+    The initial state above only runs once, and a tab screen stays mounted for the life of the
+    app — so without this, the first card to send someone here would decide the metric forever
+    and every later link would be silently ignored.
+
+    The param is cleared once applied. Otherwise it keeps applying: pick Weight by hand, leave
+    via the tab bar, come back the same way, and a stale `metric=calories` from an hour ago
+    would drag you off the tab you chose.
+  */
+  useEffect(() => {
+    if (!isTabKey(params.metric)) return
+    setTab(params.metric)
+    router.setParams({ metric: undefined })
+  }, [params.metric, router])
 
   const unitLabel = weightUnit === 'lbs' ? 'lb' : 'kg'
   // Volume comes out of workoutMath in kg. Convert only here, at the display edge.
