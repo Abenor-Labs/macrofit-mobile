@@ -174,6 +174,7 @@ export default function DashboardScreen() {
       <WeekCard
         theme={theme}
         diary={diary}
+        today={today}
         goalCalories={goals.calories}
         proteinGoal={goals.protein}
         streakDays={streak.current}
@@ -627,10 +628,12 @@ const BAR_MAX = 52
 const WeekCard: React.FC<{
   theme: Theme
   diary: Record<string, DiaryDay>
+  /** Today's date string. A dependency, not a display value: see the memo below. */
+  today: string
   goalCalories: number
   proteinGoal: number
   streakDays: number
-}> = ({ theme, diary, goalCalories, proteinGoal, streakDays }) => {
+}> = ({ theme, diary, today, goalCalories, proteinGoal, streakDays }) => {
   const router = useRouter()
 
   const week = useMemo(() => {
@@ -665,7 +668,9 @@ const WeekCard: React.FC<{
     const proteinHits = settled.filter(day => day.protein >= proteinGoal).length
 
     return { days, settledDays: settled.length, average, proteinHits }
-  }, [diary, proteinGoal])
+    // `today` is in the deps because getLast7Days() reads the clock. Without it the window
+    // is captured once and an app left open overnight keeps charting yesterday's week.
+  }, [diary, today, proteinGoal])
 
   const goal = Math.max(goalCalories, 1)
   const delta = Math.round(week.average - goalCalories)
