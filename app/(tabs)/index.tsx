@@ -22,8 +22,6 @@ import {
   ChevronRight,
   Cookie,
   Droplets,
-  Dumbbell,
-  Flame,
   Minus,
   Moon,
   Sparkles,
@@ -32,7 +30,12 @@ import {
 } from 'lucide-react-native'
 
 import type { DiaryDay, MealType, NutritionSummary, PhaseType, Recommendation } from '@core/types'
-import { formatDate, getDayNutrition, getTodayString } from '@core/utils/calculations'
+import {
+  formatDate,
+  getDayNutrition,
+  getLast7Days,
+  getTodayString,
+} from '@core/utils/calculations'
 
 import { useStore } from '@/store/useStore'
 import { useTheme, type Theme } from '@/theme/useTheme'
@@ -99,6 +102,9 @@ export default function DashboardScreen() {
 
   const today = getTodayString()
   const storedDay = useStore(s => s.diary[today])
+  // The whole diary, for the week strip. Today's row is selected separately above so the rest
+  // of the screen keeps re-rendering only on changes to today.
+  const diary = useStore(s => s.diary)
   const goals = useStore(s => s.goals)
   const streak = useStore(s => s.streak)
   const recommendation = useStore(s => s.recommendation)
@@ -163,6 +169,16 @@ export default function DashboardScreen() {
           with a scolding. The day's numbers go first; the verdict reads right under them. */}
       <WeightVerdict />
 
+      {/* Directly under the verdict because it is the evidence for it: "Stalled" is a claim,
+          and what you average and how often you hit protein is why. */}
+      <WeekCard
+        theme={theme}
+        diary={diary}
+        goalCalories={goals.calories}
+        proteinGoal={goals.protein}
+        streakDays={streak.current}
+      />
+
       <CoachCard theme={theme} recommendation={recommendation} />
 
       <MealsCard theme={theme} date={today} mealTotals={mealTotals} />
@@ -177,11 +193,6 @@ export default function DashboardScreen() {
           goal. Compact here; the full breakdown lives on Profile. */}
       <WeightTargetCard compact />
 
-      <GlanceRow
-        theme={theme}
-        streakDays={streak.current}
-        caloriesBurned={nutrition.caloriesBurned}
-      />
     </Screen>
   )
 }
@@ -566,40 +577,169 @@ const WaterCard: React.FC<{
   )
 }
 
-/* --- At a glance ----------------------------------------------------------- */
+/* --- Last 7 days ----------------------------------------------------------- */
 
-const GlanceRow: React.FC<{
+/** Bar height in px for a day exactly on target. Over-target days are drawn full. */
+const BAR_MAX = 52
+
+/**
+ * A week of intake, without a chart.
+ *
+ * This replaced a row holding "day streak" and "kcal burned" — a streak of 1 motivates nobody,
+ * and kcal burned reads 0 on any day without a logged workout, so between them they earned the
+ * screen's last slot with two zeroes.
+ *
+ * The shape is deliberately Google Fit's: seven bars, no axis, no gridlines, no legend, nothing
+ * to interpret. A bar chart people have to read is a chart; seven bars people can glance at is
+ * a shape. Under it go the two numbers a single day cannot give you — what you average, and how
+ * often you actually hit protein — because one day in isolation never answers "is this working".
+ *
+ * The sentence at the bottom is the same move the weight verdict makes: state the number, then
+ * say what it means. That verdict is the most useful thing on this screen precisely because it
+ * does not make anyone read a graph, and this follows it rather than competing with it.
+ */
+const WeekCard: React.FC<{
   theme: Theme
+  diary: Record<string, DiaryDay>
+  goalCalories: number
+  proteinGoal: number
   streakDays: number
-  caloriesBurned: number
-}> = ({ theme, streakDays, caloriesBurned }) => (
-  <View style={{ flexDirection: 'row', gap: spacing.md }}>
-    <GlanceTile
-      icon={<Flame size={18} color={theme.brandText} strokeWidth={2} />}
-      value={formatNumber(streakDays)}
-      label="Day streak"
-      accessibilityLabel={`${formatNumber(streakDays)} day logging streak`}
-    />
-    <GlanceTile
-      icon={<Dumbbell size={18} color={theme.textSecondary} strokeWidth={2} />}
-      value={formatNumber(caloriesBurned)}
-      label="Kcal burned"
-      accessibilityLabel={`${formatNumber(caloriesBurned)} kilocalories burned today`}
-    />
-  </View>
-)
+}> = ({ theme, diary, goalCalories, proteinGoal, streakDays }) => {
+  const week = useMemo(() => {
+    const dates = getLast7Days()
+    const todayDate = dates[dates.length - 1]
 
-const GlanceTile: React.FC<{
-  icon: React.ReactNode
+    const days = dates.map(date => {
+      const stored = diary[date]
+      const nutrition = stored
+        ? getDayNutrition(stored)
+        : { calories: 0, protein: 0, carbs: 0, fat: 0, caloriesBurned: 0 }
+      return {
+        date,
+        calories: nutrition.calories,
+        protein: nutrition.protein,
+        // A day with nothing logged is not a day of eating nothing, and averaging it in as a
+        // zero would quietly claim it was. Only logged days count toward the average.
+        logged: (stored?.entries.length ?? 0) > 0,
+        isToday: date === todayDate,
+      }
+    })
+
+    /*
+      Today is drawn but never counted. It is a day in progress: at lunchtime it holds one
+      meal, so averaging it in reported "1,727 kcal under target, on average" off a single
+      partial day and made a normal morning look like a crisis. The same goes for the protein
+      count — a goal that has not been missed yet has not been missed.
+    */
+    const settled = days.filter(day => day.logged && !day.isToday)
+    const average =
+      settled.length > 0 ? settled.reduce((sum, day) => sum + day.calories, 0) / settled.length : 0
+    const proteinHits = settled.filter(day => day.protein >= proteinGoal).length
+
+    return { days, settledDays: settled.length, average, proteinHits }
+  }, [diary, proteinGoal])
+
+  const goal = Math.max(goalCalories, 1)
+  const delta = Math.round(week.average - goalCalories)
+  const dayWord = week.settledDays === 1 ? 'day' : 'days'
+  const summary =
+    week.settledDays === 0
+      ? 'Finish a day and this starts filling in.'
+      : delta === 0
+        ? `Averaging exactly your ${formatNumber(goalCalories)} kcal target across ${week.settledDays} ${dayWord}.`
+        : `${formatNumber(Math.abs(delta))} kcal ${delta > 0 ? 'over' : 'under'} target across ${week.settledDays} ${dayWord}. Today not counted yet.`
+
+  return (
+    <Surface style={{ padding: spacing.lg, gap: spacing.md }}>
+      <SectionTitle>Last 7 days</SectionTitle>
+
+      {/* No chart until there is something to chart. Seven slots holding six stubs and one nub
+          is not a week of data, it is an empty frame with a rounding error in it — the same
+          reason StepsCard renders nothing rather than a fake zero. The sentence and the dashes
+          below still say the card exists and what it will hold. */}
+      {week.settledDays > 0 && (
+        <View
+          accessible
+          accessibilityLabel={`Averaging ${formatNumber(week.average)} kilocalories across ${week.settledDays} finished days. ${summary}`}
+          style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, height: BAR_MAX }}
+        >
+          {week.days.map(day => {
+            const over = day.calories > goalCalories
+            const filled = Math.min(day.calories / goal, 1)
+
+            return (
+              <View
+                key={day.date}
+                style={{ flex: 1, height: BAR_MAX, justifyContent: 'flex-end', alignItems: 'center' }}
+              >
+                <View
+                  style={{
+                    // Fixed and narrow, not a share of the column. A percentage of a ~45dp slot
+                    // came out wider than the bar was tall, so a normal day read as a lozenge
+                    // lying on its side rather than as a bar.
+                    width: 12,
+                    // A 3px stub for untouched days, so the week reads as seven slots rather
+                    // than as however many happen to have food in them.
+                    height: Math.max(filled * BAR_MAX, 3),
+                    borderRadius: radius.tight,
+                    backgroundColor: !day.logged
+                      ? theme.border
+                      : over
+                        ? theme.status.warning
+                        : theme.brand,
+                    // Today reads as today without relying on hue, which the over-target state
+                    // has already spent.
+                    opacity: day.isToday ? 1 : 0.55,
+                  }}
+                />
+              </View>
+            )
+          })}
+        </View>
+      )}
+
+      <Body size={13} tone="secondary">
+        {summary}
+      </Body>
+
+      <View style={{ flexDirection: 'row', gap: spacing.md }}>
+        <WeekFigure
+          value={week.settledDays === 0 ? '—' : formatNumber(week.average)}
+          label="Avg kcal"
+          accessibilityLabel={
+            week.settledDays === 0
+              ? 'No average yet'
+              : `Averaging ${formatNumber(week.average)} kilocalories`
+          }
+        />
+        <WeekFigure
+          value={week.settledDays === 0 ? '—' : `${week.proteinHits}/${week.settledDays}`}
+          label="Protein hit"
+          accessibilityLabel={
+            week.settledDays === 0
+              ? 'No finished days yet'
+              : `Protein goal hit on ${week.proteinHits} of ${week.settledDays} finished days`
+          }
+        />
+        <WeekFigure
+          value={formatNumber(streakDays)}
+          label="Day streak"
+          accessibilityLabel={`${formatNumber(streakDays)} day logging streak`}
+        />
+      </View>
+    </Surface>
+  )
+}
+
+const WeekFigure: React.FC<{
   value: string
   label: string
   accessibilityLabel: string
-}> = ({ icon, value, label, accessibilityLabel }) => (
-  <Surface style={{ flex: 1, padding: spacing.md, alignItems: 'center', gap: 4 }}>
-    {icon}
-    <StatValue size={22} accessibilityLabel={accessibilityLabel}>
+}> = ({ value, label, accessibilityLabel }) => (
+  <View style={{ flex: 1, gap: 2 }}>
+    <StatValue size={20} accessibilityLabel={accessibilityLabel}>
       {value}
     </StatValue>
     <Label>{label}</Label>
-  </Surface>
+  </View>
 )
