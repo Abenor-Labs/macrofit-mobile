@@ -3,6 +3,8 @@ import { useStore } from '@/store/useStore'
 import {
   getAvailability,
   hasPermissions,
+  readLatestHeightCm,
+  readLatestWeightKg,
   readSteps,
   readTodaySteps,
   readWeightHistory,
@@ -10,6 +12,12 @@ import {
   type HealthAvailability,
   type StepDay,
 } from '@/lib/healthConnect'
+
+/** What setup can fill in for someone. Either field is null when nothing is on file. */
+export interface HealthBasics {
+  heightCm: number | null
+  weightKg: number | null
+}
 
 export interface HealthSyncState {
   availability: HealthAvailability
@@ -22,6 +30,13 @@ export interface HealthSyncState {
   connect: () => Promise<void>
   importWeightHistory: () => Promise<void>
   refreshSteps: () => Promise<void>
+  /**
+   * Latest height and weight on file, returned rather than written to the store.
+   *
+   * Setup prefills its own fields with these and only commits when the user presses on, so
+   * a reading they disagree with can be typed over before it becomes their profile.
+   */
+  readBasics: () => Promise<HealthBasics>
 }
 
 /**
@@ -99,6 +114,16 @@ export const useHealthSync = (): HealthSyncState => {
     }
   }, [profile, weightLog, addWeightEntry])
 
+  const readBasics = useCallback(async (): Promise<HealthBasics> => {
+    setBusy(true)
+    try {
+      const [heightCm, weightKg] = await Promise.all([readLatestHeightCm(), readLatestWeightKg()])
+      return { heightCm, weightKg }
+    } finally {
+      if (mounted.current) setBusy(false)
+    }
+  }, [])
+
   return {
     availability,
     granted,
@@ -109,5 +134,6 @@ export const useHealthSync = (): HealthSyncState => {
     connect,
     importWeightHistory,
     refreshSteps,
+    readBasics,
   }
 }

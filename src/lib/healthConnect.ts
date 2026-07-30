@@ -26,6 +26,9 @@ export interface StepDay {
 const PERMISSIONS = [
   { accessType: 'read', recordType: 'Steps' },
   { accessType: 'read', recordType: 'Weight' },
+  // Height is asked for so setup can prefill it. Health Connect has no record type for age
+  // or sex, which is why setup still has to ask for those two by hand.
+  { accessType: 'read', recordType: 'Height' },
 ] as const
 
 /** Health Connect exists only on Android 8+ (API 26). */
@@ -137,6 +140,65 @@ export const readTodaySteps = async (): Promise<number | null> => {
   const days = await readSteps(2)
   const match = days.find(d => d.date === today)
   return match ? match.steps : null
+}
+
+/** The most recent record in a window, or null. Health Connect returns them unsorted. */
+const latestOf = <T>(records: T[], at: (record: T) => string, value: (record: T) => number | undefined): number | null => {
+  let best: { at: number; value: number } | null = null
+  for (const record of records) {
+    const when = new Date(at(record)).getTime()
+    const measurement = value(record)
+    if (Number.isNaN(when)) continue
+    if (typeof measurement !== 'number' || !Number.isFinite(measurement) || measurement <= 0) continue
+    if (best === null || when > best.at) best = { at: when, value: measurement }
+  }
+  return best === null ? null : best.value
+}
+
+/**
+ * Latest recorded height in centimetres, or null when nothing is on file.
+ *
+ * Height is the record people are least likely to have: nothing measures it automatically,
+ * so it is only there if they typed it into some other app. Null is the normal answer and
+ * means "ask them", not "something failed".
+ */
+export const readLatestHeightCm = async (): Promise<number | null> => {
+  const hc = await loadModule()
+  if (!hc) return null
+  try {
+    await hc.initialize()
+    const end = new Date()
+    const start = new Date(end.getTime() - 3650 * 86_400_000)
+    const result = await hc.readRecords('Height', {
+      timeRangeFilter: { operator: 'between', startTime: start.toISOString(), endTime: end.toISOString() },
+    })
+    const metres = latestOf(result.records, r => r.time, r => r.height?.inMeters)
+    if (metres === null) return null
+    const cm = Math.round(metres * 1000) / 10
+    // A stray unit on the other side would sail through as a plausible number otherwise.
+    return cm >= 120 && cm <= 230 ? cm : null
+  } catch {
+    return null
+  }
+}
+
+/** Latest recorded bodyweight in kilograms, or null. */
+export const readLatestWeightKg = async (): Promise<number | null> => {
+  const hc = await loadModule()
+  if (!hc) return null
+  try {
+    await hc.initialize()
+    const end = new Date()
+    const start = new Date(end.getTime() - 365 * 86_400_000)
+    const result = await hc.readRecords('Weight', {
+      timeRangeFilter: { operator: 'between', startTime: start.toISOString(), endTime: end.toISOString() },
+    })
+    const kg = latestOf(result.records, r => r.time, r => r.weight?.inKilograms)
+    if (kg === null) return null
+    return kg >= 30 && kg <= 300 ? Math.round(kg * 10) / 10 : null
+  } catch {
+    return null
+  }
 }
 
 /**

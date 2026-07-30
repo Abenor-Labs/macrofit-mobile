@@ -14,6 +14,8 @@ import {
 } from 'lucide-react-native'
 
 import { useStore } from '@/store/useStore'
+import { useHealthSync } from '@/hooks/useHealthSync'
+import { hasPermissions, readWeightHistory } from '@/lib/healthConnect'
 import { useTheme } from '@/theme/useTheme'
 import { Backdrop } from '@/components/Backdrop'
 import { GlassSurface } from '@/components/Glass'
@@ -40,7 +42,17 @@ import {
 import { calculateBMR, calculateMacroGoals, calculateTDEE } from '@/core/utils/calculations'
 import type { ActivityLevel, UserProfile, WeightGoal } from '@/core/types'
 
-const STEPS = ['Welcome', 'About you', 'Your days', 'Your goal', 'Your plan'] as const
+/**
+ * The flow, by name rather than by index.
+ *
+ * 'Your phone' only exists where Health Connect does, so the sequence differs by platform
+ * and the step numbers are not stable. Every branch below switches on the name; comparing
+ * `step === 1` would mean something different on Android than on iOS, which is the kind of
+ * bug that only shows up on one device.
+ */
+type StepName = 'Welcome' | 'Your phone' | 'About you' | 'Your days' | 'Your goal' | 'Your plan'
+
+const BASE_STEPS: StepName[] = ['Welcome', 'About you', 'Your days', 'Your goal', 'Your plan']
 
 /** A full-width tappable option. The row is the target, not a small radio dot. */
 const OptionRow: React.FC<{
@@ -175,8 +187,26 @@ export default function OnboardingScreen() {
   const updateGoals = useStore(s => s.updateGoals)
   const completeOnboarding = useStore(s => s.completeOnboarding)
 
+  const health = useHealthSync()
   const [step, setStep] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  /** What Health Connect actually had. Null until the step has run; set even when empty. */
+  const [imported, setImported] = useState<{ height: boolean; weight: boolean; weighIns: number } | null>(null)
+
+  /*
+    Built from availability, which is 'unavailable' until the probe in useHealthSync returns.
+    The step therefore appears a beat after mount — acceptable because it can only appear
+    while the user is still reading the Welcome screen, never underneath them mid-flow.
+  */
+  const STEPS: StepName[] = useMemo(
+    () =>
+      health.availability === 'available'
+        ? ['Welcome', 'Your phone', 'About you', 'Your days', 'Your goal', 'Your plan']
+        : BASE_STEPS,
+    [health.availability]
+  )
+
+  const current: StepName = STEPS[Math.min(step, STEPS.length - 1)]
 
   const [name, setName] = useState('')
   const [gender, setGender] = useState<UserProfile['gender']>(profile.gender)
@@ -261,21 +291,86 @@ export default function OnboardingScreen() {
 
   const horizon = describeHorizon(weeksToTarget(weightKg, targetKg, pace))
 
-  const validateStep = (index: number): string | null => {
-    if (index === 1) return validateBasics({ age: num(age), heightCm, weightKg })
-    if (index === 3) return validateTarget(goal, weightKg, targetKg)
+  const validateStep = (name: StepName): string | null => {
+    if (name === 'About you') return validateBasics({ age: num(age), heightCm, weightKg })
+    if (name === 'Your goal') return validateTarget(goal, weightKg, targetKg)
     return null
+  }
+
+  /**
+   * Pull height, weight and a year of weigh-ins off the phone.
+   *
+   * The fields are prefilled rather than committed, so a stale reading can be typed over
+   * before it becomes anyone's profile. The weigh-in history is the real prize: the
+   * weight-goal card needs ten days of spread before it stops guessing, and someone with
+   * scale history gets their measured trend on day one instead of in a fortnight.
+   */
+  const pullFromPhone = async () => {
+    setError(null)
+    if (!health.granted) {
+      await health.connect()
+      // connect() resolves after the permission sheet closes; a refusal is not an error to
+      // report, it is an answer. The step stays put and Skip is still right there.
+      if (!(await hasPermissions())) return
+    }
+
+    const basics = await health.readBasics()
+    if (basics.heightCm !== null) {
+      setHeightUnit('cm')
+      setHeightCmText(String(basics.heightCm))
+    }
+    if (basics.weightKg !== null) {
+      setWeightUnit('kg')
+      setWeightText(String(basics.weightKg))
+    }
+
+    /*
+      Counted here, written in finish(). WeightEntry.weight is stored in the profile's
+      DISPLAY unit, and the profile does not have its final unit yet — the user can still
+      switch to pounds on the very next screen. Importing now would write kilogram numbers
+      that are later read back as pounds, silently turning 70.6 kg into 70.6 lb across
+      every trend, TDEE estimate and goal calculation downstream.
+    */
+    const history = await readWeightHistory(profile)
+    const existing = new Set(useStore.getState().weightLog.map(entry => entry.date))
+
+    setImported({
+      height: basics.heightCm !== null,
+      weight: basics.weightKg !== null,
+      weighIns: history.filter(entry => !existing.has(entry.date)).length,
+    })
   }
 
   const finish = () => {
     // Profile first: addWeightEntry reads weightUnit off the profile to decide what the
     // number it is handed means.
-    updateProfile(answersToProfile(answers))
+    const patch = answersToProfile(answers)
+    updateProfile(patch)
     const shown = weightUnit === 'kg' ? weightKg : lbsFromKg(weightKg)
     addWeightEntry({
       date: new Date().toISOString().slice(0, 10),
       weight: Math.round(shown * 10) / 10,
     })
+
+    /*
+      The imported history lands here rather than on the step that offered it, because only
+      now is the unit settled — see pullFromPhone. Read against the merged profile, not the
+      store's copy: updateProfile has been called but this closure still holds the old one,
+      and useHealthSync's own importer closes over the same stale value.
+
+      Fire and forget. It is an enhancement to a screen the user is already leaving, and
+      making them wait on a Health Connect read to reach their dashboard would trade the
+      friction we just removed for a different one.
+    */
+    if (imported !== null && imported.weighIns > 0) {
+      const merged = { ...profile, ...patch } as UserProfile
+      void (async () => {
+        const history = await readWeightHistory(merged)
+        // Days the user logged themselves always win over a device reading.
+        const existing = new Set(useStore.getState().weightLog.map(entry => entry.date))
+        for (const entry of history) if (!existing.has(entry.date)) addWeightEntry(entry)
+      })()
+    }
     // Not recalculateGoals(): that applies the shared flat +/-500 and would overwrite the
     // pace-derived target the last step just showed.
     updateGoals({ calories: plan.calories, protein: plan.protein, carbs: plan.carbs, fat: plan.fat })
@@ -284,7 +379,7 @@ export default function OnboardingScreen() {
   }
 
   const next = () => {
-    const problem = validateStep(step)
+    const problem = validateStep(current)
     if (problem) {
       setError(problem)
       return
@@ -334,7 +429,7 @@ export default function OnboardingScreen() {
               five turns a one-minute task into a list of chores. */}
           <View style={{ gap: spacing.sm, marginBottom: spacing.lg }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Label style={{ color: theme.status.good }}>{STEPS[step]}</Label>
+              <Label style={{ color: theme.status.good }}>{current}</Label>
               <Label>
                 {step + 1} of {STEPS.length}
               </Label>
@@ -355,7 +450,7 @@ export default function OnboardingScreen() {
           </View>
 
           <GlassSurface style={{ padding: spacing.lg, gap: spacing.lg }}>
-            {step === 0 ? (
+            {current === 'Welcome' ? (
               <View style={{ gap: spacing.lg }}>
                 <View
                   style={{
@@ -404,7 +499,64 @@ export default function OnboardingScreen() {
               </View>
             ) : null}
 
-            {step === 1 ? (
+            {current === 'Your phone' ? (
+              <View style={{ gap: spacing.lg }}>
+                <View style={{ gap: spacing.sm }}>
+                  <SectionTitle style={{ fontSize: 22 }}>
+                    Your phone already knows some of this
+                  </SectionTitle>
+                  <Body size={14} tone="secondary">
+                    Health Connect can hand over your height, your weight, and any weigh-ins
+                    already recorded by a scale or another app. We still have to ask your age
+                    and sex on the next screen — Health Connect does not store either, and the
+                    calorie formula needs both.
+                  </Body>
+                </View>
+
+                {imported === null ? (
+                  <Body size={13} tone="muted">
+                    Nothing is written until you press on, and anything that comes across can be
+                    typed over.
+                  </Body>
+                ) : (
+                  <View style={{ gap: spacing.sm }}>
+                    {/*
+                      Reports what was found, including nothing. "Connected" alone would leave
+                      someone with no records on file wondering what it actually did.
+                    */}
+                    {[
+                      imported.height ? 'Height filled in' : 'No height on file — we will ask',
+                      imported.weight ? 'Weight filled in' : 'No weight on file — we will ask',
+                      imported.weighIns > 0
+                        ? `${imported.weighIns} past weigh-in${imported.weighIns === 1 ? '' : 's'} ready to bring across — your weight trend will work from day one`
+                        : 'No past weigh-ins found',
+                    ].map(line => (
+                      <View
+                        key={line}
+                        style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }}
+                      >
+                        <Check size={16} color={theme.status.good} strokeWidth={2.4} />
+                        <Body size={13} tone="secondary" style={{ flex: 1 }}>
+                          {line}
+                        </Body>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {imported === null && (
+                  <Button
+                    label="Bring in my details"
+                    full
+                    loading={health.busy}
+                    onPress={() => void pullFromPhone()}
+                    icon={<Activity size={16} color={theme.brandOn} strokeWidth={2.2} />}
+                  />
+                )}
+              </View>
+            ) : null}
+
+            {current === 'About you' ? (
               <View style={{ gap: spacing.lg }}>
                 <Body size={14} tone="secondary">
                   These four numbers set every target in the app. Nothing here is shared with anyone.
@@ -537,7 +689,7 @@ export default function OnboardingScreen() {
               </View>
             ) : null}
 
-            {step === 2 ? (
+            {current === 'Your days' ? (
               <View style={{ gap: spacing.md }}>
                 <Body size={14} tone="secondary">
                   Pick the line closest to a normal week — not your best one. Overshooting here is the
@@ -555,7 +707,7 @@ export default function OnboardingScreen() {
               </View>
             ) : null}
 
-            {step === 3 ? (
+            {current === 'Your goal' ? (
               <View style={{ gap: spacing.md }}>
                 {GOAL_CHOICES.map(c => (
                   <OptionRow
@@ -604,7 +756,7 @@ export default function OnboardingScreen() {
               </View>
             ) : null}
 
-            {step === 4 ? (
+            {current === 'Your plan' ? (
               <View style={{ gap: spacing.lg }}>
                 <View style={{ gap: spacing.sm }}>
                   <SectionTitle style={{ fontSize: 21 }}>Here&apos;s your daily target</SectionTitle>
@@ -697,7 +849,21 @@ export default function OnboardingScreen() {
                 />
               ) : null}
               <Button
-                label={step === 0 ? 'Get started' : step === STEPS.length - 1 ? 'Start tracking' : 'Continue'}
+                /*
+                  On 'Your phone' this reads Skip until something has actually been pulled
+                  in. Labelling it Continue there would make the only way past the step look
+                  like it required connecting first, which is the opposite of true.
+                */
+                label={
+                  current === 'Welcome'
+                    ? 'Get started'
+                    : current === 'Your phone' && imported === null
+                      ? 'Skip'
+                      : step === STEPS.length - 1
+                        ? 'Start tracking'
+                        : 'Continue'
+                }
+                variant={current === 'Your phone' && imported === null ? 'secondary' : 'primary'}
                 onPress={next}
                 haptic={step === STEPS.length - 1}
                 style={{ flex: 1 }}
