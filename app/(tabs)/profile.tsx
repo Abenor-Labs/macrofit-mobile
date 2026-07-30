@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native'
+import { router } from 'expo-router'
 import {
   Activity,
   Bookmark,
@@ -13,6 +14,7 @@ import {
   Ruler,
   Salad,
   Scale,
+  Sparkles,
   Sun,
   Target,
   Trash2,
@@ -600,7 +602,15 @@ export default function ProfileScreen() {
             : 'Synced'
 
   return (
-    <Screen title="Profile" subtitle={user?.email ?? undefined}>
+    <Screen
+      title="Profile"
+      subtitle={user?.email ?? undefined}
+      right={
+        <IconButton accessibilityLabel="Open AI Assistant" onPress={() => router.push('/chat')}>
+          <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
+        </IconButton>
+      }
+    >
       {/* Identity + the three numbers worth seeing without tapping anything. */}
       <GlassSurface style={{ padding: spacing.lg, gap: spacing.lg }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>

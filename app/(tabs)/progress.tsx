@@ -9,13 +9,14 @@ import {
   Minus,
   RefreshCw,
   Scale,
+  Sparkles,
   TrendingDown,
   TrendingUp,
   Trophy,
   Utensils,
 } from 'lucide-react-native'
 
-import { Button } from '@/components/Button'
+import { Button, IconButton } from '@/components/Button'
 import { Surface } from '@/components/Glass'
 import { EmptyState, Screen } from '@/components/Layout'
 import { ProgressTrack } from '@/components/MacroRing'
@@ -1114,7 +1115,15 @@ export default function ProgressScreen() {
     )
 
   return (
-    <Screen title="Progress" subtitle={TAB_CAPTION[tab]}>
+    <Screen
+      title="Progress"
+      subtitle={TAB_CAPTION[tab]}
+      right={
+        <IconButton accessibilityLabel="Open AI Assistant" onPress={() => router.push('/chat')}>
+          <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
+        </IconButton>
+      }
+    >
       <View style={{ gap: spacing.md }}>
         <Segmented options={TABS} value={tab} onChange={setTab} groupLabel="Metric" />
         <View

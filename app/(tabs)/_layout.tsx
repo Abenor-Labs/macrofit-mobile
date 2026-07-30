@@ -1,10 +1,24 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Platform, Pressable, StyleSheet, View } from 'react-native'
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { Tabs, useRouter, useSegments } from 'expo-router'
 import { BlurView } from 'expo-blur'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
-import { BookOpen, Dumbbell, Home, Sparkles, TrendingUp, User } from 'lucide-react-native'
+import {
+  BookOpen,
+  Droplets,
+  Dumbbell,
+  Home,
+  Plus,
+  Sparkles,
+  TrendingUp,
+  User,
+  Utensils,
+} from 'lucide-react-native'
+
+import { getTodayString } from '@core/utils/calculations'
+import { useStore } from '@/store/useStore'
 
 /**
  * expo-router bundles its own copy of the bottom-tabs types. Importing them from
@@ -15,7 +29,7 @@ type TabBarProps = Parameters<NonNullable<React.ComponentProps<typeof Tabs>['tab
 
 import { useTheme } from '@/theme/useTheme'
 import { Body } from '@/components/Text'
-import { HIT_SIZE, workoutTheme } from '@/theme/tokens'
+import { HIT_SIZE, radius, spacing, workoutTheme } from '@/theme/tokens'
 
 const ICONS: Record<string, React.ComponentType<{ size: number; color: string; strokeWidth: number }>> = {
   index: Home,
@@ -147,58 +161,200 @@ const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
  * its entry point, mounted once here so it is available from every tab rather than
  * duplicated per screen.
  */
-const AssistantButton: React.FC<{ inWorkoutMode: boolean }> = ({ inWorkoutMode }) => {
-  const appTheme = useTheme()
+/** How much a "log water" tap adds. The middle of the dashboard's own quick-add row. */
+const QUICK_WATER_ML = 250
+
+interface QuickAction {
+  key: string
+  label: string
+  icon: React.ReactNode
+  run: () => void
+}
+
+/**
+ * The one floating control on Home: log anything from a single place.
+ *
+ * Home only. On Diary a `+` would duplicate the add-food button in every meal row, and on
+ * Workout it would duplicate Add exercise — a floating button that repeats what is already
+ * on screen teaches people to ignore it.
+ *
+ * It absorbed the assistant button rather than sitting next to it. Two circles stacked in
+ * one thumb's reach is the outcome nobody wants, and Ask AI is already a header icon on
+ * Workout and Diary, so it does not lose its footing there.
+ *
+ * Water logs 250 ml on the spot instead of navigating: there is nowhere to navigate to, and
+ * an action that completes in one tap should not cost two. Weight is deliberately absent —
+ * it needs a number typed, so it cannot be a one-tap item, and its field is already on this
+ * screen in the weight-goal card.
+ */
+const QuickLogButton: React.FC = () => {
+  const theme = useTheme()
   const insets = useSafeAreaInsets()
   const router = useRouter()
+  const addWater = useStore(s => s.addWater)
+  const [open, setOpen] = useState(false)
 
-  // Floats over the screen, so it takes the screen's palette. A jade pill sitting on the
-  // near-black workout canvas is the one element that would still look pasted on.
-  const theme = inWorkoutMode ? workoutTheme : appTheme
+  const spin = useSharedValue(0)
+  const iconSpin = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${spin.value * 45}deg` }],
+  }))
+
+  const toggle = (next: boolean) => {
+    setOpen(next)
+    spin.value = withTiming(next ? 1 : 0, { duration: 160 })
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+  }
+
+  /** Every item closes the sheet first, so returning to Home never finds it still open. */
+  const pick = (action: QuickAction) => {
+    toggle(false)
+    action.run()
+  }
+
+  const actions: QuickAction[] = [
+    {
+      key: 'ai',
+      label: 'Ask AI',
+      icon: <Sparkles size={18} color={theme.brandText} strokeWidth={2} />,
+      run: () => router.push('/chat'),
+    },
+    {
+      key: 'workout',
+      label: 'Log workout',
+      icon: <Dumbbell size={18} color={theme.brandText} strokeWidth={2} />,
+      run: () => router.push('/(tabs)/workout'),
+    },
+    {
+      key: 'water',
+      label: `Log ${QUICK_WATER_ML} ml water`,
+      icon: <Droplets size={18} color={theme.brandText} strokeWidth={2} />,
+      run: () => addWater(getTodayString(), QUICK_WATER_ML),
+    },
+    {
+      key: 'food',
+      label: 'Log food',
+      icon: <Utensils size={18} color={theme.brandText} strokeWidth={2} />,
+      run: () => router.push('/food-search'),
+    },
+  ]
+
+  const fabBottom = Math.max(insets.bottom, 8) + 74
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="Open the nutrition assistant"
-      onPress={() => {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-        router.push('/chat')
-      }}
-      style={({ pressed }) => ({
-        position: 'absolute',
-        right: 18,
-        // Clears the tab bar, whose own height already accounts for the safe area.
-        bottom: Math.max(insets.bottom, 8) + 74,
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        alignItems: 'center',
-        justifyContent: 'center',
-        overflow: 'hidden',
-        borderWidth: StyleSheet.hairlineWidth * 2,
-        borderColor: theme.glass.border,
-        opacity: pressed ? 0.85 : 1,
-        transform: [{ scale: pressed ? 0.96 : 1 }],
-        // A soft lift so it reads as floating above the content it blurs.
-        shadowColor: '#1C1917',
-        shadowOpacity: theme.mode === 'light' ? 0.18 : 0.4,
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 6 },
-        elevation: 6,
-      })}
-    >
-      <BlurView
-        tint={theme.glass.tint}
-        intensity={theme.glass.intensity + 30}
-        experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
-        style={StyleSheet.absoluteFill}
-      />
-      {/* Brand wash rather than a flat fill, so the blur still shows through. */}
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.brand + 'E6' }]} />
-      {/* brandOn, not a hardcoded white: workout mode's brand is lime-300, and white on it
-          is 1.2:1. The icon would vanish into the button. */}
-      <Sparkles size={24} color={theme.brandOn} strokeWidth={2} />
-    </Pressable>
+    <>
+      {/* Catches the tap that closes the sheet, and dims what is behind it so the items
+          read as a layer rather than as more dashboard. */}
+      {open && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close the log menu"
+          onPress={() => toggle(false)}
+          style={[
+            StyleSheet.absoluteFill,
+            { backgroundColor: theme.mode === 'light' ? 'rgba(28,25,23,0.34)' : 'rgba(0,0,0,0.55)' },
+          ]}
+        />
+      )}
+
+      {open && (
+        <View
+          style={{
+            position: 'absolute',
+            right: 18,
+            bottom: fabBottom + 68,
+            alignItems: 'flex-end',
+            gap: spacing.sm,
+          }}
+        >
+          {actions.map(action => (
+            <Pressable
+              key={action.key}
+              accessibilityRole="button"
+              accessibilityLabel={action.label}
+              onPress={() => pick(action)}
+              style={({ pressed }) => ({
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: spacing.sm,
+                opacity: pressed ? 0.8 : 1,
+              })}
+            >
+              {/* The label is part of the target, not a caption beside it. */}
+              <View
+                style={{
+                  backgroundColor: theme.surface,
+                  borderRadius: radius.pill,
+                  borderWidth: StyleSheet.hairlineWidth * 2,
+                  borderColor: theme.border,
+                  paddingHorizontal: spacing.md,
+                  paddingVertical: 7,
+                }}
+              >
+                <Body size={13} weight="semibold">
+                  {action.label}
+                </Body>
+              </View>
+              <View
+                style={{
+                  width: HIT_SIZE,
+                  height: HIT_SIZE,
+                  borderRadius: HIT_SIZE / 2,
+                  backgroundColor: theme.surface,
+                  borderWidth: StyleSheet.hairlineWidth * 2,
+                  borderColor: theme.border,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {action.icon}
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={open ? 'Close the log menu' : 'Log food, water, a workout, or ask the assistant'}
+        onPress={() => toggle(!open)}
+        style={({ pressed }) => ({
+          position: 'absolute',
+          right: 18,
+          // Clears the tab bar, whose own height already accounts for the safe area.
+          bottom: fabBottom,
+          width: 56,
+          height: 56,
+          borderRadius: 28,
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden',
+          borderWidth: StyleSheet.hairlineWidth * 2,
+          borderColor: theme.glass.border,
+          opacity: pressed ? 0.85 : 1,
+          transform: [{ scale: pressed ? 0.96 : 1 }],
+          // A soft lift so it reads as floating above the content it blurs.
+          shadowColor: '#1C1917',
+          shadowOpacity: theme.mode === 'light' ? 0.18 : 0.4,
+          shadowRadius: 12,
+          shadowOffset: { width: 0, height: 6 },
+          elevation: 6,
+        })}
+      >
+        <BlurView
+          tint={theme.glass.tint}
+          intensity={theme.glass.intensity + 30}
+          experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
+          style={StyleSheet.absoluteFill}
+        />
+        {/* Brand wash rather than a flat fill, so the blur still shows through. */}
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.brand + 'E6' }]} />
+        {/* brandOn, not a hardcoded white: white on a light brand is unreadable. */}
+        <Animated.View style={iconSpin}>
+          <Plus size={26} color={theme.brandOn} strokeWidth={2.4} />
+        </Animated.View>
+      </Pressable>
+    </>
   )
 }
 
@@ -214,7 +370,9 @@ export default function TabsLayout() {
   // The button sits outside the navigator, so it cannot read the focused route from the
   // tab bar's props the way GlassTabBar does.
   const segments = useSegments() as string[]
-  const inWorkoutMode = segments[segments.length - 1] === 'workout'
+  const active = segments[segments.length - 1]
+  // '(tabs)' is what the segment reads as on the index route, which has no name of its own.
+  const onHome = active === '(tabs)' || active === 'index'
 
   return (
     <View style={{ flex: 1 }}>
@@ -225,7 +383,7 @@ export default function TabsLayout() {
         <Tabs.Screen name="progress" />
         <Tabs.Screen name="profile" />
       </Tabs>
-      <AssistantButton inWorkoutMode={inWorkoutMode} />
+      {onHome && <QuickLogButton />}
     </View>
   )
 }
