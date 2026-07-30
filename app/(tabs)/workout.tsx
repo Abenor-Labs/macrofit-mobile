@@ -144,9 +144,28 @@ const numberInputStyle = (theme: Theme, flat: boolean): TextStyle => ({
 
 const COL_SET = 44
 const COL_UNIT = 22
-const COL_REPS = 52
 const COL_ACTION = 44
 const ROW_GAP = 4
+
+/**
+ * Weight and reps both flex rather than reps taking a fixed 52pt. A fixed reps column
+ * left "12" in a cell half the width of the weight field beside it, and the two were
+ * tapped equally often. Weight gets the larger share only because "102.5" is five glyphs.
+ */
+const FLEX_WEIGHT = 1.4
+const FLEX_REPS = 1
+
+/**
+ * The insets a set row carries, which the column header MUST carry too.
+ *
+ * A completed row draws a border and 2pt of padding; the header used to draw neither. That
+ * makes the header's content box wider, the `flex` columns inside it wider again, and every
+ * label after Weight ends up sitting to the left of the value it names.
+ */
+const ROW_INSET = {
+  paddingHorizontal: 2,
+  borderWidth: StyleSheet.hairlineWidth * 2,
+} as const
 
 // ---------------------------------------------------------------------------
 // Set row
@@ -159,8 +178,13 @@ interface SetRowProps {
   unit: WeightUnit
   showRpe: boolean
   /**
-   * Progressive-overload hint in kg. Rendered as PLACEHOLDER text only: an
-   * untouched suggestion must never be logged as if the user performed it.
+   * What this set will be logged as if the user just ticks it: the previous set of this
+   * exercise, else the progressive-overload target. In kg.
+   *
+   * Shown as placeholder text, and it still never reaches state on its own — but ticking
+   * the row now commits it verbatim. Mid-set, the user is holding a dumbbell and reading a
+   * number the app already knows; making them type it back in before the tick would enable
+   * was friction with nothing on the other side of it.
    */
   suggestion: { weightKg: number; reps: number } | null
   isPR: boolean
@@ -228,10 +252,28 @@ const SetRow: React.FC<SetRowProps> = ({
     onChange({ rpe: value === null ? undefined : Math.min(10, Math.max(1, value)) })
   }
 
+  /**
+   * Ticking a row that was left empty logs the prefill rather than logging a zero.
+   *
+   * Only fields the user has not filled in are taken from the prefill: someone who dialled
+   * the weight up to 22.5 and then ticked without touching reps meant 22.5, not last set's
+   * weight. The local input text is updated alongside state so the row reads back what was
+   * actually committed instead of continuing to show a hint.
+   */
   const handleComplete = () => {
     const next = !set.completed
     // A completed set is a real commit — the one place this row earns a haptic.
     if (next) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+
+    if (next && set.reps <= 0 && suggestion !== null && suggestion.reps > 0) {
+      const typedWeight = parseNumber(weightText)
+      const weightKg = typedWeight === null ? suggestion.weightKg : toKg(typedWeight, unit)
+      setWeightText(weightToText(weightKg, unit))
+      setRepsText(String(suggestion.reps))
+      onChange({ weightKg, reps: suggestion.reps, completed: true })
+      return
+    }
+
     onChange({ completed: next })
   }
 
@@ -243,17 +285,28 @@ const SetRow: React.FC<SetRowProps> = ({
   }
 
   const settled = set.completed
-  const canComplete = set.reps > 0
+  // Enabled as soon as there is something to log, typed or prefilled. It used to require
+  // typed reps, so the tick sat greyed out beside a row already showing "20 kg × 10".
+  const canComplete = set.reps > 0 || (suggestion !== null && suggestion.reps > 0)
   const good = theme.status.good
+
+  /*
+    Prefill text is rendered in `textSecondary`, not `textMuted`. It has to be readable at
+    arm's length between sets, and it is about to become the logged value on one tap — a
+    hint that faint reads as decoration. It stays a step lighter than entered text so the
+    row still says which numbers the user chose and which the app is offering.
+  */
+  const prefillWeight =
+    suggestion && suggestion.weightKg > 0 ? String(fromKg(suggestion.weightKg, unit)) : null
+  const prefillReps = suggestion && suggestion.reps > 0 ? String(suggestion.reps) : null
 
   return (
     <View
       style={{
+        ...ROW_INSET,
         borderRadius: radius.control,
-        borderWidth: StyleSheet.hairlineWidth * 2,
         borderColor: settled ? `${good}40` : 'transparent',
         backgroundColor: settled ? `${good}1A` : 'transparent',
-        paddingHorizontal: 2,
         paddingVertical: 2,
       }}
     >
@@ -288,14 +341,10 @@ const SetRow: React.FC<SetRowProps> = ({
           inputMode="decimal"
           keyboardType="decimal-pad"
           selectTextOnFocus
-          placeholder={
-            suggestion && suggestion.weightKg > 0
-              ? String(fromKg(suggestion.weightKg, unit))
-              : '0'
-          }
-          placeholderTextColor={theme.textMuted}
+          placeholder={prefillWeight ?? '0'}
+          placeholderTextColor={prefillWeight ? theme.textSecondary : theme.textMuted}
           accessibilityLabel={`Set ${index} weight in ${unitLabel}`}
-          style={[numberInputStyle(theme, settled), { flex: 1 }]}
+          style={[numberInputStyle(theme, settled), { flex: FLEX_WEIGHT }]}
         />
 
         <View style={{ width: COL_UNIT, alignItems: 'center' }}>
@@ -310,10 +359,10 @@ const SetRow: React.FC<SetRowProps> = ({
           inputMode="numeric"
           keyboardType="number-pad"
           selectTextOnFocus
-          placeholder={suggestion ? String(suggestion.reps) : '0'}
-          placeholderTextColor={theme.textMuted}
+          placeholder={prefillReps ?? '0'}
+          placeholderTextColor={prefillReps ? theme.textSecondary : theme.textMuted}
           accessibilityLabel={`Set ${index} reps`}
-          style={[numberInputStyle(theme, settled), { width: COL_REPS }]}
+          style={[numberInputStyle(theme, settled), { flex: FLEX_REPS }]}
         />
 
         <Pressable
@@ -322,9 +371,11 @@ const SetRow: React.FC<SetRowProps> = ({
           accessibilityLabel={
             set.completed
               ? `Set ${index} completed. Activate to undo.`
-              : canComplete
+              : set.reps > 0
                 ? `Mark set ${index} as completed`
-                : `Mark set ${index} as completed. Enter reps first.`
+                : prefillReps
+                  ? `Log set ${index} as ${prefillWeight ? `${prefillWeight} ${unitLabel} ` : ''}${prefillReps} reps`
+                  : `Mark set ${index} as completed. Enter reps first.`
           }
           accessibilityHint={canComplete || set.completed ? undefined : 'Enter reps first'}
           disabled={!canComplete && !set.completed}
@@ -462,8 +513,9 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
   const liftVolume = exerciseVolume(exercise)
 
   /**
-   * A hint only: the previous set of this exercise, else the progressive-overload
-   * target. It is rendered as placeholder text and is never written to state.
+   * What the next set will be logged as on a single tick: the previous set of this
+   * exercise, else the progressive-overload target. Shown as placeholder text, and written
+   * to state only when the user actually ticks the row.
    */
   const placeholderFor = (
     position: number
@@ -494,8 +546,10 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
                 <StatValue size={12} tone="secondary">
                   {groupDigits(fromKg(liftVolume, unit))}
                 </StatValue>
+                {/* "355 kg" alone, sitting after "Chest · Dumbbell", reads as the working
+                    weight. It is the running volume for this lift, and it has to say so. */}
                 <Body size={12} tone="muted">
-                  {unitLabel}
+                  {`${unitLabel} vol`}
                 </Body>
               </>
             )}
@@ -556,29 +610,26 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
         )}
       </View>
 
+      {/* Same insets and the same flex weights as a SetRow, or the labels drift off their
+          columns. Change one of these two blocks and you change both. */}
       {sets.length > 0 && (
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: ROW_GAP,
-            paddingHorizontal: 2,
-          }}
-        >
-          <View style={{ width: COL_SET, alignItems: 'center' }}>
-            <Label>Set</Label>
+        <View style={{ ...ROW_INSET, borderColor: 'transparent' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: ROW_GAP }}>
+            <View style={{ width: COL_SET, alignItems: 'center' }}>
+              <Label>Set</Label>
+            </View>
+            <View style={{ flex: FLEX_WEIGHT, alignItems: 'center' }}>
+              <Label>Weight</Label>
+            </View>
+            <View style={{ width: COL_UNIT }} />
+            <View style={{ flex: FLEX_REPS, alignItems: 'center' }}>
+              <Label>Reps</Label>
+            </View>
+            <View style={{ width: COL_ACTION, alignItems: 'center' }}>
+              <Label>Done</Label>
+            </View>
+            <View style={{ width: COL_ACTION }} />
           </View>
-          <View style={{ flex: 1, alignItems: 'center' }}>
-            <Label>Weight</Label>
-          </View>
-          <View style={{ width: COL_UNIT }} />
-          <View style={{ width: COL_REPS, alignItems: 'center' }}>
-            <Label>Reps</Label>
-          </View>
-          <View style={{ width: COL_ACTION, alignItems: 'center' }}>
-            <Label>Done</Label>
-          </View>
-          <View style={{ width: COL_ACTION }} />
         </View>
       )}
 
@@ -598,12 +649,14 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
         ))}
       </View>
 
+      {/* Ghost, not secondary. A solid bordered slab the width of the card competed with the
+          set rows above it for attention, and adding a set is the quieter of the two jobs. */}
       <Button
         label="Add set"
-        variant="secondary"
+        variant="ghost"
         full
         onPress={onAddSet}
-        icon={<Plus size={16} color={theme.text} strokeWidth={2.2} />}
+        icon={<Plus size={16} color={theme.textSecondary} strokeWidth={2.2} />}
       />
     </Surface>
   )
