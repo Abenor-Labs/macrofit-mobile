@@ -18,7 +18,6 @@ import { Pressable, StyleSheet, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { LinearGradient } from 'expo-linear-gradient'
 import {
-  AlertTriangle,
   Check,
   ChevronRight,
   Cookie,
@@ -89,13 +88,8 @@ const QUICK_ADD_ML = [150, 250, 350, 500] as const
 
 type MealTotals = Record<string, { calories: number; count: number }>
 
-type Tone = 'good' | 'warning' | 'critical'
-
 /** Two-stop wash, written as the tuple LinearGradient's props require. */
 type Wash = readonly [string, string, ...string[]]
-
-const heroWash = (theme: Theme): Wash =>
-  theme.mode === 'dark' ? [jade[800], jade[900]] : [jade[200], jade[50]]
 
 const coachWash = (theme: Theme): Wash =>
   theme.mode === 'dark' ? [jade[900], theme.canvas] : [jade[100], jade[50]]
@@ -144,28 +138,30 @@ export default function DashboardScreen() {
         </IconButton>
       }
     >
-      <HeroCard theme={theme} nutrition={nutrition} goalCalories={goals.calories} />
-
-      {/* Directly under the hero so the screen answers both halves of "how am I doing" in one
-          glance: the hero covers today, this covers whether any of it is working. It is the
-          only line here that asks for a change, and it used to sit seventh. */}
-      <WeightVerdict />
-
       {/*
-        No assistant card here. The chat was reachable three ways from this one screen — the
-        header icon above, a full card in the second slot, and "Ask AI" in the log button's
-        menu — and the card was the only one of the three that cost a slot above Macros, Meals
-        and Water to advertise something the other two already offered. A promotion outranking
-        the day's actual numbers is the wrong trade on the screen people open to check those
-        numbers.
+        The ring leads, and there is no calorie hero above it any more. That card printed the
+        same total the ring already holds in its middle — 56pt in one card, 30pt in the next —
+        so the screen opened by saying the same number twice. The ring says it once, alongside
+        the macro balance rather than beside it.
+
+        No assistant card here either. The chat was reachable three ways from this one screen:
+        the header icon above, a full card in the second slot, and "Ask AI" in the log button's
+        menu. The card was the only one of the three that cost a slot above the day's numbers
+        to advertise what the other two already offered.
       */}
       <MacroCard
         theme={theme}
         nutrition={nutrition}
+        goalCalories={goals.calories}
         proteinGoal={goals.protein}
         carbsGoal={goals.carbs}
         fatGoal={goals.fat}
       />
+
+      {/* Second, not first. It is the only line on this screen that asks for a change, and it
+          used to sit seventh — but a dashboard that opens on "Stalled" every morning leads
+          with a scolding. The day's numbers go first; the verdict reads right under them. */}
+      <WeightVerdict />
 
       <CoachCard theme={theme} recommendation={recommendation} />
 
@@ -190,86 +186,16 @@ export default function DashboardScreen() {
   )
 }
 
-/* --- Hero ------------------------------------------------------------------ */
-
-/**
- * The one number the screen exists for.
- *
- * Glass needs something worth refracting, so a jade wash sits behind the pane. Over a
- * flat canvas the blur resolves to a grey rectangle and the material reads as a bug
- * rather than a surface.
- */
-const HeroCard: React.FC<{
-  theme: Theme
-  nutrition: NutritionSummary
-  goalCalories: number
-}> = ({ theme, nutrition, goalCalories }) => {
-  const goal = Math.max(goalCalories, 1)
-  const eaten = nutrition.calories
-  const progress = eaten / goal
-  const remaining = goalCalories - eaten
-  const over = remaining < 0
-
-  const tone: Tone = progress >= 1 ? 'critical' : progress >= 0.9 ? 'warning' : 'good'
-  const color = theme.status[tone]
-  // Status never rides on hue alone: the icon and the sentence both carry it.
-  const StatusIcon = tone === 'good' ? Check : AlertTriangle
-
-  const status = over
-    ? `${formatNumber(Math.abs(remaining))} kcal over your goal`
-    : `${formatNumber(remaining)} kcal left today`
-
-  return (
-    <View style={{ borderRadius: radius.card, overflow: 'hidden' }}>
-      <LinearGradient
-        colors={heroWash(theme)}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-
-      <GlassSurface style={{ padding: spacing.lg, gap: spacing.md }}>
-        <Label>Eaten today</Label>
-
-        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
-          <StatValue size={56} accessibilityLabel={`${formatNumber(eaten)} calories eaten today`}>
-            {formatNumber(eaten)}
-          </StatValue>
-          <Body size={14} tone="secondary">
-            of{' '}
-            <StatValue size={14} tone="secondary">
-              {formatNumber(goalCalories)}
-            </StatValue>{' '}
-            kcal
-          </Body>
-        </View>
-
-        <ProgressTrack progress={progress} color={color} over={over} height={10} />
-
-        <View
-          accessible
-          accessibilityLabel={status}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
-        >
-          <StatusIcon size={16} color={color} strokeWidth={2.2} />
-          <Body size={14} weight="semibold" style={{ color }}>
-            {status}
-          </Body>
-        </View>
-      </GlassSurface>
-    </View>
-  )
-}
-
 /* --- Macros ---------------------------------------------------------------- */
 
 const MacroCard: React.FC<{
   theme: Theme
   nutrition: NutritionSummary
+  goalCalories: number
   proteinGoal: number
   carbsGoal: number
   fatGoal: number
-}> = ({ theme, nutrition, proteinGoal, carbsGoal, fatGoal }) => {
+}> = ({ theme, nutrition, goalCalories, proteinGoal, carbsGoal, fatGoal }) => {
   const legend = [
     { key: 'Protein', grams: nutrition.protein, goal: proteinGoal, color: theme.macro.protein },
     { key: 'Carbs', grams: nutrition.carbs, goal: carbsGoal, color: theme.macro.carbs },
@@ -278,7 +204,28 @@ const MacroCard: React.FC<{
 
   return (
     <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
-      <SectionTitle>Macros</SectionTitle>
+      {/*
+        The goal sits in the header rather than under the figure in the ring. The ring's inner
+        circle is narrow — a 15-character line there runs its last word under the fat arc — and
+        this is the shape WaterCard already uses for the same job.
+      */}
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          gap: spacing.md,
+        }}
+      >
+        <SectionTitle>Today</SectionTitle>
+        <Body size={12} tone="muted">
+          of{' '}
+          <StatValue size={12} tone="muted">
+            {formatNumber(goalCalories)}
+          </StatValue>{' '}
+          kcal
+        </Body>
+      </View>
 
       <View style={{ alignItems: 'center' }}>
         <MacroRing
@@ -290,7 +237,16 @@ const MacroCard: React.FC<{
             label: item.key,
           }))}
         >
-          <StatValue size={30}>{formatNumber(nutrition.calories)}</StatValue>
+          {/* The calorie total lives here and nowhere else now. It used to be printed twice:
+              once at 56pt in a hero card and again here at 30pt, a few hundred pixels apart. */}
+          <StatValue
+            size={30}
+            accessibilityLabel={`${formatNumber(nutrition.calories)} of ${formatNumber(
+              goalCalories
+            )} kilocalories today`}
+          >
+            {formatNumber(nutrition.calories)}
+          </StatValue>
           <Label style={{ marginTop: 4 }}>kcal today</Label>
         </MacroRing>
       </View>
