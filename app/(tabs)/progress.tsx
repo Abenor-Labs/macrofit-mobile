@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import { Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { PanResponder, Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native'
 import Svg, { Circle, Line, Path, Rect } from 'react-native-svg'
 import { useGlobalSearchParams, useRouter } from 'expo-router'
 import {
@@ -56,6 +56,8 @@ const GUTTER = 44
 const PAD_X = 4
 const PAD_Y = 8
 const USABLE_H = CHART_H - PAD_Y * 2
+/** Scrub readout width. Wide enough for '2,427 kcal' plus a date under it. */
+const TOOLTIP_W = 116
 
 const RANGE_DAYS = { '7d': 7, '30d': 30 } as const
 
@@ -187,6 +189,10 @@ interface LineChartProps {
   goalColor?: string
   showDots: boolean
   format: (value: number) => string
+  /** One date per slot, so a scrubbed point can say which day it is. */
+  dates?: readonly string[]
+  /** Appended to the scrubbed value, e.g. 'kcal'. The axis has no room to repeat it. */
+  unit?: string
 }
 
 const LineChart: React.FC<LineChartProps> = ({
@@ -200,8 +206,37 @@ const LineChart: React.FC<LineChartProps> = ({
   goalColor,
   showDots,
   format,
+  dates,
+  unit,
 }) => {
   const theme = useTheme()
+
+  /*
+    Press and drag to read the series. At this width a 30-day chart puts its points about ten
+    pixels apart, which is under half a fingertip: without scrubbing the only way to know what
+    a dot is worth is to count gridlines and guess.
+
+    The index is kept in state and the hit-testing in a ref. PanResponder is built once, so a
+    handler that closed over `points` directly would still be reading the first render's data
+    a week later; the ref is reassigned on every render and the handlers call through it.
+  */
+  const [active, setActive] = useState<number | null>(null)
+  const nearestRef = useRef<(x: number) => number | null>(() => null)
+
+  const responder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      // The chart lives inside a ScrollView. Granting termination lets a vertical drag that
+      // started on the chart still scroll the page instead of trapping the finger.
+      onPanResponderTerminationRequest: () => true,
+      onPanResponderGrant: event => setActive(nearestRef.current(event.nativeEvent.locationX)),
+      onPanResponderMove: event => setActive(nearestRef.current(event.nativeEvent.locationX)),
+      onPanResponderRelease: () => setActive(null),
+      onPanResponderTerminate: () => setActive(null),
+    })
+  ).current
+
   if (points.length === 0) return null
 
   const plotW = Math.max(width - GUTTER, 1)
@@ -254,11 +289,68 @@ const LineChart: React.FC<LineChartProps> = ({
     ).toFixed(2)} ${base} Z`
   }
 
+  /*
+    Snap to the nearest plotted point rather than to the nearest slot. On a sparse month most
+    slots hold nothing, and a crosshair that lands between two logged days and reports neither
+    is worse than one that always names a real reading.
+  */
+  nearestRef.current = (x: number): number | null => {
+    let best = points[0]
+    let bestDistance = Math.abs(xOf(best.index) - x)
+    for (const point of points) {
+      const distance = Math.abs(xOf(point.index) - x)
+      if (distance < bestDistance) {
+        best = point
+        bestDistance = distance
+      }
+    }
+    return best.index
+  }
+
+  const activePoint = active === null ? null : (points.find(p => p.index === active) ?? null)
+  const activeX = activePoint === null ? 0 : xOf(activePoint.index)
+  const activeDate = activePoint === null ? undefined : dates?.[activePoint.index]
+
   return (
     <View>
-      <View style={{ flexDirection: 'row' }}>
+      {activePoint ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: 0,
+            // Clamped so a reading at either end stays on screen instead of hanging off it.
+            left: Math.min(Math.max(GUTTER + activeX - TOOLTIP_W / 2, 0), GUTTER + plotW - TOOLTIP_W),
+            width: TOOLTIP_W,
+            zIndex: 2,
+            alignItems: 'center',
+            gap: 1,
+            paddingVertical: 6,
+            borderRadius: radius.control,
+            borderWidth: StyleSheet.hairlineWidth * 2,
+            borderColor: theme.border,
+            backgroundColor: theme.surfaceRaised,
+          }}
+        >
+          <StatValue size={15}>{`${format(activePoint.value)}${unit ? ` ${unit}` : ''}`}</StatValue>
+          {activeDate ? <Label>{formatDate(activeDate)}</Label> : null}
+        </View>
+      ) : null}
+
+      <View style={{ flexDirection: 'row' }} {...responder.panHandlers}>
         <YAxis ticks={ticks} format={format} />
         <Svg width={plotW} height={CHART_H}>
+          {activePoint ? (
+            <Line
+              x1={activeX}
+              y1={PAD_Y}
+              x2={activeX}
+              y2={PAD_Y + USABLE_H}
+              stroke={theme.textMuted}
+              strokeWidth={1}
+              strokeDasharray="3 3"
+            />
+          ) : null}
           {/* Grid stays recessive — a hairline in the border token, never a black axis. */}
           {ticks.map((tick, i) => (
             <Line
@@ -309,6 +401,17 @@ const LineChart: React.FC<LineChartProps> = ({
               />
             )
           )}
+
+          {activePoint ? (
+            <Circle
+              cx={activeX}
+              cy={yOf(activePoint.value)}
+              r={6}
+              fill={color}
+              stroke={theme.surface}
+              strokeWidth={2}
+            />
+          ) : null}
 
           {showDots
             ? points.map(point => (
@@ -796,6 +899,8 @@ export default function ProgressScreen() {
                     goalColor={theme.textMuted}
                     showDots={slots <= 7}
                     format={withCommas}
+                    dates={dates}
+                    unit="kcal"
                   />
                   <AxisDates from={dates[0]} to={dates[slots - 1]} />
                 </View>
@@ -998,6 +1103,8 @@ export default function ProgressScreen() {
                   connectGaps
                   showDots
                   format={oneDecimal}
+                  dates={dates}
+                  unit={unitLabel}
                 />
                 <AxisDates from={dates[0]} to={dates[slots - 1]} />
               </View>
