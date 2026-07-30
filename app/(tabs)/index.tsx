@@ -7,6 +7,13 @@ import { Pressable, StyleSheet, View } from 'react-native'
   style is a FUNCTION of the press state, and spreading a function yields `{}` — so the child
   silently loses every style it declared. It cost a dashboard where the meal rows stacked
   vertically because `flexDirection: 'row'` had been deleted at render time.
+
+  That symptom then returned from a second, unrelated direction: NativeWind's JSX interop was
+  resolving function-form styles away too, so the meal rows stacked again and the water
+  quick-add buttons lost their borders and their 44dp targets. NativeWind has been removed
+  (nothing in the app ever used a className), which is what fixed it. Two different libraries,
+  one failure mode — anything that sits between this file's JSX and the native view is a
+  suspect the moment a row goes vertical.
 */
 import { useRouter } from 'expo-router'
 import { LinearGradient } from 'expo-linear-gradient'
@@ -33,7 +40,7 @@ import { useTheme, type Theme } from '@/theme/useTheme'
 import { GlassSurface, Surface } from '@/components/Glass'
 import { MacroRing, ProgressTrack } from '@/components/MacroRing'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
-import { Button, IconButton } from '@/components/Button'
+import { IconButton } from '@/components/Button'
 import { Screen } from '@/components/Layout'
 import { StepsCard } from '@/components/StepsCard'
 import { WeightTargetCard } from '@/components/WeightTarget'
@@ -139,25 +146,14 @@ export default function DashboardScreen() {
     >
       <HeroCard theme={theme} nutrition={nutrition} goalCalories={goals.calories} />
 
-      <Surface style={{ padding: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
-          <View style={{ width: 36, height: 36, borderRadius: radius.control, backgroundColor: theme.brand, alignItems: 'center', justifyContent: 'center' }}>
-            <Sparkles size={18} color={theme.brandOn} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Body size={14} weight="semibold">AI Nutrition Assistant</Body>
-            <Body size={12} tone="muted">Log meals, water or weight by speaking</Body>
-          </View>
-        </View>
-        <Button
-          label="Ask AI"
-          variant="primary"
-          haptic
-          onPress={() => router.push('/chat')}
-          icon={<Sparkles size={14} color={theme.brandOn} />}
-        />
-      </Surface>
-
+      {/*
+        No assistant card here. The chat was reachable three ways from this one screen — the
+        header icon above, a full card in the second slot, and "Ask AI" in the log button's
+        menu — and the card was the only one of the three that cost a slot above Macros, Meals
+        and Water to advertise something the other two already offered. A promotion outranking
+        the day's actual numbers is the wrong trade on the screen people open to check those
+        numbers.
+      */}
       <MacroCard
         theme={theme}
         nutrition={nutrition}
@@ -168,7 +164,7 @@ export default function DashboardScreen() {
 
       <CoachCard theme={theme} recommendation={recommendation} />
 
-      <MealsCard theme={theme} mealTotals={mealTotals} />
+      <MealsCard theme={theme} date={today} mealTotals={mealTotals} />
 
       <WaterCard theme={theme} date={today} intakeMl={day.waterIntake} goalMl={goals.water} />
 
@@ -421,7 +417,17 @@ const CoachCard: React.FC<{
 
 /* --- Meals ----------------------------------------------------------------- */
 
-const MealsCard: React.FC<{ theme: Theme; mealTotals: MealTotals }> = ({ theme, mealTotals }) => {
+/**
+ * Every row used to call `router.push('/diary')`, so tapping Breakfast and tapping Snacks
+ * landed in the same place and the app threw away the one thing the tap told it. A row now
+ * goes where the row says it goes: an empty one reads "Add food" and opens the picker already
+ * set to that meal, a filled one shows a total and opens the diary to review it.
+ */
+const MealsCard: React.FC<{ theme: Theme; date: string; mealTotals: MealTotals }> = ({
+  theme,
+  date,
+  mealTotals,
+}) => {
   const router = useRouter()
 
   return (
@@ -434,14 +440,18 @@ const MealsCard: React.FC<{ theme: Theme; mealTotals: MealTotals }> = ({ theme, 
         const detail = data ? `${data.count} item${data.count === 1 ? '' : 's'}` : 'Nothing logged'
         const label = data
           ? `${meal}, ${formatNumber(data.calories)} kilocalories, ${detail}. Open diary.`
-          : `${meal}, nothing logged. Open diary to add food.`
+          : `${meal}, nothing logged. Add food to ${meal}.`
 
         return (
           <Pressable
             key={meal}
             accessibilityRole="link"
             accessibilityLabel={label}
-            onPress={() => router.push('/diary')}
+            onPress={() =>
+              data
+                ? router.push('/diary')
+                : router.push({ pathname: '/food-search', params: { meal, date } })
+            }
             style={({ pressed }) => ({
               flexDirection: 'row',
               alignItems: 'center',
