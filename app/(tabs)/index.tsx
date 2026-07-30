@@ -1,6 +1,14 @@
 import React, { useMemo } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
-import { Link, useRouter } from 'expo-router'
+/*
+  `useRouter` rather than `<Link asChild>` for every tappable card on this screen, and it has
+  to stay that way. `asChild` renders through Radix's Slot, whose prop merge does
+  `style: { ...slotStyle, ...childStyle }` (@radix-ui/react-slot mergeProps). Pressable's
+  style is a FUNCTION of the press state, and spreading a function yields `{}` — so the child
+  silently loses every style it declared. It cost a dashboard where the meal rows stacked
+  vertically because `flexDirection: 'row'` had been deleted at render time.
+*/
+import { useRouter } from 'expo-router'
 import { LinearGradient } from 'expo-linear-gradient'
 import {
   AlertTriangle,
@@ -340,6 +348,7 @@ const CoachCard: React.FC<{
   theme: Theme
   recommendation: Recommendation | null
 }> = ({ theme, recommendation }) => {
+  const router = useRouter()
   const label = recommendation
     ? `Coach plan: ${PHASE_LABELS[recommendation.phase]}, ${formatNumber(
         recommendation.calories
@@ -347,89 +356,92 @@ const CoachCard: React.FC<{
     : 'Coach: no plan yet. Open goals to set one up.'
 
   return (
-    <Link href="/goals" asChild>
-      <Pressable
-        accessibilityRole="link"
-        accessibilityLabel={label}
-        // The card is clipped and fully covered by the wash, so a background change would
-        // never show through — opacity is the press feedback that survives the gradient.
-        style={({ pressed }) => ({
-          borderRadius: radius.card,
-          overflow: 'hidden',
-          minHeight: HIT_SIZE,
-          opacity: pressed ? 0.85 : 1,
-        })}
-      >
-        <LinearGradient
-          colors={coachWash(theme)}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel={label}
+      onPress={() => router.push('/goals')}
+      // The card is clipped and fully covered by the wash, so a background change would
+      // never show through — opacity is the press feedback that survives the gradient.
+      style={({ pressed }) => ({
+        borderRadius: radius.card,
+        overflow: 'hidden',
+        minHeight: HIT_SIZE,
+        opacity: pressed ? 0.85 : 1,
+      })}
+    >
+      <LinearGradient
+        colors={coachWash(theme)}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
 
-        <GlassSurface style={{ padding: spacing.lg }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-            <View
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: radius.control,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: theme.border,
-              }}
-            >
-              <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
-            </View>
-
-            <View style={{ flex: 1, gap: 4 }}>
-              <Label>{recommendation ? 'Coach plan' : 'Coach'}</Label>
-              {recommendation ? (
-                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
-                  <Body size={16} weight="semibold">
-                    {PHASE_LABELS[recommendation.phase]}
-                  </Body>
-                  <Body size={13} tone="secondary">
-                    <StatValue size={13} tone="secondary">
-                      {formatNumber(recommendation.calories)}
-                    </StatValue>{' '}
-                    kcal/day
-                  </Body>
-                </View>
-              ) : (
-                <Body size={13} tone="secondary">
-                  No plan yet — set a phase and a calorie target built from your own data.
-                </Body>
-              )}
-            </View>
-
-            <ChevronRight size={20} color={theme.textMuted} />
+      <GlassSurface style={{ padding: spacing.lg }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+          <View
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: radius.control,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: theme.border,
+            }}
+          >
+            <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
           </View>
-        </GlassSurface>
-      </Pressable>
-    </Link>
+
+          <View style={{ flex: 1, gap: 4 }}>
+            <Label>{recommendation ? 'Coach plan' : 'Coach'}</Label>
+            {recommendation ? (
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
+                <Body size={16} weight="semibold">
+                  {PHASE_LABELS[recommendation.phase]}
+                </Body>
+                <Body size={13} tone="secondary">
+                  <StatValue size={13} tone="secondary">
+                    {formatNumber(recommendation.calories)}
+                  </StatValue>{' '}
+                  kcal/day
+                </Body>
+              </View>
+            ) : (
+              <Body size={13} tone="secondary">
+                No plan yet — set a phase and a calorie target built from your own data.
+              </Body>
+            )}
+          </View>
+
+          <ChevronRight size={20} color={theme.textMuted} />
+        </View>
+      </GlassSurface>
+    </Pressable>
   )
 }
 
 /* --- Meals ----------------------------------------------------------------- */
 
-const MealsCard: React.FC<{ theme: Theme; mealTotals: MealTotals }> = ({ theme, mealTotals }) => (
-  <Surface style={{ padding: spacing.lg, gap: spacing.xs }}>
-    <SectionTitle>Meals</SectionTitle>
+const MealsCard: React.FC<{ theme: Theme; mealTotals: MealTotals }> = ({ theme, mealTotals }) => {
+  const router = useRouter()
 
-    {MEALS.map((meal, index) => {
-      const data = mealTotals[meal]
-      const MealIcon = MEAL_ICONS[meal] ?? Cookie
-      const detail = data ? `${data.count} item${data.count === 1 ? '' : 's'}` : 'Nothing logged'
-      const label = data
-        ? `${meal}, ${formatNumber(data.calories)} kilocalories, ${detail}. Open diary.`
-        : `${meal}, nothing logged. Open diary to add food.`
+  return (
+    <Surface style={{ padding: spacing.lg, gap: spacing.xs }}>
+      <SectionTitle>Meals</SectionTitle>
 
-      return (
-        <Link key={meal} href="/diary" asChild>
+      {MEALS.map((meal, index) => {
+        const data = mealTotals[meal]
+        const MealIcon = MEAL_ICONS[meal] ?? Cookie
+        const detail = data ? `${data.count} item${data.count === 1 ? '' : 's'}` : 'Nothing logged'
+        const label = data
+          ? `${meal}, ${formatNumber(data.calories)} kilocalories, ${detail}. Open diary.`
+          : `${meal}, nothing logged. Open diary to add food.`
+
+        return (
           <Pressable
+            key={meal}
             accessibilityRole="link"
             accessibilityLabel={label}
+            onPress={() => router.push('/diary')}
             style={({ pressed }) => ({
               flexDirection: 'row',
               alignItems: 'center',
@@ -481,11 +493,11 @@ const MealsCard: React.FC<{ theme: Theme; mealTotals: MealTotals }> = ({ theme, 
 
             <ChevronRight size={18} color={theme.textMuted} />
           </Pressable>
-        </Link>
-      )
-    })}
-  </Surface>
-)
+        )
+      })}
+    </Surface>
+  )
+}
 
 /* --- Water ----------------------------------------------------------------- */
 
