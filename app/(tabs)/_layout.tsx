@@ -187,8 +187,16 @@ const AssistantButton: React.FC = () => {
 }
 
 export default function TabsLayout() {
+  /*
+    A real View, not a fragment. `AssistantButton` positions itself absolutely, and a
+    fragment gives it nothing to be absolute against — the navigator becomes its containing
+    block, and on Android react-native-screens then lays the button out after the tab bar
+    instead of over it. It rendered as a full-width green band below the tab bar with the
+    icon jammed against the left edge, which is what an absolute child looks like once it
+    has been demoted to a normal one.
+  */
   return (
-    <>
+    <View style={{ flex: 1 }}>
       <Tabs screenOptions={{ headerShown: false }} tabBar={props => <GlassTabBar {...props} />}>
         <Tabs.Screen name="index" />
         <Tabs.Screen name="diary" />
@@ -197,6 +205,6 @@ export default function TabsLayout() {
         <Tabs.Screen name="profile" />
       </Tabs>
       <AssistantButton />
-    </>
+    </View>
   )
 }
