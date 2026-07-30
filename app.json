@@ -46,8 +46,9 @@
         }
       ],
       "expo-splash-screen",
+      "react-native-health-connect",
       [
-        "react-native-health-connect",
+        "./plugins/with-health-connect-permissions",
         {
           "permissions": [
             "READ_WEIGHT",
