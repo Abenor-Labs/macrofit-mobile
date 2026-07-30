@@ -2,12 +2,7 @@ import React, { useState } from 'react'
 import { View } from 'react-native'
 import { Download, RefreshCw } from 'lucide-react-native'
 
-import {
-  checkForUpdate,
-  downloadAndInstall,
-  updatesConfigured,
-  type UpdateManifest,
-} from '@/lib/appUpdate'
+import { checkForUpdate, downloadAndInstall, type AvailableRelease } from '@/lib/appUpdate'
 import { useTheme } from '@/theme/useTheme'
 import { spacing } from '@/theme/tokens'
 import { Body } from './Text'
@@ -30,9 +25,7 @@ export const UpdatePanel: React.FC = () => {
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [available, setAvailable] = useState<UpdateManifest | null>(null)
-
-  const configured = updatesConfigured()
+  const [available, setAvailable] = useState<AvailableRelease | null>(null)
 
   const check = () => {
     setBusy(true)
@@ -76,13 +69,6 @@ export const UpdatePanel: React.FC = () => {
 
   return (
     <View style={{ gap: spacing.md }}>
-      {configured ? null : (
-        <Body size={13} tone="secondary">
-          No update source is set for this build, so it cannot check for new versions. It will
-          need reinstalling by hand to update.
-        </Body>
-      )}
-
       {status ? (
         <Body size={13} tone="secondary">
           {status}
@@ -95,8 +81,7 @@ export const UpdatePanel: React.FC = () => {
         </Body>
       ) : null}
 
-      {configured ? (
-        available ? (
+      {available ? (
           <Button
             label="Download and install"
             onPress={install}
@@ -104,17 +89,16 @@ export const UpdatePanel: React.FC = () => {
             disabled={busy}
             icon={<Download size={15} color={theme.brandOn} strokeWidth={2} />}
           />
-        ) : (
-          <Button
-            label={busy ? 'Checking…' : 'Check for updates'}
-            variant="secondary"
-            onPress={check}
-            loading={busy}
-            disabled={busy}
-            icon={<RefreshCw size={15} color={theme.text} strokeWidth={2} />}
-          />
-        )
-      ) : null}
+      ) : (
+        <Button
+          label={busy ? 'Checking…' : 'Check for updates'}
+          variant="secondary"
+          onPress={check}
+          loading={busy}
+          disabled={busy}
+          icon={<RefreshCw size={15} color={theme.text} strokeWidth={2} />}
+        />
+      )}
     </View>
   )
 }
