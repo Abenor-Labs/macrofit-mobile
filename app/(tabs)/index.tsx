@@ -207,6 +207,8 @@ const MacroCard: React.FC<{
   carbsGoal: number
   fatGoal: number
 }> = ({ theme, nutrition, goalCalories, proteinGoal, carbsGoal, fatGoal }) => {
+  const router = useRouter()
+
   const legend = [
     { key: 'Protein', grams: nutrition.protein, goal: proteinGoal, color: theme.macro.protein },
     { key: 'Carbs', grams: nutrition.carbs, goal: carbsGoal, color: theme.macro.carbs },
@@ -214,88 +216,112 @@ const MacroCard: React.FC<{
   ]
 
   return (
-    <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
-      {/*
-        The goal sits in the header rather than under the figure in the ring. The ring's inner
-        circle is narrow — a 15-character line there runs its last word under the fat arc — and
-        this is the shape WaterCard already uses for the same job.
-      */}
-      <SectionTitle>Today</SectionTitle>
+    /*
+      The whole card opens the Calories view on Progress, which is the history behind the one
+      day this card shows: same figures, plotted, with 7d and 30d to switch between. A number
+      that only ever describes today is a number with nowhere to go.
 
-      <View style={{ alignItems: 'center' }}>
-        <MacroRing
-          size={192}
-          strokeWidth={12}
-          series={legend.map(item => ({
-            progress: item.grams / Math.max(item.goal, 1),
-            color: item.color,
-            label: item.key,
-          }))}
+      Press feedback is opacity rather than a background change, the same choice CoachCard
+      makes: the card is a Surface with its own fill, so a background swap underneath it would
+      never show.
+    */
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel={`Today: ${formatNumber(nutrition.calories)} of ${formatNumber(
+        goalCalories
+      )} kilocalories. Open calorie history.`}
+      onPress={() => router.push({ pathname: '/progress', params: { metric: 'calories' } })}
+      style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
+    >
+      <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: spacing.md,
+          }}
         >
-          {/*
-            Eaten over target, both inside the ring, because the pair is the reading — 700 on
-            its own says nothing until you know whether the day allows 1,800 or 3,200.
+          <SectionTitle>Today</SectionTitle>
+          {/* The affordance. Without it a card this dense reads as a display, not a door. */}
+          <ChevronRight size={20} color={theme.textMuted} />
+        </View>
 
-            Stacked rather than written across one line: the ring's inner circle is narrow
-            enough that a fifteen-character row runs its last word under the fat arc, so the
-            target sits on its own line at a size the circle can hold.
-          */}
-          <StatValue
-            size={30}
-            accessibilityLabel={`${formatNumber(nutrition.calories)} of ${formatNumber(
-              goalCalories
-            )} kilocalories today`}
+        <View style={{ alignItems: 'center' }}>
+          <MacroRing
+            size={192}
+            strokeWidth={12}
+            series={legend.map(item => ({
+              progress: item.grams / Math.max(item.goal, 1),
+              color: item.color,
+              label: item.key,
+            }))}
           >
-            {formatNumber(nutrition.calories)}
-          </StatValue>
-          <StatValue size={13} tone="muted">
-            {`/ ${formatNumber(goalCalories)}`}
-          </StatValue>
-          <Label style={{ marginTop: 2 }}>kcal</Label>
-        </MacroRing>
-      </View>
+            {/*
+              Eaten over target, both inside the ring, because the pair is the reading — 700 on
+              its own says nothing until you know whether the day allows 1,800 or 3,200.
 
-      <View style={{ flexDirection: 'row', gap: spacing.md }}>
-        {legend.map(item => (
-          <View key={item.key} style={{ flex: 1, gap: 4 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <View
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: radius.pill,
-                  backgroundColor: item.color,
-                }}
-              />
-              <Label>{item.key}</Label>
-            </View>
+              Stacked rather than written across one line: the ring's inner circle is narrow
+              enough that a fifteen-character row runs its last word under the fat arc, so the
+              target sits on its own line at a size the circle can hold.
+            */}
+            <StatValue
+              size={30}
+              accessibilityLabel={`${formatNumber(nutrition.calories)} of ${formatNumber(
+                goalCalories
+              )} kilocalories today`}
+            >
+              {formatNumber(nutrition.calories)}
+            </StatValue>
+            <StatValue size={13} tone="muted">
+              {`/ ${formatNumber(goalCalories)}`}
+            </StatValue>
+            <Label style={{ marginTop: 2 }}>kcal</Label>
+          </MacroRing>
+        </View>
 
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
-              <StatValue
-                size={20}
-                color={item.color}
-                accessibilityLabel={`${item.key}: ${formatNumber(item.grams)} of ${formatNumber(
-                  item.goal
-                )} grams`}
-              >
-                {formatNumber(item.grams)}
-              </StatValue>
-              <Body size={12} tone="muted">
+        <View style={{ flexDirection: 'row', gap: spacing.md }}>
+          {legend.map(item => (
+            <View key={item.key} style={{ flex: 1, gap: 4 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: radius.pill,
+                    backgroundColor: item.color,
+                  }}
+                />
+                <Label>{item.key}</Label>
+              </View>
+
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
+                <StatValue
+                  size={20}
+                  color={item.color}
+                  accessibilityLabel={`${item.key}: ${formatNumber(item.grams)} of ${formatNumber(
+                    item.goal
+                  )} grams`}
+                >
+                  {formatNumber(item.grams)}
+                </StatValue>
+                <Body size={12} tone="muted">
+                  g
+                </Body>
+              </View>
+
+              <Body size={11} tone="muted">
+                of{' '}
+                <StatValue size={11} tone="muted">
+                  {formatNumber(item.goal)}
+                </StatValue>{' '}
                 g
               </Body>
             </View>
-
-            <Body size={11} tone="muted">
-              of{' '}
-              <StatValue size={11} tone="muted">
-                {formatNumber(item.goal)}
-              </StatValue>{' '}
-              g
-            </Body>
-          </View>
-        ))}
-      </View>
-    </Surface>
+          ))}
+        </View>
+      </Surface>
+    </Pressable>
   )
 }
 
@@ -605,6 +631,8 @@ const WeekCard: React.FC<{
   proteinGoal: number
   streakDays: number
 }> = ({ theme, diary, goalCalories, proteinGoal, streakDays }) => {
+  const router = useRouter()
+
   const week = useMemo(() => {
     const dates = getLast7Days()
     const todayDate = dates[dates.length - 1]
@@ -650,84 +678,109 @@ const WeekCard: React.FC<{
         : `${formatNumber(Math.abs(delta))} kcal ${delta > 0 ? 'over' : 'under'} target across ${week.settledDays} ${dayWord}. Today not counted yet.`
 
   return (
-    <Surface style={{ padding: spacing.lg, gap: spacing.md }}>
-      <SectionTitle>Last 7 days</SectionTitle>
-
-      {/* No chart until there is something to chart. Seven slots holding six stubs and one nub
-          is not a week of data, it is an empty frame with a rounding error in it — the same
-          reason StepsCard renders nothing rather than a fake zero. The sentence and the dashes
-          below still say the card exists and what it will hold. */}
-      {week.settledDays > 0 && (
+    /*
+      Opens the same Calories view the Today card does. This card is the seven-day summary of
+      it; Progress is the same seven days plotted, with 30d alongside.
+    */
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel={
+        week.settledDays === 0
+          ? 'Last 7 days, nothing finished yet. Open calorie history.'
+          : `Last 7 days. ${summary} Open calorie history.`
+      }
+      onPress={() => router.push({ pathname: '/progress', params: { metric: 'calories' } })}
+      style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
+    >
+      <Surface style={{ padding: spacing.lg, gap: spacing.md }}>
         <View
-          accessible
-          accessibilityLabel={`Averaging ${formatNumber(week.average)} kilocalories across ${week.settledDays} finished days. ${summary}`}
-          style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, height: BAR_MAX }}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: spacing.md,
+          }}
         >
-          {week.days.map(day => {
-            const over = day.calories > goalCalories
-            const filled = Math.min(day.calories / goal, 1)
-
-            return (
-              <View
-                key={day.date}
-                style={{ flex: 1, height: BAR_MAX, justifyContent: 'flex-end', alignItems: 'center' }}
-              >
-                <View
-                  style={{
-                    // Fixed and narrow, not a share of the column. A percentage of a ~45dp slot
-                    // came out wider than the bar was tall, so a normal day read as a lozenge
-                    // lying on its side rather than as a bar.
-                    width: 12,
-                    // A 3px stub for untouched days, so the week reads as seven slots rather
-                    // than as however many happen to have food in them.
-                    height: Math.max(filled * BAR_MAX, 3),
-                    borderRadius: radius.tight,
-                    backgroundColor: !day.logged
-                      ? theme.border
-                      : over
-                        ? theme.status.warning
-                        : theme.brand,
-                    // Today reads as today without relying on hue, which the over-target state
-                    // has already spent.
-                    opacity: day.isToday ? 1 : 0.55,
-                  }}
-                />
-              </View>
-            )
-          })}
+          <SectionTitle>Last 7 days</SectionTitle>
+          <ChevronRight size={20} color={theme.textMuted} />
         </View>
-      )}
 
-      <Body size={13} tone="secondary">
-        {summary}
-      </Body>
+        {/* No chart until there is something to chart. Seven slots holding six stubs and one nub
+            is not a week of data, it is an empty frame with a rounding error in it — the same
+            reason StepsCard renders nothing rather than a fake zero. The sentence and the dashes
+            below still say the card exists and what it will hold. */}
+        {week.settledDays > 0 && (
+          <View
+            accessible
+            accessibilityLabel={`Averaging ${formatNumber(week.average)} kilocalories across ${week.settledDays} finished days. ${summary}`}
+            style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, height: BAR_MAX }}
+          >
+            {week.days.map(day => {
+              const over = day.calories > goalCalories
+              const filled = Math.min(day.calories / goal, 1)
 
-      <View style={{ flexDirection: 'row', gap: spacing.md }}>
-        <WeekFigure
-          value={week.settledDays === 0 ? '—' : formatNumber(week.average)}
-          label="Avg kcal"
-          accessibilityLabel={
-            week.settledDays === 0
-              ? 'No average yet'
-              : `Averaging ${formatNumber(week.average)} kilocalories`
-          }
-        />
-        <WeekFigure
-          value={week.settledDays === 0 ? '—' : `${week.proteinHits}/${week.settledDays}`}
-          label="Protein hit"
-          accessibilityLabel={
-            week.settledDays === 0
-              ? 'No finished days yet'
-              : `Protein goal hit on ${week.proteinHits} of ${week.settledDays} finished days`
-          }
-        />
-        <WeekFigure
-          value={formatNumber(streakDays)}
-          label="Day streak"
-          accessibilityLabel={`${formatNumber(streakDays)} day logging streak`}
-        />
-      </View>
-    </Surface>
+              return (
+                <View
+                  key={day.date}
+                  style={{ flex: 1, height: BAR_MAX, justifyContent: 'flex-end', alignItems: 'center' }}
+                >
+                  <View
+                    style={{
+                      // Fixed and narrow, not a share of the column. A percentage of a ~45dp slot
+                      // came out wider than the bar was tall, so a normal day read as a lozenge
+                      // lying on its side rather than as a bar.
+                      width: 12,
+                      // A 3px stub for untouched days, so the week reads as seven slots rather
+                      // than as however many happen to have food in them.
+                      height: Math.max(filled * BAR_MAX, 3),
+                      borderRadius: radius.tight,
+                      backgroundColor: !day.logged
+                        ? theme.border
+                        : over
+                          ? theme.status.warning
+                          : theme.brand,
+                      // Today reads as today without relying on hue, which the over-target state
+                      // has already spent.
+                      opacity: day.isToday ? 1 : 0.55,
+                    }}
+                  />
+                </View>
+              )
+            })}
+          </View>
+        )}
+
+        <Body size={13} tone="secondary">
+          {summary}
+        </Body>
+
+        <View style={{ flexDirection: 'row', gap: spacing.md }}>
+          <WeekFigure
+            value={week.settledDays === 0 ? '—' : formatNumber(week.average)}
+            label="Avg kcal"
+            accessibilityLabel={
+              week.settledDays === 0
+                ? 'No average yet'
+                : `Averaging ${formatNumber(week.average)} kilocalories`
+            }
+          />
+          <WeekFigure
+            value={week.settledDays === 0 ? '—' : `${week.proteinHits}/${week.settledDays}`}
+            label="Protein hit"
+            accessibilityLabel={
+              week.settledDays === 0
+                ? 'No finished days yet'
+                : `Protein goal hit on ${week.proteinHits} of ${week.settledDays} finished days`
+            }
+          />
+          <WeekFigure
+            value={formatNumber(streakDays)}
+            label="Day streak"
+            accessibilityLabel={`${formatNumber(streakDays)} day logging streak`}
+          />
+        </View>
+      </Surface>
+    </Pressable>
   )
 }
 

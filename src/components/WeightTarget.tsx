@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { Pressable, StyleSheet, View } from 'react-native'
+import { useRouter } from 'expo-router'
 import { ArrowDown, ArrowUp, CalendarClock, Check, Minus, Scale, TriangleAlert } from 'lucide-react-native'
 
 import { getWeightTargetProgress, type TrackStatus } from '@core/utils/weightTarget'
@@ -107,19 +108,31 @@ const VerdictBox: React.FC<{
  *
  * Renders nothing without a goal to measure against: there is no verdict to give, and an empty
  * callout above the fold would cost the position without earning it.
+ *
+ * Opens the weight history, because "flat for 26 days" is a claim about a trend and the trend
+ * is the thing worth looking at next. The copy inside the card is left alone: this is a link on
+ * the dashboard only, and the same box inside WeightTargetCard on Progress is already there.
  */
 export const WeightVerdict: React.FC = () => {
+  const router = useRouter()
   const { progress, meta, toneColor, StatusIcon } = useWeightVerdict()
 
   if (progress.targetKg === null) return null
 
   return (
-    <VerdictBox
-      label={meta.label}
-      message={progress.message}
-      toneColor={toneColor}
-      Icon={StatusIcon}
-    />
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel={`${meta.label}. ${progress.message} Open weight history.`}
+      onPress={() => router.push({ pathname: '/progress', params: { metric: 'weight' } })}
+      style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
+    >
+      <VerdictBox
+        label={meta.label}
+        message={progress.message}
+        toneColor={toneColor}
+        Icon={StatusIcon}
+      />
+    </Pressable>
   )
 }
 

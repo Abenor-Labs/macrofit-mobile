@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native'
 import Svg, { Circle, Line, Path, Rect } from 'react-native-svg'
-import { useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import {
   Activity,
   Dumbbell,
@@ -611,9 +611,19 @@ interface DayStat {
  * Screen
  * ------------------------------------------------------------------ */
 
+const isTabKey = (value: string | undefined): value is TabKey =>
+  value === 'calories' || value === 'macros' || value === 'weight' || value === 'training'
+
 export default function ProgressScreen() {
   const theme = useTheme()
-  const [tab, setTab] = useState<TabKey>('calories')
+  /*
+    The metric can arrive as a param so cards elsewhere can open the one they are about — the
+    dashboard's Today card lands on Calories rather than dropping the user on this screen to
+    find their way back to what they tapped. Unrecognised or absent values fall back to
+    Calories, which is what this screen opened on before it took params at all.
+  */
+  const params = useLocalSearchParams<{ metric?: string }>()
+  const [tab, setTab] = useState<TabKey>(isTabKey(params.metric) ? params.metric : 'calories')
   const [range, setRange] = useState<RangeKey>('7d')
 
   const diary = useStore(s => s.diary)
