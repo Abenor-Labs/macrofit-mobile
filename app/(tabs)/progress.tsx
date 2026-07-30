@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native'
 import Svg, { Circle, Line, Path, Rect } from 'react-native-svg'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useGlobalSearchParams, useRouter } from 'expo-router'
 import {
   Activity,
   Dumbbell,
@@ -622,7 +622,13 @@ export default function ProgressScreen() {
     find their way back to what they tapped. Unrecognised or absent values fall back to
     Calories, which is what this screen opened on before it took params at all.
   */
-  const params = useLocalSearchParams<{ metric?: string }>()
+  /*
+    Global, not local. useLocalSearchParams only reports params while its route is the active
+    one, and this screen is a tab: it stays mounted in the background, so a link fired from the
+    dashboard changed the URL and this screen never heard about it. The metric arrived, the tab
+    did not move, and the link looked like it did nothing.
+  */
+  const params = useGlobalSearchParams<{ metric?: string }>()
   const [tab, setTab] = useState<TabKey>(isTabKey(params.metric) ? params.metric : 'calories')
   const [range, setRange] = useState<RangeKey>('7d')
 
