@@ -44,7 +44,8 @@ import {
 
 import { useStore } from '@/store/useStore'
 import { useTheme, type Theme } from '@/theme/useTheme'
-import { HIT_SIZE, fonts, radius, spacing } from '@/theme/tokens'
+import { ThemeScope } from '@/theme/ThemeScope'
+import { HIT_SIZE, fonts, radius, spacing, workoutTheme } from '@/theme/tokens'
 import { GlassSurface, Surface } from '@/components/Glass'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
 import { Button } from '@/components/Button'
@@ -133,7 +134,10 @@ const numberInputStyle = (theme: Theme, flat: boolean): TextStyle => ({
   borderRadius: radius.control,
   borderWidth: StyleSheet.hairlineWidth * 2,
   borderColor: flat ? 'transparent' : theme.border,
-  backgroundColor: flat ? 'transparent' : theme.surface,
+  // surfaceRaised, not surface: the exercise card is already `surface`, so an input filled
+  // with the same value is a border floating on nothing. Identical to surface in light
+  // mode, where the card's white already separates it from the canvas.
+  backgroundColor: flat ? 'transparent' : theme.surfaceRaised,
   color: theme.text,
   paddingHorizontal: 2,
   textAlign: 'center',
@@ -1164,7 +1168,7 @@ const HistoryCard: React.FC<{ session: WorkoutSession; unit: WeightUnit }> = ({
 
 const PR_PREVIEW_COUNT = 5
 
-export default function WorkoutScreen() {
+const WorkoutScreenBody: React.FC = () => {
   const theme = useTheme()
   const workoutLog = useStore(s => s.workoutLog)
   const activeWorkoutId = useStore(s => s.activeWorkoutId)
@@ -1350,5 +1354,24 @@ export default function WorkoutScreen() {
         </View>
       )}
     </Screen>
+  )
+}
+
+/**
+ * Workout mode.
+ *
+ * The scope has to sit above the body, not inside it: `useTheme()` runs at the top of
+ * WorkoutScreenBody, and a provider rendered in its own return value would be below the
+ * hook that reads it. Everything under here — the glass header, every Surface, the rest
+ * timer, the inputs — repaints without knowing a second palette exists.
+ *
+ * It ignores the user's light/dark setting on purpose. The mode is the point; a light
+ * workout screen would be the same room with the lights left on.
+ */
+export default function WorkoutScreen() {
+  return (
+    <ThemeScope theme={workoutTheme}>
+      <WorkoutScreenBody />
+    </ThemeScope>
   )
 }

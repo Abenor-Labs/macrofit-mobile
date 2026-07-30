@@ -1,6 +1,6 @@
 import React from 'react'
 import { Platform, Pressable, StyleSheet, View } from 'react-native'
-import { Tabs, useRouter } from 'expo-router'
+import { Tabs, useRouter, useSegments } from 'expo-router'
 import { BlurView } from 'expo-blur'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
@@ -15,7 +15,7 @@ type TabBarProps = Parameters<NonNullable<React.ComponentProps<typeof Tabs>['tab
 
 import { useTheme } from '@/theme/useTheme'
 import { Body } from '@/components/Text'
-import { HIT_SIZE } from '@/theme/tokens'
+import { HIT_SIZE, workoutTheme } from '@/theme/tokens'
 
 const ICONS: Record<string, React.ComponentType<{ size: number; color: string; strokeWidth: number }>> = {
   index: Home,
@@ -41,8 +41,18 @@ const LABELS: Record<string, string> = {
  * indicator bar AND a weight change, never color alone.
  */
 const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
-  const theme = useTheme()
+  const appTheme = useTheme()
   const insets = useSafeAreaInsets()
+
+  /*
+    The bar crosses into workout mode with the content above it. Leaving it jade over a
+    near-black lime screen would draw a seam across the bottom of the display and undo the
+    thing the mode is for — the chrome has to be in the room too.
+
+    Read off the focused route rather than a context, because the tab bar renders as a
+    sibling of the screens, outside any ThemeScope they set.
+  */
+  const theme = state.routes[state.index]?.name === 'workout' ? workoutTheme : appTheme
 
   return (
     <View
@@ -137,10 +147,14 @@ const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
  * its entry point, mounted once here so it is available from every tab rather than
  * duplicated per screen.
  */
-const AssistantButton: React.FC = () => {
-  const theme = useTheme()
+const AssistantButton: React.FC<{ inWorkoutMode: boolean }> = ({ inWorkoutMode }) => {
+  const appTheme = useTheme()
   const insets = useSafeAreaInsets()
   const router = useRouter()
+
+  // Floats over the screen, so it takes the screen's palette. A jade pill sitting on the
+  // near-black workout canvas is the one element that would still look pasted on.
+  const theme = inWorkoutMode ? workoutTheme : appTheme
 
   return (
     <Pressable
@@ -179,9 +193,11 @@ const AssistantButton: React.FC = () => {
         experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
         style={StyleSheet.absoluteFill}
       />
-      {/* Jade wash rather than a flat fill, so the blur still shows through. */}
+      {/* Brand wash rather than a flat fill, so the blur still shows through. */}
       <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.brand + 'E6' }]} />
-      <Sparkles size={24} color="#FFFFFF" strokeWidth={2} />
+      {/* brandOn, not a hardcoded white: workout mode's brand is lime-300, and white on it
+          is 1.2:1. The icon would vanish into the button. */}
+      <Sparkles size={24} color={theme.brandOn} strokeWidth={2} />
     </Pressable>
   )
 }
@@ -195,6 +211,11 @@ export default function TabsLayout() {
     icon jammed against the left edge, which is what an absolute child looks like once it
     has been demoted to a normal one.
   */
+  // The button sits outside the navigator, so it cannot read the focused route from the
+  // tab bar's props the way GlassTabBar does.
+  const segments = useSegments() as string[]
+  const inWorkoutMode = segments[segments.length - 1] === 'workout'
+
   return (
     <View style={{ flex: 1 }}>
       <Tabs screenOptions={{ headerShown: false }} tabBar={props => <GlassTabBar {...props} />}>
@@ -204,7 +225,7 @@ export default function TabsLayout() {
         <Tabs.Screen name="progress" />
         <Tabs.Screen name="profile" />
       </Tabs>
-      <AssistantButton />
+      <AssistantButton inWorkoutMode={inWorkoutMode} />
     </View>
   )
 }
