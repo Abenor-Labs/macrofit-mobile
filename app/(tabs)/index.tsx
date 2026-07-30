@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
 /*
   `useRouter` rather than `<Link asChild>` for every tappable card on this screen, and it has
@@ -49,7 +49,6 @@ import { IconButton } from '@/components/Button'
 import { Screen } from '@/components/Layout'
 import { StepsCard } from '@/components/StepsCard'
 import { WeightTargetCard, WeightVerdict } from '@/components/WeightTarget'
-import { DateNavigator, parseISODate } from '@/components/DateNavigator'
 import { HIT_SIZE, jade, radius, spacing } from '@/theme/tokens'
 
 /**
@@ -104,15 +103,15 @@ const coachWash = (theme: Theme): Wash =>
 export default function DashboardScreen() {
   const theme = useTheme()
 
-  const today = getTodayString()
   /*
-    The screen is still a today-screen: it opens on today and says so. But "Today" was a title
-    and nothing more, so a day logged late — or a day you simply want to check — was reachable
-    only by leaving for the Diary and coming back.
+    Today only, deliberately. A date navigator lived here briefly and was the wrong control on
+    the wrong screen: this is the today-screen, and every card on it either describes today or
+    describes the trend. Browsing days belongs in the detail views, which is where the Intake
+    card now sends you — the same split Google Fit uses, where Home carries no date picker and
+    the activity detail carries Day, Week and Month.
   */
-  const [date, setDate] = useState(today)
-  const isToday = date === today
-  const storedDay = useStore(s => s.diary[date])
+  const today = getTodayString()
+  const storedDay = useStore(s => s.diary[today])
   // The whole diary, for the week strip. Today's row is selected separately above so the rest
   // of the screen keeps re-rendering only on changes to today.
   const diary = useStore(s => s.diary)
@@ -125,8 +124,8 @@ export default function DashboardScreen() {
   // getDayNutrition is not re-run on every unrelated store change.
   const router = useRouter()
   const day = useMemo<DiaryDay>(
-    () => storedDay ?? { date, entries: [], waterIntake: 0, exercises: [] },
-    [storedDay, date]
+    () => storedDay ?? { date: today, entries: [], waterIntake: 0, exercises: [] },
+    [storedDay, today]
   )
 
   const nutrition = useMemo(() => getDayNutrition(day), [day])
@@ -145,9 +144,7 @@ export default function DashboardScreen() {
   return (
     <Screen
       title="Today"
-      /* Follows the day being viewed, not the clock. A header reading "Jul 30" above Jul 29's
-         meals is the same lie the card title was telling. */
-      subtitle={`${formatDate(date)} · ${WEEKDAYS[parseISODate(date).getDay()]}`}
+      subtitle={`${formatDate(today)} · ${WEEKDAYS[new Date().getDay()]}`}
       right={
         <IconButton
           accessibilityLabel="Open the nutrition assistant"
@@ -168,8 +165,6 @@ export default function DashboardScreen() {
         menu. The card was the only one of the three that cost a slot above the day's numbers
         to advertise what the other two already offered.
       */}
-      <DateNavigator date={date} today={today} onChange={setDate} />
-
       <MacroCard
         theme={theme}
         nutrition={nutrition}
@@ -179,15 +174,7 @@ export default function DashboardScreen() {
         fatGoal={goals.fat}
       />
 
-      {/*
-        Everything from here to the meals list describes now, not the day being viewed: the
-        verdict reads the trend as it stands, the strip always ends on today, and the plan is
-        the plan. Under a heading that says "Yesterday" they would be claiming to belong to
-        yesterday, so a past day shows only what was actually logged on it.
-      */}
-      {isToday ? (
-        <>
-          {/* Second, not first. It is the only line on this screen that asks for a change, and
+      {/* Second, not first. It is the only line on this screen that asks for a change, and
               it used to sit seventh — but a dashboard that opens on "Stalled" every morning
               leads with a scolding. The day's numbers go first; the verdict reads under them. */}
           <WeightVerdict />
@@ -203,25 +190,19 @@ export default function DashboardScreen() {
             streakDays={streak.current}
           />
 
-          <CoachCard theme={theme} recommendation={recommendation} />
-        </>
-      ) : null}
+      <CoachCard theme={theme} recommendation={recommendation} />
 
-      <MealsCard theme={theme} date={date} mealTotals={mealTotals} />
+      <MealsCard theme={theme} date={today} mealTotals={mealTotals} />
 
-      <WaterCard theme={theme} date={date} intakeMl={day.waterIntake} goalMl={goals.water} />
+      <WaterCard theme={theme} date={today} intakeMl={day.waterIntake} goalMl={goals.water} />
 
-      {isToday ? (
-        <>
-          {/* Health Connect renders nothing when the platform cannot supply steps — an empty
-              "0 steps" tile would be a lie, not an empty state. Live, so today only. */}
-          <StepsCard />
+      {/* Health Connect renders nothing when the platform cannot supply steps — an empty
+          "0 steps" tile would be a lie, not an empty state. */}
+      <StepsCard />
 
-          {/* The weigh-in field writes to today whatever day is on screen above it, so it
-              only belongs on today. Compact here; the full breakdown lives on Profile. */}
-          <WeightTargetCard compact />
-        </>
-      ) : null}
+      {/* Daily weigh-in plus an honest read on whether the trend is heading toward the goal.
+          Compact here; the full breakdown lives on Profile. */}
+      <WeightTargetCard compact />
 
     </Screen>
   )
@@ -249,9 +230,13 @@ const MacroCard: React.FC<{
 
   return (
     /*
-      The whole card opens the Calories view on Progress, which is the history behind the one
-      day this card shows: same figures, plotted, with 7d and 30d to switch between. A number
-      that only ever describes today is a number with nowhere to go.
+      Opens the day in full: the Diary is this card's detail view. It carries the date control,
+      the complete macro set down to fibre, sugar and sodium, and every entry per meal — which
+      is what "see today's intake" means once the ring has already given the headline.
+
+      Not Progress. That is the week and the month, and it is where the Last 7 days card goes.
+      Ring to day, strip to trend, the same split Google Fit draws between its home rings and
+      the activity detail behind them.
 
       Press feedback is opacity rather than a background change, the same choice CoachCard
       makes: the card is a Surface with its own fill, so a background swap underneath it would
@@ -261,8 +246,8 @@ const MacroCard: React.FC<{
       accessibilityRole="link"
       accessibilityLabel={`Today: ${formatNumber(nutrition.calories)} of ${formatNumber(
         goalCalories
-      )} kilocalories. Open calorie history.`}
-      onPress={() => router.push({ pathname: '/progress', params: { metric: 'calories' } })}
+      )} kilocalories. Open today's diary.`}
+      onPress={() => router.push('/diary')}
       style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
     >
       <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
