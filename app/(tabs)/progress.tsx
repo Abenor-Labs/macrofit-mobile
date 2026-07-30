@@ -901,6 +901,19 @@ export default function ProgressScreen() {
     router.setParams({ range: undefined })
   }, [params.range, router])
 
+  /*
+    Day exists for intake only. The other three tabs would render it as a chart of one point —
+    the same degenerate view the calorie day replaced — so the option is not offered there, and
+    a tab switch away from Calories carries the span back to the week rather than leaving a
+    selected range that the tab cannot draw.
+
+    Offering a control that produces a broken view is worse than not offering it: the user reads
+    the empty chart as missing data rather than as a span this screen does not answer.
+  */
+  useEffect(() => {
+    if (range === 'day' && tab !== 'calories') setRange('7d')
+  }, [range, tab])
+
   const unitLabel = weightUnit === 'lbs' ? 'lb' : 'kg'
   // Volume comes out of workoutMath in kg. Convert only here, at the display edge.
   const toDisplayWeight = (kg: number): number => (weightUnit === 'lbs' ? kgToLbs(kg) : kg)
@@ -1479,7 +1492,12 @@ export default function ProgressScreen() {
             <Label>{rangeWords}</Label>
           </View>
           <View style={{ width: 168 }}>
-            <Segmented options={RANGES} value={range} onChange={setRange} groupLabel="Range" />
+            <Segmented
+              options={tab === 'calories' ? RANGES : RANGES.filter(r => r.key !== 'day')}
+              value={range}
+              onChange={setRange}
+              groupLabel="Range"
+            />
           </View>
         </View>
 
