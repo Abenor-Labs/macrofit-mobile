@@ -209,23 +209,7 @@ const MacroCard: React.FC<{
         circle is narrow — a 15-character line there runs its last word under the fat arc — and
         this is the shape WaterCard already uses for the same job.
       */}
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'baseline',
-          justifyContent: 'space-between',
-          gap: spacing.md,
-        }}
-      >
-        <SectionTitle>Today</SectionTitle>
-        <Body size={12} tone="muted">
-          of{' '}
-          <StatValue size={12} tone="muted">
-            {formatNumber(goalCalories)}
-          </StatValue>{' '}
-          kcal
-        </Body>
-      </View>
+      <SectionTitle>Today</SectionTitle>
 
       <View style={{ alignItems: 'center' }}>
         <MacroRing
@@ -237,8 +221,14 @@ const MacroCard: React.FC<{
             label: item.key,
           }))}
         >
-          {/* The calorie total lives here and nowhere else now. It used to be printed twice:
-              once at 56pt in a hero card and again here at 30pt, a few hundred pixels apart. */}
+          {/*
+            Eaten over target, both inside the ring, because the pair is the reading — 700 on
+            its own says nothing until you know whether the day allows 1,800 or 3,200.
+
+            Stacked rather than written across one line: the ring's inner circle is narrow
+            enough that a fifteen-character row runs its last word under the fat arc, so the
+            target sits on its own line at a size the circle can hold.
+          */}
           <StatValue
             size={30}
             accessibilityLabel={`${formatNumber(nutrition.calories)} of ${formatNumber(
@@ -247,7 +237,10 @@ const MacroCard: React.FC<{
           >
             {formatNumber(nutrition.calories)}
           </StatValue>
-          <Label style={{ marginTop: 4 }}>kcal today</Label>
+          <StatValue size={13} tone="muted">
+            {`/ ${formatNumber(goalCalories)}`}
+          </StatValue>
+          <Label style={{ marginTop: 2 }}>kcal</Label>
         </MacroRing>
       </View>
 
