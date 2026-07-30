@@ -43,7 +43,7 @@ import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
 import { IconButton } from '@/components/Button'
 import { Screen } from '@/components/Layout'
 import { StepsCard } from '@/components/StepsCard'
-import { WeightTargetCard } from '@/components/WeightTarget'
+import { WeightTargetCard, WeightVerdict } from '@/components/WeightTarget'
 import { HIT_SIZE, jade, radius, spacing } from '@/theme/tokens'
 
 /**
@@ -145,6 +145,11 @@ export default function DashboardScreen() {
       }
     >
       <HeroCard theme={theme} nutrition={nutrition} goalCalories={goals.calories} />
+
+      {/* Directly under the hero so the screen answers both halves of "how am I doing" in one
+          glance: the hero covers today, this covers whether any of it is working. It is the
+          only line here that asks for a change, and it used to sit seventh. */}
+      <WeightVerdict />
 
       {/*
         No assistant card here. The chat was reachable three ways from this one screen — the

@@ -30,29 +30,21 @@ const STATUS_META: Record<
 }
 
 /**
- * Goal weight, today's weigh-in, and an honest read on whether the trend is heading the
- * right way. This is the screen's answer to "am I actually making progress?".
+ * The trend read, its tone, and its icon — shared by the full card and by the standalone
+ * verdict the dashboard shows above the fold.
  */
-export const WeightTargetCard: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
+const useWeightVerdict = () => {
   const theme = useTheme()
   const profile = useStore(s => s.profile)
   const weightLog = useStore(s => s.weightLog)
   const currentWeightKg = useStore(s => s.currentWeightKg)
-  const addWeightEntry = useStore(s => s.addWeightEntry)
-
-  const [draft, setDraft] = useState('')
 
   const today = getTodayString()
-  const loggedToday = weightLog.some(e => e.date === today)
 
   const progress = useMemo(
     () => getWeightTargetProgress(weightLog, profile, currentWeightKg, today),
     [weightLog, profile, currentWeightKg, today],
   )
-
-  const unit = profile.weightUnit
-  const toDisplay = (kg: number): number =>
-    Math.round((unit === 'lbs' ? kg * LBS_PER_KG : kg) * 10) / 10
 
   const meta = STATUS_META[progress.status]
   const toneColor =
@@ -66,6 +58,90 @@ export const WeightTargetCard: React.FC<{ compact?: boolean }> = ({ compact = fa
 
   const StatusIcon =
     meta.tone === 'good' ? Check : meta.tone === 'critical' ? TriangleAlert : Minus
+
+  return { progress, meta, toneColor, StatusIcon, today }
+}
+
+/** The toned callout itself. One shape, so the two placements cannot drift apart. */
+const VerdictBox: React.FC<{
+  label: string
+  message: string
+  toneColor: string
+  Icon: React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>
+}> = ({ label, message, toneColor, Icon }) => (
+  <View
+    style={{
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.sm,
+      padding: spacing.md,
+      borderRadius: radius.control,
+      borderWidth: StyleSheet.hairlineWidth * 2,
+      borderColor: toneColor + '55',
+      backgroundColor: toneColor + '14',
+    }}
+  >
+    <Icon size={16} color={toneColor} strokeWidth={2.2} />
+    <View style={{ flex: 1, gap: 2 }}>
+      <Body size={13} weight="semibold" style={{ color: toneColor }}>
+        {label}
+      </Body>
+      <Body size={13} tone="secondary">
+        {message}
+      </Body>
+    </View>
+  </View>
+)
+
+/**
+ * The verdict on its own, for the top of the dashboard.
+ *
+ * "Weight has been flat for 26 days with 3.7 kg to go. A change in intake is needed to start
+ * moving." is the only line on that screen that asks the user to change something, and it used
+ * to sit seventh of eight — below a steps tile, four swipes down, where a ten-second check-in
+ * never reaches it. It reads directly under the calorie hero now, so the screen answers "am I
+ * on track today" and "is any of this working" in the same glance.
+ *
+ * WeightTargetCard drops it when `compact`, which is how the dashboard renders it, so the
+ * sentence is promoted rather than printed twice.
+ *
+ * Renders nothing without a goal to measure against: there is no verdict to give, and an empty
+ * callout above the fold would cost the position without earning it.
+ */
+export const WeightVerdict: React.FC = () => {
+  const { progress, meta, toneColor, StatusIcon } = useWeightVerdict()
+
+  if (progress.targetKg === null) return null
+
+  return (
+    <VerdictBox
+      label={meta.label}
+      message={progress.message}
+      toneColor={toneColor}
+      Icon={StatusIcon}
+    />
+  )
+}
+
+/**
+ * Goal weight, today's weigh-in, and an honest read on whether the trend is heading the
+ * right way. This is the screen's answer to "am I actually making progress?".
+ */
+export const WeightTargetCard: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
+  const theme = useTheme()
+  const profile = useStore(s => s.profile)
+  const weightLog = useStore(s => s.weightLog)
+  const currentWeightKg = useStore(s => s.currentWeightKg)
+  const addWeightEntry = useStore(s => s.addWeightEntry)
+
+  const [draft, setDraft] = useState('')
+
+  const { progress, meta, toneColor, StatusIcon, today } = useWeightVerdict()
+  const loggedToday = weightLog.some(e => e.date === today)
+
+  const unit = profile.weightUnit
+  const toDisplay = (kg: number): number =>
+    Math.round((unit === 'lbs' ? kg * LBS_PER_KG : kg) * 10) / 10
 
   const TrendIcon =
     progress.trendKgPerWeek === null
@@ -141,28 +217,16 @@ export const WeightTargetCard: React.FC<{ compact?: boolean }> = ({ compact = fa
             </View>
           )}
 
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'flex-start',
-              gap: spacing.sm,
-              padding: spacing.md,
-              borderRadius: radius.control,
-              borderWidth: StyleSheet.hairlineWidth * 2,
-              borderColor: toneColor + '55',
-              backgroundColor: toneColor + '14',
-            }}
-          >
-            <StatusIcon size={16} color={toneColor} strokeWidth={2.2} />
-            <View style={{ flex: 1, gap: 2 }}>
-              <Body size={13} weight="semibold" style={{ color: toneColor }}>
-                {meta.label}
-              </Body>
-              <Body size={13} tone="secondary">
-                {progress.message}
-              </Body>
-            </View>
-          </View>
+          {/* Not in compact: the dashboard promotes this to the top of the screen as
+              <WeightVerdict />, and saying it twice on one screen would undo the point. */}
+          {!compact && (
+            <VerdictBox
+              label={meta.label}
+              message={progress.message}
+              toneColor={toneColor}
+              Icon={StatusIcon}
+            />
+          )}
 
           {!compact && progress.trendKgPerWeek !== null && (
             <View style={{ flexDirection: 'row', gap: spacing.lg }}>
