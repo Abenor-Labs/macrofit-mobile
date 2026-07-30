@@ -19,6 +19,7 @@ import { Field, Pill, Screen } from '@/components/Layout'
 import { ProgressTrack } from '@/components/MacroRing'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
 import { useStore } from '@/store/useStore'
+import { DateNavigator } from '@/components/DateNavigator'
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
 import type { DiaryDay, FoodEntry, MealType } from '@core/types'
@@ -41,32 +42,6 @@ const MEAL_TYPES: readonly MealType[] = [
 
 const HAIRLINE = StyleSheet.hairlineWidth * 2
 
-const WEEKDAYS = [
-  'Sunday',
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
-] as const
-
-/**
- * Parses 'YYYY-MM-DD' into a *local* Date.
- *
- * `new Date('2026-07-27')` parses as UTC midnight and then renders in local time, which
- * silently shows the previous day west of Greenwich. Splitting the parts avoids that.
- */
-const parseISODate = (iso: string): Date => {
-  const [year, month, day] = iso.split('-').map(Number)
-  return new Date(year, month - 1, day)
-}
-
-const shiftISODate = (iso: string, days: number): string => {
-  const date = parseISODate(iso)
-  date.setDate(date.getDate() + days)
-  return getDateString(date)
-}
 
 const round2 = (value: number): number => Math.round(value * 100) / 100
 
@@ -114,55 +89,6 @@ const MacroChips: React.FC<{ protein: number; carbs: number; fat: number }> = ({
 }
 
 // --- Date navigator ---------------------------------------------------------
-
-const DateNavigator: React.FC<{
-  date: string
-  today: string
-  onChange: (next: string) => void
-}> = ({ date, today, onChange }) => {
-  const theme = useTheme()
-  const isToday = date === today
-  const relative =
-    isToday
-      ? 'Today'
-      : date === shiftISODate(today, -1)
-        ? 'Yesterday'
-        : date === shiftISODate(today, 1)
-          ? 'Tomorrow'
-          : WEEKDAYS[parseISODate(date).getDay()]
-  const spoken = `${relative}, ${formatDate(date)}`
-
-  return (
-    <Surface style={{ padding: spacing.md, gap: spacing.sm }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <IconButton
-          accessibilityLabel="Show the previous day"
-          onPress={() => onChange(shiftISODate(date, -1))}
-        >
-          <ChevronLeft size={22} color={theme.text} strokeWidth={2} />
-        </IconButton>
-
-        <View style={{ flex: 1, alignItems: 'center', gap: 2 }} accessible accessibilityLabel={spoken}>
-          <SectionTitle>{formatDate(date)}</SectionTitle>
-          <Body size={12} tone={isToday ? 'brand' : 'muted'} weight="medium">
-            {relative}
-          </Body>
-        </View>
-
-        <IconButton
-          accessibilityLabel="Show the next day"
-          onPress={() => onChange(shiftISODate(date, 1))}
-        >
-          <ChevronRight size={22} color={theme.text} strokeWidth={2} />
-        </IconButton>
-      </View>
-
-      {!isToday && (
-        <Button label="Jump to today" variant="secondary" full onPress={() => onChange(today)} />
-      )}
-    </Surface>
-  )
-}
 
 // --- Day totals -------------------------------------------------------------
 

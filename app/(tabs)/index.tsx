@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
 /*
   `useRouter` rather than `<Link asChild>` for every tappable card on this screen, and it has
@@ -49,6 +49,7 @@ import { IconButton } from '@/components/Button'
 import { Screen } from '@/components/Layout'
 import { StepsCard } from '@/components/StepsCard'
 import { WeightTargetCard, WeightVerdict } from '@/components/WeightTarget'
+import { DateNavigator } from '@/components/DateNavigator'
 import { HIT_SIZE, jade, radius, spacing } from '@/theme/tokens'
 
 /**
@@ -104,7 +105,14 @@ export default function DashboardScreen() {
   const theme = useTheme()
 
   const today = getTodayString()
-  const storedDay = useStore(s => s.diary[today])
+  /*
+    The screen is still a today-screen: it opens on today and says so. But "Today" was a title
+    and nothing more, so a day logged late — or a day you simply want to check — was reachable
+    only by leaving for the Diary and coming back.
+  */
+  const [date, setDate] = useState(today)
+  const isToday = date === today
+  const storedDay = useStore(s => s.diary[date])
   // The whole diary, for the week strip. Today's row is selected separately above so the rest
   // of the screen keeps re-rendering only on changes to today.
   const diary = useStore(s => s.diary)
@@ -117,8 +125,8 @@ export default function DashboardScreen() {
   // getDayNutrition is not re-run on every unrelated store change.
   const router = useRouter()
   const day = useMemo<DiaryDay>(
-    () => storedDay ?? { date: today, entries: [], waterIntake: 0, exercises: [] },
-    [storedDay, today]
+    () => storedDay ?? { date, entries: [], waterIntake: 0, exercises: [] },
+    [storedDay, date]
   )
 
   const nutrition = useMemo(() => getDayNutrition(day), [day])
@@ -158,6 +166,8 @@ export default function DashboardScreen() {
         menu. The card was the only one of the three that cost a slot above the day's numbers
         to advertise what the other two already offered.
       */}
+      <DateNavigator date={date} today={today} onChange={setDate} />
+
       <MacroCard
         theme={theme}
         nutrition={nutrition}
@@ -167,35 +177,49 @@ export default function DashboardScreen() {
         fatGoal={goals.fat}
       />
 
-      {/* Second, not first. It is the only line on this screen that asks for a change, and it
-          used to sit seventh — but a dashboard that opens on "Stalled" every morning leads
-          with a scolding. The day's numbers go first; the verdict reads right under them. */}
-      <WeightVerdict />
+      {/*
+        Everything from here to the meals list describes now, not the day being viewed: the
+        verdict reads the trend as it stands, the strip always ends on today, and the plan is
+        the plan. Under a heading that says "Yesterday" they would be claiming to belong to
+        yesterday, so a past day shows only what was actually logged on it.
+      */}
+      {isToday ? (
+        <>
+          {/* Second, not first. It is the only line on this screen that asks for a change, and
+              it used to sit seventh — but a dashboard that opens on "Stalled" every morning
+              leads with a scolding. The day's numbers go first; the verdict reads under them. */}
+          <WeightVerdict />
 
-      {/* Directly under the verdict because it is the evidence for it: "Stalled" is a claim,
-          and what you average and how often you hit protein is why. */}
-      <WeekCard
-        theme={theme}
-        diary={diary}
-        today={today}
-        goalCalories={goals.calories}
-        proteinGoal={goals.protein}
-        streakDays={streak.current}
-      />
+          {/* Directly under the verdict because it is the evidence for it: "Stalled" is a
+              claim, and what you average and how often you hit protein is why. */}
+          <WeekCard
+            theme={theme}
+            diary={diary}
+            today={today}
+            goalCalories={goals.calories}
+            proteinGoal={goals.protein}
+            streakDays={streak.current}
+          />
 
-      <CoachCard theme={theme} recommendation={recommendation} />
+          <CoachCard theme={theme} recommendation={recommendation} />
+        </>
+      ) : null}
 
-      <MealsCard theme={theme} date={today} mealTotals={mealTotals} />
+      <MealsCard theme={theme} date={date} mealTotals={mealTotals} />
 
-      <WaterCard theme={theme} date={today} intakeMl={day.waterIntake} goalMl={goals.water} />
+      <WaterCard theme={theme} date={date} intakeMl={day.waterIntake} goalMl={goals.water} />
 
-      {/* Steps come from Health Connect and render nothing when the platform cannot
-          supply them — an empty "0 steps" tile would be a lie, not an empty state. */}
-      <StepsCard />
+      {isToday ? (
+        <>
+          {/* Health Connect renders nothing when the platform cannot supply steps — an empty
+              "0 steps" tile would be a lie, not an empty state. Live, so today only. */}
+          <StepsCard />
 
-      {/* Daily weigh-in plus an honest read on whether the trend is heading toward the
-          goal. Compact here; the full breakdown lives on Profile. */}
-      <WeightTargetCard compact />
+          {/* The weigh-in field writes to today whatever day is on screen above it, so it
+              only belongs on today. Compact here; the full breakdown lives on Profile. */}
+          <WeightTargetCard compact />
+        </>
+      ) : null}
 
     </Screen>
   )
