@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native'
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { Tabs, useRouter, useSegments } from 'expo-router'
 import { ChromeBlur } from '@/components/BlurTarget'
+import { LiquidGlass } from '@/components/LiquidGlass'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
 import {
@@ -68,8 +69,15 @@ const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
   */
   const theme = state.routes[state.index]?.name === 'workout' ? workoutTheme : appTheme
 
+  // The specular shader is sized in pixels, so it cannot draw until the bar has been measured.
+  const [size, setSize] = useState({ width: 0, height: 0 })
+
   return (
     <View
+      onLayout={event => {
+        const { width, height } = event.nativeEvent.layout
+        setSize(prev => (prev.width === width && prev.height === height ? prev : { width, height }))
+      }}
       style={{
         position: 'absolute',
         left: 0,
@@ -84,6 +92,9 @@ const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
     >
       <ChromeBlur tint={theme.glass.tint} intensity={theme.glass.intensity + 20} />
       <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.glass.chromeOverlay }]} />
+      {/* Above the tint so the highlight sits on the glass rather than under its colour, and
+          below the labels so it never washes them out. */}
+      <LiquidGlass width={size.width} height={size.height} band={22} />
 
       <View style={{ flexDirection: 'row' }}>
         {state.routes.map((route, index) => {
@@ -308,42 +319,64 @@ const QuickLogButton: React.FC = () => {
         </View>
       )}
 
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
-        accessibilityLabel={open ? 'Close the log menu' : 'Log food, water, a workout, or ask the assistant'}
-        onPress={() => toggle(!open)}
-        style={({ pressed }) => ({
+      {/*
+        The position lives on this View and not on the Pressable below it. Both the star button
+        this replaced and the plus that replaced it rendered as a full-width band under the tab
+        bar, and measuring it showed why: the Pressable's function style never reached the native
+        view at all, so it laid out at its content size — `{"x":0,"y":774,"width":360,"height":26}`
+        on a 360dp screen, 26dp being exactly the icon. Static layout props on a plain View are
+        not subject to whatever drops it, and the Pressable keeps only the press feedback, which
+        is the part that genuinely has to be a function of `pressed`.
+
+        box-none so the padding around the circle does not eat taps meant for the content behind.
+      */}
+      <View
+        pointerEvents="box-none"
+        style={{
           position: 'absolute',
           right: 18,
           // Clears the tab bar, whose own height already accounts for the safe area.
           bottom: fabBottom,
           width: 56,
           height: 56,
-          borderRadius: 28,
-          alignItems: 'center',
-          justifyContent: 'center',
-          overflow: 'hidden',
-          borderWidth: StyleSheet.hairlineWidth * 2,
-          borderColor: theme.glass.border,
-          opacity: pressed ? 0.85 : 1,
-          transform: [{ scale: pressed ? 0.96 : 1 }],
-          // A soft lift so it reads as floating above the content it blurs.
-          shadowColor: '#1C1917',
-          shadowOpacity: theme.mode === 'light' ? 0.18 : 0.4,
-          shadowRadius: 12,
-          shadowOffset: { width: 0, height: 6 },
-          elevation: 6,
-        })}
+        }}
       >
-        <ChromeBlur tint={theme.glass.tint} intensity={theme.glass.intensity + 30} />
-        {/* Brand wash rather than a flat fill, so the blur still shows through. */}
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.brand + 'E6' }]} />
-        {/* brandOn, not a hardcoded white: white on a light brand is unreadable. */}
-        <Animated.View style={iconSpin}>
-          <Plus size={26} color={theme.brandOn} strokeWidth={2.4} />
-        </Animated.View>
-      </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: open }}
+          accessibilityLabel={
+            open ? 'Close the log menu' : 'Log food, water, a workout, or ask the assistant'
+          }
+          onPress={() => toggle(!open)}
+          /*
+            An array and not `({ pressed }) => …`. In the function form this button's style did
+            not reach the native view: it measured
+            `{"x":0,"y":774,"width":360,"height":26}` on a 360dp screen — content-sized, 26dp
+            being exactly the icon, with no radius, centring or position. The array form lays
+            out correctly. The menu items above still use a function style and are fine, so this
+            is not a blanket rule about Pressable; it is specific to this button, and the array
+            costs nothing to prefer. Press feedback moves to android_ripple, which is native and
+            needs no style callback.
+          */
+          style={[
+            styles.fab,
+            {
+              borderColor: theme.glass.border,
+              // A soft lift so it reads as floating above the content it blurs.
+              shadowOpacity: theme.mode === 'light' ? 0.18 : 0.4,
+            },
+          ]}
+          android_ripple={{ color: theme.glass.border, borderless: false, radius: 28 }}
+        >
+          <ChromeBlur tint={theme.glass.tint} intensity={theme.glass.intensity + 30} />
+          {/* Brand wash rather than a flat fill, so the blur still shows through. */}
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.brand + 'E6' }]} />
+          {/* brandOn, not a hardcoded white: white on a light brand is unreadable. */}
+          <Animated.View style={iconSpin}>
+            <Plus size={26} color={theme.brandOn} strokeWidth={2.4} />
+          </Animated.View>
+        </Pressable>
+      </View>
     </>
   )
 }
@@ -377,3 +410,22 @@ export default function TabsLayout() {
     </View>
   )
 }
+
+const styles = StyleSheet.create({
+  /*
+    Static, and via StyleSheet.create rather than inline, because this is the layout that kept
+    going missing. Only the press-dependent parts stay inline above.
+  */
+  fab: {
+    flex: 1,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth * 2,
+    shadowColor: '#1C1917',
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  },
+})
