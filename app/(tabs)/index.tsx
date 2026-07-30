@@ -216,6 +216,8 @@ const MacroCard: React.FC<{
     { key: 'Fat', grams: nutrition.fat, goal: fatGoal, color: theme.macro.fat },
   ]
 
+  const over = nutrition.calories > goalCalories
+
   return (
     /*
       The whole card opens the Calories view on Progress, which is the history behind the one
@@ -268,16 +270,32 @@ const MacroCard: React.FC<{
             */}
             <StatValue
               size={30}
-              accessibilityLabel={`${formatNumber(nutrition.calories)} of ${formatNumber(
-                goalCalories
-              )} kilocalories today`}
+              /*
+                Red once the day is over target. The hero card that used to carry this flipped
+                to a warning tone and said "X kcal over your goal"; when it went, nothing was
+                left to mark the difference between 2,400 of 2,427 and 3,400 of 2,427.
+
+                Colour is not carrying this alone — the figure is already larger than the
+                target printed directly beneath it — so the rule about never signalling by hue
+                is intact. It is reinforcement on a number that has to be noticed.
+              */
+              color={over ? theme.status.critical : undefined}
+              accessibilityLabel={
+                over
+                  ? `${formatNumber(nutrition.calories)} kilocalories, over your ${formatNumber(
+                      goalCalories
+                    )} target`
+                  : `${formatNumber(nutrition.calories)} of ${formatNumber(
+                      goalCalories
+                    )} kilocalories today`
+              }
             >
               {formatNumber(nutrition.calories)}
             </StatValue>
             <StatValue size={13} tone="muted">
               {`/ ${formatNumber(goalCalories)}`}
             </StatValue>
-            <Label style={{ marginTop: 2 }}>kcal</Label>
+            <Label style={{ marginTop: 2 }}>{over ? 'kcal · over' : 'kcal'}</Label>
           </MacroRing>
         </View>
 
