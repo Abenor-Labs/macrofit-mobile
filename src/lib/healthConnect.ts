@@ -1,6 +1,7 @@
 import { Platform } from 'react-native'
 import type { UserProfile, WeightEntry } from '@core/types'
 import { getDateString } from '@core/utils/calculations'
+import { healthRuntimePermissions } from './healthPermissions'
 
 /**
  * Android Health Connect: reads step counts and historical bodyweight so the user does
@@ -23,13 +24,12 @@ export interface StepDay {
   steps: number
 }
 
-const PERMISSIONS = [
-  { accessType: 'read', recordType: 'Steps' },
-  { accessType: 'read', recordType: 'Weight' },
-  // Height is asked for so setup can prefill it. Health Connect has no record type for age
-  // or sex, which is why setup still has to ask for those two by hand.
-  { accessType: 'read', recordType: 'Height' },
-] as const
+/*
+  Derived from the same list the manifest is generated from, so a read can never be requested
+  that AndroidManifest.xml does not declare — that combination fails inside the Health Connect
+  permission Activity, below the bridge, where the try/catch below cannot reach it.
+*/
+const PERMISSIONS = healthRuntimePermissions()
 
 /** Health Connect exists only on Android 8+ (API 26). */
 const supported = (): boolean => Platform.OS === 'android'

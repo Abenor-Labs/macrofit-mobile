@@ -47,17 +47,8 @@
       ],
       "expo-splash-screen",
       "react-native-health-connect",
-      [
-        "./plugins/with-health-connect-permissions",
-        {
-          "permissions": [
-            "READ_WEIGHT",
-            "READ_HEIGHT",
-            "READ_BODY_FAT",
-            "READ_STEPS"
-          ]
-        }
-      ]
+      "./plugins/with-health-connect-permissions",
+      "./plugins/with-health-connect-delegate"
     ],
     "experiments": {
       "typedRoutes": true

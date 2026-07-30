@@ -1,33 +1,39 @@
 const { withAndroidManifest } = require('@expo/config-plugins')
+const { healthManifestPermissions } = require('../src/lib/healthPermissions')
 
 /**
  * Declares the Health Connect reads in AndroidManifest.xml.
  *
  * WHY THIS EXISTS AT ALL:
- * `react-native-health-connect` ships its own config plugin, and app.json passes it a
- * `permissions` array. That array is ignored. The vendored plugin's whole body is one
- * `push` of the ACTION_SHOW_PERMISSIONS_RATIONALE intent-filter — its function takes no
- * props and declares no permissions. So the manifest came out of every `expo prebuild`
- * with the rationale filter present and not a single `android.permission.health.*` on it,
- * which reads like the permissions were configured when nothing had been.
+ * `react-native-health-connect` ships its own config plugin, and that plugin's whole body is one
+ * `push` of the ACTION_SHOW_PERMISSIONS_RATIONALE intent-filter — it takes no props and declares
+ * no permissions. So the manifest came out of every `expo prebuild` with the rationale filter
+ * present and not a single `android.permission.health.*` on it, which reads like the permissions
+ * were configured when nothing had been.
  *
- * That is not a cosmetic gap. `requestPermission` for an undeclared permission fails inside
- * the Health Connect permission Activity, below the JS bridge, so the try/catch wrapped
- * around it in src/lib/healthConnect.ts cannot see it. The process dies. The user taps
- * "Connect Health Connect" and the app disappears.
+ * That is not a cosmetic gap: `requestPermission` for a permission the manifest does not declare
+ * fails inside the Health Connect permission Activity, below the JS bridge, where the try/catch
+ * around it in src/lib/healthConnect.ts cannot see it.
+ *
+ * Note on history — the crash this plugin was written for was NOT that failure. The app died on
+ * `HealthConnectPermissionDelegate`'s uninitialised `lateinit` launcher, before any permission
+ * Activity started, and kept dying with these permissions correctly declared. See
+ * plugins/with-health-connect-delegate.js. Declaring the reads was necessary and not sufficient.
  *
  * `/android` is gitignored and CI runs `expo prebuild --clean`, so hand-editing the
  * generated manifest fixes one laptop and nothing else. The fix has to be a plugin.
  */
 
-/** Health Connect record types this app reads, as `android.permission.health.*` suffixes. */
-const DEFAULT_PERMISSIONS = ['READ_STEPS', 'READ_WEIGHT', 'READ_HEIGHT', 'READ_BODY_FAT']
-
 /** The Health Connect provider package, as APK-installed. */
 const PROVIDER_PACKAGE = 'com.google.android.apps.healthdata'
 
-const withHealthConnectPermissions = (config, props = {}) => {
-  const permissions = props.permissions ?? DEFAULT_PERMISSIONS
+/**
+ * Takes no props on purpose. The list used to arrive from app.json, which meant the manifest and
+ * the runtime `requestPermission` set were two hand-kept lists free to drift — and they had, by a
+ * READ_BODY_FAT that nothing ever requested. Both now derive from src/lib/healthPermissions.js.
+ */
+const withHealthConnectPermissions = config => {
+  const permissions = healthManifestPermissions()
 
   return withAndroidManifest(config, mod => {
     const manifest = mod.modResults.manifest
