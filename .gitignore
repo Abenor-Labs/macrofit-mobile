@@ -51,3 +51,7 @@ yarn-error.*
 # Release signing material — never commit
 credentials/
 .env.from-nested
+
+# Signing key for the sideloaded release builds. Losing it means no further in-app
+# updates can install over an existing copy — back it up outside this repo.
+keys/

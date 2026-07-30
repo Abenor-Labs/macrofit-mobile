@@ -54,6 +54,8 @@ import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
 import { Button, IconButton } from '@/components/Button'
 import { Field, Pill, Screen } from '@/components/Layout'
 import { WeightTargetCard } from '@/components/WeightTarget'
+import { UpdatePanel } from '@/components/UpdatePanel'
+import * as Application from 'expo-application'
 
 const LBS_PER_KG = 2.20462
 
@@ -1060,6 +1062,19 @@ export default function ProfileScreen() {
             )
           }
         />
+      </Section>
+
+      {/* This build is sideloaded, so there is no store to notice a new version. The subtitle
+          carries the installed build number, which is the thing anyone reporting a bug needs to
+          be able to read off the screen. */}
+      <Section
+        title="App version"
+        icon={<Download size={16} color={theme.brandText} strokeWidth={2} />}
+        subtitle={`${Application.nativeApplicationVersion ?? '—'} (${
+          Application.nativeBuildVersion ?? '—'
+        })`}
+      >
+        <UpdatePanel />
       </Section>
 
       {/* Sync state rides on the row's subtitle rather than needing its own card. It is a

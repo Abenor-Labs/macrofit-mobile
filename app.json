@@ -23,7 +23,10 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.REQUEST_INSTALL_PACKAGES"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -48,7 +51,8 @@
       "expo-splash-screen",
       "react-native-health-connect",
       "./plugins/with-health-connect-permissions",
-      "./plugins/with-health-connect-delegate"
+      "./plugins/with-health-connect-delegate",
+      "./plugins/with-release-signing"
     ],
     "experiments": {
       "typedRoutes": true
