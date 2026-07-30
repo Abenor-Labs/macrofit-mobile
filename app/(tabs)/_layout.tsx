@@ -349,14 +349,12 @@ const QuickLogButton: React.FC = () => {
           }
           onPress={() => toggle(!open)}
           /*
-            An array and not `({ pressed }) => …`. In the function form this button's style did
-            not reach the native view: it measured
-            `{"x":0,"y":774,"width":360,"height":26}` on a 360dp screen — content-sized, 26dp
-            being exactly the icon, with no radius, centring or position. The array form lays
-            out correctly. The menu items above still use a function style and are fine, so this
-            is not a blanket rule about Pressable; it is specific to this button, and the array
-            costs nothing to prefer. Press feedback moves to android_ripple, which is native and
-            needs no style callback.
+            An array rather than `({ pressed }) => …`. NativeWind's JSX interop was resolving
+            function-form styles away before they reached the native view — this button measured
+            `{"x":0,"y":774,"width":360,"height":26}` on a 360dp screen, content-sized, with no
+            radius, centring or position. It has since been removed from the project, so the
+            function form works again, but the array plus android_ripple is the simpler shape
+            and there is no reason to go back.
           */
           style={[
             styles.fab,

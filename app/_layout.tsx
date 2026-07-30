@@ -1,5 +1,4 @@
 import 'react-native-get-random-values'
-import '../global.css'
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Pressable, StyleSheet, View } from 'react-native'

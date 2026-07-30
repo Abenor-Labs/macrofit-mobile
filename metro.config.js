@@ -1,5 +1,4 @@
 const { getDefaultConfig } = require('expo/metro-config')
-const { withNativeWind } = require('nativewind/metro')
 
 /*
   Deliberately a plain, single-root Metro config.
@@ -9,6 +8,4 @@ const { withNativeWind } = require('nativewind/metro')
   project root, and EAS Build uploads only this directory, so an out-of-root source would
   vanish in a cloud build.
 */
-const config = getDefaultConfig(__dirname)
-
-module.exports = withNativeWind(config, { input: './global.css' })
+module.exports = getDefaultConfig(__dirname)
