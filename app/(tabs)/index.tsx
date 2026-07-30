@@ -38,6 +38,9 @@ import {
 } from '@core/utils/calculations'
 
 import { useStore } from '@/store/useStore'
+import { buildTdeeEstimate } from '@core/utils/tdee'
+import { buildLocalRecommendation } from '@core/utils/localRecommendation'
+import { estimateBodyComposition, latestUsableMeasurement } from '@core/utils/bodyComposition'
 import { useTheme, type Theme } from '@/theme/useTheme'
 import { GlassSurface, Surface } from '@/components/Glass'
 import { MacroRing, ProgressTrack } from '@/components/MacroRing'
@@ -347,25 +350,70 @@ const MacroCard: React.FC<{
 /* --- Coach ----------------------------------------------------------------- */
 
 /**
- * Read-only summary of the coach's plan, linking through to /goals for the full panel.
- * With no plan it asks for one rather than inventing a target to fill the space.
+ * Summary of the coach's plan, linking through to /goals for the full panel.
+ *
+ * With no plan it now builds one rather than pointing at a screen. "No plan yet" was the
+ * empty state of a coach that could not start: the automatic refresh only fires when a plan
+ * is already a week old and a weigh-in has landed since, so with no first plan it never ran
+ * at all, and the card read as broken rather than as unstarted.
+ *
+ * Built locally and only on tap. The derivation is not cheap — a TDEE estimate walks 28 days
+ * of diary against the weight log — and this is the dashboard, so it must not run on every
+ * render of a screen people open all day. The network plan stays where it was, on /goals:
+ * the point here is a first plan existing at all, not which service produced it.
+ *
+ * Nothing is applied to the user's goals. The plan is proposed; accepting it is a decision
+ * taken on /goals, where the numbers can be seen next to the ones they would replace.
  */
 const CoachCard: React.FC<{
   theme: Theme
   recommendation: Recommendation | null
 }> = ({ theme, recommendation }) => {
   const router = useRouter()
+  const profile = useStore(s => s.profile)
+  const currentWeightKg = useStore(s => s.currentWeightKg)
+  const diary = useStore(s => s.diary)
+  const weightLog = useStore(s => s.weightLog)
+  const bodyMeasurements = useStore(s => s.bodyMeasurements)
+  const setRecommendation = useStore(s => s.setRecommendation)
+
+  const buildPlan = () => {
+    const measurement = latestUsableMeasurement(bodyMeasurements ?? [], profile, currentWeightKg)
+    const bodyComp = measurement
+      ? estimateBodyComposition(profile, currentWeightKg, measurement)
+      : null
+    const tdee = buildTdeeEstimate(profile, currentWeightKg, bodyComp, diary, weightLog ?? [])
+
+    /*
+      Prefer what the body actually did over what a formula predicted, but only once enough
+      paired days sit behind it. Same gate useCoach applies, so the plan this card builds and
+      the plan /goals builds are anchored to the same number rather than quietly disagreeing.
+    */
+    const trustMeasured =
+      tdee.measured !== null &&
+      tdee.measured > 0 &&
+      (tdee.confidence === 'medium' || tdee.confidence === 'high')
+
+    setRecommendation(
+      buildLocalRecommendation({
+        goal: profile.goal,
+        weightKg: currentWeightKg,
+        anchorTdee: trustMeasured && tdee.measured !== null ? tdee.measured : tdee.predicted,
+      })
+    )
+  }
+
   const label = recommendation
     ? `Coach plan: ${PHASE_LABELS[recommendation.phase]}, ${formatNumber(
         recommendation.calories
       )} kilocalories a day. Open goals.`
-    : 'Coach: no plan yet. Open goals to set one up.'
+    : 'Coach: no plan yet. Build one from your logged data.'
 
   return (
     <Pressable
-      accessibilityRole="link"
+      accessibilityRole={recommendation ? 'link' : 'button'}
       accessibilityLabel={label}
-      onPress={() => router.push('/goals')}
+      onPress={() => (recommendation ? router.push('/goals') : buildPlan())}
       // The card is clipped and fully covered by the wash, so a background change would
       // never show through — opacity is the press feedback that survives the gradient.
       style={({ pressed }) => ({
@@ -413,7 +461,7 @@ const CoachCard: React.FC<{
               </View>
             ) : (
               <Body size={13} tone="secondary">
-                No plan yet — set a phase and a calorie target built from your own data.
+                No plan yet — tap to build one from what you have logged.
               </Body>
             )}
           </View>
