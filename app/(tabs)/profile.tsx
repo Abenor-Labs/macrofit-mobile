@@ -11,6 +11,7 @@ import {
   Download,
   LogOut,
   Moon,
+  Repeat,
   Ruler,
   Salad,
   Scale,
@@ -41,7 +42,12 @@ import {
   getBMICategory,
   getTodayString,
 } from '@core/utils/calculations'
-import { AGE_RANGE, HEIGHT_CM_RANGE } from '@core/utils/onboarding'
+import {
+  AGE_RANGE,
+  HEIGHT_CM_RANGE,
+  cmFromFeetInches,
+  feetInchesFromCm,
+} from '@core/utils/onboarding'
 import { estimateBodyComposition, latestUsableMeasurement } from '@core/utils/bodyComposition'
 
 import { useStore } from '@/store/useStore'
@@ -288,6 +294,22 @@ const Row: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <View style={{ flexDirection: 'row', gap: spacing.md }}>{children}</View>
 )
 
+/**
+ * The accepted height range, spoken in the unit the user is typing in.
+ *
+ * Onboarding and this screen share `HEIGHT_CM_RANGE`, which is metric because the store is.
+ * Quoting it in centimetres to someone entering feet and inches hands them a bound they
+ * cannot check without doing the conversion the app exists to do for them.
+ */
+const heightRangeMessage = (unit: UserProfile['heightUnit']): string => {
+  if (unit === 'cm') {
+    return `Height should be between ${HEIGHT_CM_RANGE.min} and ${HEIGHT_CM_RANGE.max} cm.`
+  }
+  const low = feetInchesFromCm(HEIGHT_CM_RANGE.min)
+  const high = feetInchesFromCm(HEIGHT_CM_RANGE.max)
+  return `Height should be between ${low.feet} ft ${low.inches} in and ${high.feet} ft ${high.inches} in.`
+}
+
 export default function ProfileScreen() {
   const theme = useTheme()
   const { user, signOut, syncStatus, syncBlocked, hasUnsyncedChanges } = useAuth()
@@ -310,6 +332,7 @@ export default function ProfileScreen() {
   const streak = useStore(s => s.streak)
   const darkMode = useStore(s => s.darkMode)
   const toggleDarkMode = useStore(s => s.toggleDarkMode)
+  const resetOnboarding = useStore(s => s.resetOnboarding)
 
   const health = useHealthSync()
 
@@ -327,7 +350,18 @@ export default function ProfileScreen() {
 
   const [name, setName] = useState(profile.name)
   const [age, setAge] = useState(String(profile.age))
+  /*
+    Height is stored in centimetres and always has been; only the entry changes with
+    `profile.heightUnit`. Both spellings are held so switching the unit does not lose what
+    was typed, and `heightCm` stays the single value `commitBasics` writes.
+
+    This screen used to render one field hardcoded to "Height (cm)" and parse it as
+    centimetres whatever the user's preference said — so someone on ft/in was shown a cm box
+    under a setting that claimed otherwise, two rows above the control that set it.
+  */
   const [heightCm, setHeightCm] = useState(String(profile.heightCm))
+  const [heightFt, setHeightFt] = useState(() => String(feetInchesFromCm(profile.heightCm).feet))
+  const [heightIn, setHeightIn] = useState(() => String(feetInchesFromCm(profile.heightCm).inches))
   const [targetWeight, setTargetWeight] = useState(
     profile.targetWeightKg === undefined ? '' : String(toDisplay(profile.targetWeightKg)),
   )
@@ -358,7 +392,12 @@ export default function ProfileScreen() {
     const seeded = seededRef.current
     if (profile.name !== seeded.name) setName(profile.name)
     if (profile.age !== seeded.age) setAge(String(profile.age))
-    if (profile.heightCm !== seeded.heightCm) setHeightCm(String(profile.heightCm))
+    if (profile.heightCm !== seeded.heightCm) {
+      setHeightCm(String(profile.heightCm))
+      const { feet, inches } = feetInchesFromCm(profile.heightCm)
+      setHeightFt(String(feet))
+      setHeightIn(String(inches))
+    }
     // Target weight is displayed in the user's unit, so a unit change has to re-render the
     // text even when the underlying kg value did not move — otherwise the next blur commits
     // a lbs figure as if it were the kg one.
@@ -455,7 +494,19 @@ export default function ProfileScreen() {
 
   const commitBasics = () => {
     const parsedAge = Number(age)
-    const parsedHeight = Number(heightCm)
+    // Whichever pair of fields is on screen resolves to the same stored centimetres. An
+    // empty feet box with inches filled is treated as 0 ft rather than as NaN, because
+    // "11 inches" is a typo in progress, not a height.
+    const parsedHeight =
+      profile.heightUnit === 'ft'
+        ? cmFromFeetInches(Number(heightFt) || 0, Number(heightIn) || 0)
+        : Number(heightCm)
+    // Whether the user has put anything in the height fields at all. An untouched, empty
+    // field is not a rejected value and must not raise the range error.
+    const heightTouched =
+      profile.heightUnit === 'ft'
+        ? heightFt.trim() !== '' || heightIn.trim() !== ''
+        : heightCm.trim() !== ''
 
     /*
       Onboarding enforces these bounds; this screen used to accept anything positive, so a
@@ -476,16 +527,22 @@ export default function ProfileScreen() {
     setBasicsError(
       nextAge === null && age.trim() !== ''
         ? `Age should be between ${AGE_RANGE.min} and ${AGE_RANGE.max}.`
-        : nextHeight === null && heightCm.trim() !== ''
-          ? // Names the range, like the age message. The old wording told the user to check
-            // a unit on a field labelled "Height (cm)" that has no unit control.
-            `Height should be between ${HEIGHT_CM_RANGE.min} and ${HEIGHT_CM_RANGE.max} cm.`
+        : nextHeight === null && heightTouched
+          ? // Names the range in the unit the user is actually typing in. Quoting centimetres
+            // at someone entering feet gives them a bound they cannot check without doing the
+            // conversion the app is supposed to be doing for them.
+            heightRangeMessage(profile.heightUnit)
           : null
     )
 
     // A rejected value leaves the stored one alone rather than silently keeping the text.
     if (nextAge === null) setAge(String(profile.age))
-    if (nextHeight === null) setHeightCm(String(profile.heightCm))
+    if (nextHeight === null) {
+      setHeightCm(String(profile.heightCm))
+      const { feet, inches } = feetInchesFromCm(profile.heightCm)
+      setHeightFt(String(feet))
+      setHeightIn(String(inches))
+    }
 
     const finalAge = nextAge ?? profile.age
     const finalHeight = nextHeight ?? profile.heightCm
@@ -565,6 +622,24 @@ export default function ProfileScreen() {
           'Something went wrong signing out. Check your connection and try again.'
         )
       )
+  }
+
+  const confirmResetOnboarding = () => {
+    Alert.alert(
+      'Re-run setup?',
+      "You'll answer the questions your targets are built from again. Your diary, weigh-ins and workouts stay exactly as they are.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Re-run setup',
+          onPress: () => {
+            resetOnboarding()
+            // RootNavigator watches `onboardedAt` and routes on it, so clearing the flag is
+            // enough. Navigating here as well would race that effect.
+          },
+        },
+      ]
+    )
   }
 
   const confirmSignOut = () => {
@@ -711,15 +786,47 @@ export default function ProfileScreen() {
             />
           </View>
           <View style={{ flex: 1 }}>
-            <Field
-              numeric
-              label="Height (cm)"
-              value={heightCm}
-              onChangeText={setHeightCm}
-              onBlur={commitBasics}
-              keyboardType="number-pad"
-              inputMode="numeric"
-            />
+            {profile.heightUnit === 'ft' ? (
+              <View style={{ gap: 6 }}>
+                <Label>Height</Label>
+                <Row>
+                  <View style={{ flex: 1 }}>
+                    <Field
+                      numeric
+                      value={heightFt}
+                      onChangeText={setHeightFt}
+                      onBlur={commitBasics}
+                      placeholder="ft"
+                      keyboardType="number-pad"
+                      inputMode="numeric"
+                      accessibilityLabel="Height, feet"
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Field
+                      numeric
+                      value={heightIn}
+                      onChangeText={setHeightIn}
+                      onBlur={commitBasics}
+                      placeholder="in"
+                      keyboardType="number-pad"
+                      inputMode="numeric"
+                      accessibilityLabel="Height, inches"
+                    />
+                  </View>
+                </Row>
+              </View>
+            ) : (
+              <Field
+                numeric
+                label="Height (cm)"
+                value={heightCm}
+                onChangeText={setHeightCm}
+                onBlur={commitBasics}
+                keyboardType="number-pad"
+                inputMode="numeric"
+              />
+            )}
           </View>
         </Row>
 
@@ -1038,6 +1145,35 @@ export default function ProfileScreen() {
           )}
         </Section>
       )}
+
+      {/*
+        The way out of a wrong answer to "has this person been set up?".
+
+        That question is inferred when account data is loaded, and a wrong inference used to
+        be permanent — the user kept the shipped defaults (a 30-year-old, 175 cm, male) as
+        the basis of every calorie target, with no route back to the screen that would fix
+        it. Every number in the app comes from those four answers, so being unable to re-give
+        them is not a small gap.
+
+        Nothing logged is touched. It re-asks the questions; it does not delete the answers
+        to anything else.
+      */}
+      <Section
+        title="Setup"
+        icon={<Sparkles size={16} color={theme.brandText} strokeWidth={2} />}
+        subtitle="Re-answer the questions your targets are built from"
+      >
+        <Body size={13} tone="secondary">
+          Runs through age, height, weight, activity and goal again, then recalculates your
+          daily targets. Your diary, weigh-ins and workouts are not affected.
+        </Body>
+        <Button
+          label="Re-run setup"
+          variant="secondary"
+          onPress={confirmResetOnboarding}
+          icon={<Repeat size={15} color={theme.text} strokeWidth={2} />}
+        />
+      </Section>
 
       <Section
         title="Appearance"

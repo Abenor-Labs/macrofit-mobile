@@ -314,14 +314,29 @@ export default function OnboardingScreen() {
       if (!(await hasPermissions())) return
     }
 
+    /*
+      The reading is converted into the unit the user is already on, rather than the unit it
+      arrived in.
+
+      This used to force `cm` and `kg`, which was invisible while both were also the
+      defaults. They are not any more: the default height unit is ft/in, so importing from
+      Health Connect silently moved someone off the unit the screen was showing them and
+      replaced "5 ft 9 in" with "175". Health Connect stores metres and kilograms because
+      that is its wire format, not because that is how the user thinks.
+    */
     const basics = await health.readBasics()
     if (basics.heightCm !== null) {
-      setHeightUnit('cm')
-      setHeightCmText(String(basics.heightCm))
+      if (heightUnit === 'ft') {
+        const { feet, inches } = feetInchesFromCm(basics.heightCm)
+        setHeightFt(String(feet))
+        setHeightIn(String(inches))
+      } else {
+        setHeightCmText(String(basics.heightCm))
+      }
     }
     if (basics.weightKg !== null) {
-      setWeightUnit('kg')
-      setWeightText(String(basics.weightKg))
+      const shown = weightUnit === 'lbs' ? lbsFromKg(basics.weightKg) : basics.weightKg
+      setWeightText(String(Math.round(shown * 10) / 10))
     }
 
     /*
