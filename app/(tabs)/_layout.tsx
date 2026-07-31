@@ -3,7 +3,6 @@ import { Pressable, StyleSheet, View } from 'react-native'
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { Tabs, useRouter, useSegments } from 'expo-router'
 import { ChromeBlur } from '@/components/BlurTarget'
-import { LiquidGlass } from '@/components/LiquidGlass'
 import { useSnackbar } from '@/components/Snackbar'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
@@ -71,15 +70,8 @@ const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
   */
   const theme = state.routes[state.index]?.name === 'workout' ? workoutTheme : appTheme
 
-  // The specular shader is sized in pixels, so it cannot draw until the bar has been measured.
-  const [size, setSize] = useState({ width: 0, height: 0 })
-
   return (
     <View
-      onLayout={event => {
-        const { width, height } = event.nativeEvent.layout
-        setSize(prev => (prev.width === width && prev.height === height ? prev : { width, height }))
-      }}
       style={{
         position: 'absolute',
         left: 0,
@@ -94,9 +86,18 @@ const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
     >
       <ChromeBlur tint={theme.glass.tint} intensity={theme.glass.intensity + 20} />
       <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.glass.chromeOverlay }]} />
-      {/* Above the tint so the highlight sits on the glass rather than under its colour, and
-          below the labels so it never washes them out. */}
-      <LiquidGlass width={size.width} height={size.height} band={22} />
+      {/*
+        A lit bevel used to sit here, drawn by a Skia runtime shader, giving the bar's edge the
+        thickness of real glass.
+
+        It cost 10.8 MB of native library per architecture — 43 MB across the four the app
+        shipped, on a download users fetch in full every release because this app sideloads
+        rather than going through a store. One highlight on one bar is not worth a third of the
+        APK, and the blur and tint above carry the material on their own.
+
+        LiquidGlass already returned null whenever its shader failed to compile, so the bar was
+        always built to stand without it.
+      */}
 
       <View style={{ flexDirection: 'row' }}>
         {state.routes.map((route, index) => {
