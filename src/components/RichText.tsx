@@ -8,33 +8,40 @@ import { Body } from './Text'
  * Renders the small amount of Markdown that reaches this app from outside it.
  *
  * WHY THIS EXISTS RATHER THAN A MARKDOWN LIBRARY:
- * Two surfaces receive text written elsewhere: the AI assistant's replies, and the release
- * notes GitHub hands back with an update. Both arrive as Markdown and both used to be rendered
- * through a plain `<Body>`, so headings showed as literal hashes, bold as literal asterisks,
- * and the assistant's three-column tables as pipes.
+ * Two surfaces receive text written elsewhere: the assistant's replies, and the release notes
+ * GitHub returns with an update. Both are Markdown and both used to render through a plain
+ * `<Body>`, so headings showed as literal hashes, bold as literal asterisks, and the
+ * assistant's three-column tables as rows of pipes.
  *
  * The answer is not a parser that can draw tables. A three-column table is unreadable in a
  * bubble roughly three hundred points wide whether it is parsed or not, so the assistant's
- * prompt forbids them outright (see the web repo's api/chat.ts) and this drops any that slip
- * through anyway. What is left is worth rendering: bold carries the number that answers the
- * question, and bullets carry a list.
+ * prompt forbids them outright and this drops any that arrive anyway. What is left is worth
+ * rendering: bold carries the number that answers the question, and bullets carry a list.
  *
- * Headings are stripped rather than styled. A six-line reply has nothing to organise, and a
- * heading in a chat bubble is padding. Release notes do use them meaningfully, but their
- * hierarchy survives the loss better than the reader survives seeing `###`.
+ * WHY EVERY LINE IS A BARE `<Body>` AND NOTHING USES FLEXBOX:
+ * The first version wrapped each line in a `flexDirection: 'row'` View so a bullet could sit
+ * in its own column, with `flex: 1` on the text beside it. That broke every chat bubble.
  *
- * Anything unrecognised falls through as plain text, so a construct nobody anticipated degrades
- * to something readable rather than to punctuation.
+ * The bubble has `maxWidth: '92%'` and no width, inside a column that uses
+ * `alignItems: 'flex-start'`, so it sizes itself to its content. Text can answer "how wide are
+ * you" from the string. A View cannot: it asks its children, and a child with `flex: 1` asks
+ * to fill its parent. Parent and child each waited on the other and the result collapsed to
+ * the narrowest thing that still fits, which is one character, so replies rendered as a
+ * vertical column of single letters and short messages became empty slivers.
+ *
+ * So the bullet is a character at the head of the same string, and every line measures itself.
+ * The cost is that a wrapped bullet does not hang-indent under its own text. That is a small
+ * thing to trade for the bubble having a width at all.
  */
 export const RichText: React.FC<{
   text: string
   color: string
   size?: number
 }> = ({ text, color, size = 14 }) => {
-  const blocks: React.ReactNode[] = []
+  const lines: React.ReactNode[] = []
 
   text.split('\n').forEach((raw, index) => {
-    // Table rows and the dashed separator under them.
+    // Table rows and the dashed separator beneath them.
     if (/^\s*\|/.test(raw) || /^\s*\|?[\s:-]*-{3,}[\s:|-]*$/.test(raw)) return
 
     const line = raw.replace(/^\s*#{1,6}\s*/, '').trimEnd()
@@ -46,34 +53,25 @@ export const RichText: React.FC<{
     // Splitting on the bold delimiter keeps the delimited runs, at the odd indices.
     const parts = content.split(/\*\*(.+?)\*\*/g)
 
-    blocks.push(
-      <View
-        key={index}
-        style={{ flexDirection: 'row', gap: bullet ? spacing.xs : 0, alignItems: 'flex-start' }}
-      >
-        {bullet ? (
-          <Body size={size} style={{ color, opacity: 0.7 }}>
-            {'•'}
-          </Body>
-        ) : null}
-        <Body size={size} style={{ flex: 1, color }}>
-          {parts.map((part, i) =>
-            i % 2 === 1 ? (
-              <Body key={i} size={size} weight="semibold" style={{ color }}>
-                {part}
-              </Body>
-            ) : (
-              // Leftover emphasis and code markers, which carry no meaning once bold is handled.
-              part.replace(/[*_`]/g, '')
-            ),
-          )}
-        </Body>
-      </View>,
+    lines.push(
+      <Body key={index} size={size} style={{ color }}>
+        {bullet ? '• ' : ''}
+        {parts.map((part, i) =>
+          i % 2 === 1 ? (
+            <Body key={i} size={size} weight="semibold" style={{ color }}>
+              {part}
+            </Body>
+          ) : (
+            // Leftover emphasis and code markers, meaningless once bold is handled.
+            part.replace(/[*_`]/g, '')
+          ),
+        )}
+      </Body>,
     )
   })
 
-  // Every line was a table row or blank. Show the original rather than an empty box.
-  if (blocks.length === 0) {
+  // Every line was a table row or blank. Show the original rather than nothing at all.
+  if (lines.length === 0) {
     return (
       <Body size={size} style={{ color }}>
         {text}
@@ -81,5 +79,9 @@ export const RichText: React.FC<{
     )
   }
 
-  return <View style={{ gap: spacing.xs }}>{blocks}</View>
+  // One line is the common case — a user's message, or a short reply. Return it unwrapped so
+  // the bubble sees text directly and sizes to it, exactly as it did before any of this.
+  if (lines.length === 1) return <>{lines[0]}</>
+
+  return <View style={{ gap: spacing.xs }}>{lines}</View>
 }
