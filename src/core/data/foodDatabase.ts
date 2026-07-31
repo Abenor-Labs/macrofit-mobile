@@ -1,6 +1,12 @@
 import { Food, Exercise, ExerciseCategory } from '../types'
+import { INDIAN_FOOD_DATABASE } from './indianFoods'
 
-export const FOOD_DATABASE: Food[] = [
+/**
+ * Western and generic foods. Indian dishes live in ./indianFoods.ts and are appended to
+ * FOOD_DATABASE below — kept in their own file because there are 124 of them and they carry
+ * their own accuracy caveat, not because search treats them differently.
+ */
+const BASE_FOOD_DATABASE: Food[] = [
   // === FRUITS ===
   { id: 'f001', name: 'Apple (medium)', category: 'Fruits', servingSize: 182, servingUnit: 'g', calories: 95, protein: 0.5, carbs: 25, fat: 0.3, fiber: 4.4, sugar: 19, sodium: 2, potassium: 195, cholesterol: 0, saturatedFat: 0.1, transFat: 0, vitaminA: 1, vitaminC: 14, calcium: 1, iron: 1 },
   { id: 'f002', name: 'Banana (medium)', category: 'Fruits', servingSize: 118, servingUnit: 'g', calories: 105, protein: 1.3, carbs: 27, fat: 0.4, fiber: 3.1, sugar: 14, sodium: 1, potassium: 422, cholesterol: 0, saturatedFat: 0.1, transFat: 0, vitaminA: 1, vitaminC: 17, calcium: 1, iron: 2 },
@@ -114,6 +120,16 @@ export const FOOD_DATABASE: Food[] = [
   { id: 'sw002', name: 'Ice Cream (vanilla, 1/2 cup)', category: 'Sweets & Desserts', servingSize: 66, servingUnit: 'g', calories: 137, protein: 2.3, carbs: 16, fat: 7.3, fiber: 0.5, sugar: 14, sodium: 53, potassium: 131, cholesterol: 29, saturatedFat: 4.5, transFat: 0.2, vitaminA: 6, vitaminC: 0, calcium: 8, iron: 0 },
 ]
 
+/**
+ * Everything the local search looks at.
+ *
+ * Order here is browse order, not search ranking. `searchFoods` scores matches (see below),
+ * so a dish does not need to sit near the front of the array to be findable — which means
+ * this list can stay in the order it reads best when someone opens the picker without
+ * typing anything.
+ */
+export const FOOD_DATABASE: Food[] = [...BASE_FOOD_DATABASE, ...INDIAN_FOOD_DATABASE]
+
 export const EXERCISE_DATABASE: Exercise[] = [
   { id: 'e001', name: 'Running (6 mph)', category: 'Cardio' as ExerciseCategory, metValue: 9.8 },
   { id: 'e002', name: 'Walking (3.5 mph)', category: 'Cardio' as ExerciseCategory, metValue: 4.3 },
@@ -137,15 +153,55 @@ export const EXERCISE_DATABASE: Exercise[] = [
   { id: 'e020', name: 'CrossFit', category: 'Strength' as ExerciseCategory, metValue: 10 },
 ]
 
+/**
+ * How well a food answers the query. Lower is better; -1 means no match at all.
+ *
+ * WHY RANKING RATHER THAN FILTER-AND-SLICE:
+ * This used to be `filter(...).slice(0, limit)`, which returns matches in array order — so
+ * array position WAS the ranking. With 124 Indian dishes added, a search for "rice" filled
+ * every slot with Brown Rice, White Rice and rice cakes before reaching curd rice or lemon
+ * rice, and "dal" put "Dal" nowhere near the top. The fix is not to reorder the array (which
+ * only moves the problem onto whoever is second) but to stop treating position as relevance.
+ *
+ * A category match scores worst on purpose. Typing "dairy" should surface dairy foods, but a
+ * food whose NAME matches must always beat one that merely shares a category — otherwise
+ * searching "snacks" buries every actual snack under whatever the category listed first.
+ */
+function scoreFood(food: Food, query: string): number {
+  const name = food.name.toLowerCase()
+  if (name === query) return 0
+  if (name.startsWith(query)) return 1
+  // Matches the start of any word: "curd rice" should rank for "rice", but "American
+  // Cheese" should not outrank "Rice" for it.
+  if (name.includes(` ${query}`) || name.includes(`(${query}`)) return 2
+  if (name.includes(query)) return 3
+  if (food.brand?.toLowerCase().includes(query)) return 4
+  if (food.category.toLowerCase().includes(query)) return 5
+  return -1
+}
+
 export function searchFoods(query: string, limit = 20): Food[] {
-  if (!query.trim()) return FOOD_DATABASE.slice(0, limit)
-  const q = query.toLowerCase()
-  return FOOD_DATABASE.filter(
-    f =>
-      f.name.toLowerCase().includes(q) ||
-      f.brand?.toLowerCase().includes(q) ||
-      f.category.toLowerCase().includes(q)
-  ).slice(0, limit)
+  const q = query.trim().toLowerCase()
+  if (!q) return FOOD_DATABASE.slice(0, limit)
+
+  const scored: { food: Food; score: number; index: number }[] = []
+  FOOD_DATABASE.forEach((food, index) => {
+    const score = scoreFood(food, q)
+    if (score >= 0) scored.push({ food, score, index })
+  })
+
+  return scored
+    .sort((a, b) => {
+      if (a.score !== b.score) return a.score - b.score
+      // Shorter names are the more general entry: "Rice" over "Rice, white, long-grain".
+      if (a.food.name.length !== b.food.name.length) {
+        return a.food.name.length - b.food.name.length
+      }
+      // Array order as the final tiebreak, so results are stable between identical searches.
+      return a.index - b.index
+    })
+    .slice(0, limit)
+    .map(entry => entry.food)
 }
 
 export function getFoodById(id: string): Food | undefined {

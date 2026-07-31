@@ -23,6 +23,7 @@ import { HIT_SIZE, fonts, radius, spacing } from '@/theme/tokens'
 import type { Food, MealType } from '@core/types'
 import { getFoodById, searchFoods } from '@core/data/foodDatabase'
 import { searchUSDA } from '@core/utils/usdaApi'
+import { searchOpenFoodFacts } from '@core/utils/openFoodFacts'
 import { formatDate, getTodayString } from '@core/utils/calculations'
 
 const MEAL_TYPES: readonly MealType[] = [
@@ -36,8 +37,20 @@ const MEAL_TYPES: readonly MealType[] = [
 
 const HAIRLINE = StyleSheet.hairlineWidth * 2
 
-/** Below two characters the USDA endpoint returns thousands of useless matches. */
-const USDA_MIN_QUERY = 2
+/** Below two characters the remote endpoints return thousands of useless matches. */
+const REMOTE_MIN_QUERY = 2
+
+/**
+ * Where a remote result came from. Shown as a small label on the row rather than as a
+ * section heading: provenance is worth having, but nobody searching for "paneer" is
+ * choosing between government nutrient databases.
+ */
+type RemoteSource = 'usda' | 'off'
+
+const SOURCE_LABEL: Record<RemoteSource, string> = {
+  usda: 'USDA',
+  off: 'Open Food Facts',
+}
 
 /** Long enough that a normal typing burst is one request, short enough to feel live. */
 const DEBOUNCE_MS = 350
@@ -69,18 +82,65 @@ const isMealType = (value: unknown): value is MealType =>
 const isISODate = (value: unknown): value is string =>
   typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
 
-type UsdaState =
+/**
+ * Orders the merged remote hits so the obvious answer is first.
+ *
+ * Two databases returning ten rows each is twenty rows in whatever order the network
+ * happened to resolve them, which for a query like "dal" opened with
+ * "Dal, dehydrated, industrial" from a US nutrient table. Interleaving by arrival is not
+ * ranking, it is chance.
+ *
+ * The scoring is deliberately crude, because the alternative is pretending we can rank
+ * across two schemas we do not control:
+ *   - an exact name match beats everything
+ *   - a name that starts with the query beats one that merely contains it
+ *   - shorter names win ties, since specificity in these databases is expressed by piling
+ *     on qualifiers ("Rice, white, long-grain, regular, raw, enriched")
+ */
+const rankRemote = (hits: RemoteHit[], query: string): RemoteHit[] => {
+  const needle = query.trim().toLowerCase()
+
+  const score = (hit: RemoteHit): number => {
+    const name = hit.food.name.toLowerCase()
+    if (name === needle) return 0
+    if (name.startsWith(needle)) return 1
+    if (name.includes(needle)) return 2
+    // Matched on brand or description rather than name.
+    return 3
+  }
+
+  return [...hits].sort((a, b) => {
+    const delta = score(a) - score(b)
+    if (delta !== 0) return delta
+    return a.food.name.length - b.food.name.length
+  })
+}
+
+/** A remote hit, tagged with the database that answered. */
+interface RemoteHit {
+  food: Food
+  source: RemoteSource
+}
+
+/**
+ * Both remote databases, as one state.
+ *
+ * They used to be two sections with two spinners, two error rows and two empty rows, all of
+ * which could be on screen at once — five sections in a list whose whole job is to answer
+ * one question. `failed` counts how many sources gave up, so the list can stay quiet when
+ * one of them still produced results.
+ */
+type RemoteState =
   | { status: 'idle' }
   | { status: 'loading' }
-  | { status: 'ready'; foods: Food[] }
-  | { status: 'error' }
+  | { status: 'ready'; hits: RemoteHit[]; failed: number }
 
 type Row =
   | { kind: 'section'; key: string; title: string }
-  | { kind: 'food'; key: string; food: Food }
-  | { kind: 'usda-loading'; key: string }
-  | { kind: 'usda-error'; key: string }
-  | { kind: 'usda-empty'; key: string }
+  | { kind: 'food'; key: string; food: Food; source?: RemoteSource }
+  | { kind: 'remote-loading'; key: string }
+  | { kind: 'remote-error'; key: string }
+  | { kind: 'remote-empty'; key: string }
 
 // --- Shared pieces ----------------------------------------------------------
 
@@ -194,10 +254,19 @@ const SearchBar: React.FC<{
   )
 }
 
-const FoodRow: React.FC<{ food: Food; onPress: () => void }> = ({ food, onPress }) => {
+const FoodRow: React.FC<{ food: Food; source?: RemoteSource; onPress: () => void }> = ({
+  food,
+  source,
+  onPress,
+}) => {
   const theme = useTheme()
   const serving = `${formatAmount(food.servingSize)} ${food.servingUnit}`
-  const meta = food.brand ? `${food.brand} · ${serving}` : serving
+  // Provenance rides on the row's existing meta line rather than earning a heading of its
+  // own. Someone comparing two similar entries wants to know which database each came from;
+  // nobody wants to pick a database before they can search.
+  const meta = [food.brand, serving, source ? SOURCE_LABEL[source] : null]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
     <Pressable
@@ -254,7 +323,7 @@ export default function FoodSearchScreen() {
   const [meal, setMeal] = useState<MealType>(isMealType(params.meal) ? params.meal : 'Snacks')
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
-  const [usda, setUsda] = useState<UsdaState>({ status: 'idle' })
+  const [remote, setRemote] = useState<RemoteState>({ status: 'idle' })
   const [retryToken, setRetryToken] = useState(0)
 
   const [selected, setSelected] = useState<Food | null>(null)
@@ -268,30 +337,53 @@ export default function FoodSearchScreen() {
     return () => clearTimeout(timer)
   }, [query])
 
-  // Every USDA reply carries the id of the request that asked for it. Without that guard a
+  // Every remote reply carries the id of the request that asked for it. Without that guard a
   // slow response for "chi" can land after a fast one for "chicken" and replace it.
   const requestRef = useRef(0)
 
   useEffect(() => {
     const requestId = ++requestRef.current
 
-    if (debounced.length < USDA_MIN_QUERY) {
-      setUsda({ status: 'idle' })
+    if (debounced.length < REMOTE_MIN_QUERY) {
+      setRemote({ status: 'idle' })
       return
     }
 
-    setUsda({ status: 'loading' })
+    setRemote({ status: 'loading' })
     let cancelled = false
 
-    searchUSDA(debounced, 12)
-      .then(foods => {
-        if (cancelled || requestRef.current !== requestId) return
-        setUsda({ status: 'ready', foods })
-      })
-      .catch(() => {
-        if (cancelled || requestRef.current !== requestId) return
-        setUsda({ status: 'error' })
-      })
+    /*
+      Both sources are asked at once and settled together. `allSettled`, not `all`: they
+      answer different questions — USDA is a composition table, Open Food Facts is a barcode
+      catalogue — so one being down is no reason to discard what the other found.
+
+      They also fail independently and often. Open Food Facts is community-run and slower;
+      USDA rate-limits. A user who gets eight useful branded matches should not be shown an
+      error because the other database timed out.
+    */
+    void Promise.allSettled([
+      searchUSDA(debounced, 10),
+      searchOpenFoodFacts(debounced, 10),
+    ]).then(([usdaResult, offResult]) => {
+      if (cancelled || requestRef.current !== requestId) return
+
+      const hits: RemoteHit[] = []
+      let failed = 0
+
+      if (usdaResult.status === 'fulfilled') {
+        for (const food of usdaResult.value) hits.push({ food, source: 'usda' })
+      } else {
+        failed += 1
+      }
+
+      if (offResult.status === 'fulfilled') {
+        for (const food of offResult.value) hits.push({ food, source: 'off' })
+      } else {
+        failed += 1
+      }
+
+      setRemote({ status: 'ready', hits: rankRemote(hits, debounced), failed })
+    })
 
     return () => {
       cancelled = true
@@ -343,25 +435,40 @@ export default function FoodSearchScreen() {
     addSection('custom', 'Your foods', customMatches)
     addSection('preset', debounced.length > 0 ? 'Matches' : 'Food database', presetMatches)
 
-    if (debounced.length >= USDA_MIN_QUERY) {
-      out.push({ kind: 'section', key: 'section-usda', title: 'USDA FoodData Central' })
-      if (usda.status === 'loading') {
-        out.push({ kind: 'usda-loading', key: 'usda-loading' })
-      } else if (usda.status === 'error') {
-        out.push({ kind: 'usda-error', key: 'usda-error' })
-      } else if (usda.status === 'ready' && usda.foods.length === 0) {
-        out.push({ kind: 'usda-empty', key: 'usda-empty' })
-      } else if (usda.status === 'ready') {
-        for (const food of usda.foods) {
-          if (seen.has(food.id)) continue
-          seen.add(food.id)
-          out.push({ kind: 'food', key: `usda-${food.id}`, food })
+    /*
+      One remote section, not two.
+
+      USDA and Open Food Facts used to get a heading each, which put five sections on a list
+      whose job is to answer one question, and duplicated every loading, error and empty
+      state — all of which could render simultaneously. Provenance moved onto the row, where
+      it informs without organising.
+    */
+    if (debounced.length >= REMOTE_MIN_QUERY) {
+      out.push({ kind: 'section', key: 'section-remote', title: 'More results' })
+
+      if (remote.status === 'loading' || remote.status === 'idle') {
+        out.push({ kind: 'remote-loading', key: 'remote-loading' })
+      } else {
+        const fresh = remote.hits.filter(hit => !seen.has(hit.food.id))
+        for (const hit of fresh) {
+          seen.add(hit.food.id)
+          out.push({ kind: 'food', key: `remote-${hit.food.id}`, food: hit.food, source: hit.source })
+        }
+        // Only a total failure is worth saying. One source down while the other answered is
+        // not something the user can act on, and an error row above real results reads as if
+        // those results are suspect.
+        if (fresh.length === 0) {
+          out.push(
+            remote.failed === 2
+              ? { kind: 'remote-error', key: 'remote-error' }
+              : { kind: 'remote-empty', key: 'remote-empty' }
+          )
         }
       }
     }
 
     return out
-  }, [recentMatches, customMatches, presetMatches, debounced, usda])
+  }, [recentMatches, customMatches, presetMatches, debounced, remote])
 
   const hasResults = rows.some(row => row.kind === 'food')
 
@@ -475,21 +582,27 @@ export default function FoodSearchScreen() {
     }
 
     if (item.kind === 'food') {
-      return <FoodRow food={item.food} onPress={() => openServingStep(item.food)} />
+      return (
+        <FoodRow
+          food={item.food}
+          source={item.source}
+          onPress={() => openServingStep(item.food)}
+        />
+      )
     }
 
-    if (item.kind === 'usda-loading') {
+    if (item.kind === 'remote-loading') {
       return (
         <Surface style={{ padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
           <ActivityIndicator color={theme.brandText} />
           <Body size={13} tone="secondary">
-            Searching the USDA database…
+            Searching the online food databases…
           </Body>
         </Surface>
       )
     }
 
-    if (item.kind === 'usda-error') {
+    if (item.kind === 'remote-error') {
       // An empty list here would read as "this food does not exist". It is a network
       // failure, so it says so, in words, with an icon, and offers the retry.
       return (
@@ -497,7 +610,7 @@ export default function FoodSearchScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
             <TriangleAlert size={16} color={theme.status.warning} strokeWidth={2.2} />
             <Body size={13} weight="semibold" style={{ flex: 1, color: theme.status.warning }}>
-              Could not reach USDA FoodData Central
+              Could not reach the online food databases
             </Body>
           </View>
           <Body size={12} tone="secondary">
@@ -515,7 +628,7 @@ export default function FoodSearchScreen() {
     return (
       <Surface style={{ padding: spacing.md }}>
         <Body size={13} tone="secondary">
-          No USDA matches. Try a shorter or more general word.
+          Nothing else online. Try a shorter word, a brand name, or the plain ingredient.
         </Body>
       </Surface>
     )
@@ -688,13 +801,13 @@ export default function FoodSearchScreen() {
           gap: spacing.sm,
         }}
         ListFooterComponent={
-          hasResults || usda.status === 'loading' ? null : (
+          hasResults || remote.status === 'loading' ? null : (
             <EmptyState
               icon={<Search size={24} color={theme.textMuted} strokeWidth={2} />}
               title="No matches"
               message={
                 debounced.length === 0
-                  ? 'Type a food or brand name to search the preset database and USDA FoodData Central.'
+                  ? 'Type a dish, food or brand — Indian dishes and everyday foods are built in, and packaged products are looked up online.'
                   : 'Try a shorter word, a brand name, or the plain ingredient.'
               }
             />

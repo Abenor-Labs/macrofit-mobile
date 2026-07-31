@@ -5,6 +5,7 @@ import { Alert, Pressable, StyleSheet, View } from 'react-native'
 import { Stack, useRouter, useSegments } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import * as SplashScreen from 'expo-splash-screen'
+import * as Application from 'expo-application'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import {
   SafeAreaInsetsContext,
@@ -29,11 +30,32 @@ import { Body, SectionTitle } from '@/components/Text'
 import { BlurTargetProvider } from '@/components/BlurTarget'
 import { SnackbarProvider } from '@/components/Snackbar'
 import { HIT_SIZE, spacing } from '@/theme/tokens'
+import { configureFoodApis } from '@core/utils/foodApiConfig'
+import { USDA_API_KEY } from '@/lib/env'
 
 // Hold the native splash until fonts AND persisted state are ready. Without the store
 // gate, the first frame renders default goals and an empty diary before AsyncStorage
 // rehydrates — the user sees their data "reset" for a moment on every cold start.
 void SplashScreen.preventAutoHideAsync()
+
+/*
+  Hand the shared food-search code its platform values, at import time so nothing can
+  search before they are set.
+
+  This call is the only reason EXPO_PUBLIC_USDA_API_KEY works at all. `src/core/utils/
+  usdaApi.ts` is vendored from the web app, where the key was read off
+  `import.meta.env.VITE_USDA_API_KEY` — an expression Metro cannot evaluate, so on mobile it
+  silently produced the shared DEMO_KEY and always had. DEMO_KEY is capped at 30 requests a
+  minute and 1000 a day across every anonymous caller on the internet, which is why food
+  search failed at busy times and worked fine at quiet ones.
+
+  The user agent is required by Open Food Facts, which refuses clients that do not identify
+  themselves.
+*/
+configureFoodApis({
+  usdaApiKey: USDA_API_KEY,
+  userAgent: `MacroFit-Android/${Application.nativeApplicationVersion ?? 'dev'} (https://github.com/warpirate/macrofit-mobile)`,
+})
 
 /**
  * Standing notice that the app could not reach the server and is running read-only.

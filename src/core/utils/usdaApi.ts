@@ -1,8 +1,22 @@
 import { Food, FoodCategory } from '../types'
+import { getUsdaApiKey } from './foodApiConfig'
+import { fetchFoodJson } from './foodApiHttp'
 
-// Free API key from https://fdc.nal.usda.gov/api-key-signup.html
-// DEMO_KEY: 30 req/min, 1000 req/day per IP — sufficient for personal use
-const API_KEY = (import.meta as any).env?.VITE_USDA_API_KEY ?? 'DEMO_KEY'
+/*
+  Free API key from https://fdc.nal.usda.gov/api-key-signup.html
+
+  The key is READ PER CALL, not captured at module load. This file used to open with
+
+    const API_KEY = (import.meta as any).env?.VITE_USDA_API_KEY ?? 'DEMO_KEY'
+
+  which is Vite-only. The mobile app vendors this directory verbatim and runs it under
+  Metro, where `import.meta` does not exist, so mobile silently used the shared DEMO_KEY —
+  30 req/min and 1000 req/day across every anonymous caller — and food search failed at
+  busy times for no reason the user could see. See ./foodApiConfig.ts.
+
+  Reading per call also means configureFoodApis() can run after this module is imported,
+  which is the only ordering a bundler guarantees.
+*/
 const BASE_URL = 'https://api.nal.usda.gov/fdc/v1'
 
 // USDA nutrient IDs (consistent across all data types)
@@ -47,17 +61,17 @@ export const searchUSDA = async (query: string, limit = 15): Promise<USDAFood[]>
 
   const params = new URLSearchParams({
     query,
-    api_key: API_KEY,
+    api_key: getUsdaApiKey(),
     pageSize: String(limit),
     // Prefer real food over branded (more reliable macros)
     dataType: 'Foundation,SR Legacy,Survey (FNDDS),Branded',
   })
 
-  const res = await fetch(`${BASE_URL}/foods/search?${params}`)
-  if (!res.ok) throw new Error(`USDA API error: ${res.status}`)
-  const json = await res.json()
+  // Capped, like every remote food call. Without a deadline a stalled mobile radio holds
+  // the search spinner until the OS gives up, which can be minutes.
+  const json = (await fetchFoodJson(`${BASE_URL}/foods/search?${params}`)) as any
 
-  return (json.foods ?? []).map((f: any): USDAFood => {
+  return (json?.foods ?? []).map((f: any): USDAFood => {
     const nutrients = f.foodNutrients ?? []
     const calories = Math.round(getNutrient(nutrients, NUTRIENT.CALORIES))
     // Skip foods with no calorie data
