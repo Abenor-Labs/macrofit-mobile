@@ -47,6 +47,9 @@ export default function LoginScreen() {
     hydrating,
     sessionEndedReason,
     clearSessionEndedReason,
+    confirming,
+    confirmationError,
+    clearConfirmationError,
   } = useAuth()
 
   const [mode, setMode] = useState<'in' | 'up'>('in')
@@ -81,6 +84,7 @@ export default function LoginScreen() {
 
   const submit = async () => {
     clearSessionEndedReason()
+    clearConfirmationError()
     const result = await run(() =>
       mode === 'in' ? signIn(email, password) : signUp(email, password),
     )
@@ -98,8 +102,16 @@ export default function LoginScreen() {
     signInWithPassword and can trip GoTrue's rate limiter right after a sign-in that
     actually worked. `hydrating` keeps the button busy through the whole journey.
   */
-  const working = busy || hydrating
+  const working = busy || hydrating || confirming
   const canSubmit = email.trim().length > 3 && password.length >= 6 && !working
+
+  /*
+    A bad confirmation link is recoverable by sending a new one, so the resend button is
+    offered for that too — not only after a sign-up in this session. Without it the user is
+    told the link expired and given nothing but a password field they do not have a password
+    for yet.
+  */
+  const canResend = (awaiting || confirmationError !== null) && email.trim().length > 3
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.canvas }}>
@@ -146,6 +158,22 @@ export default function LoginScreen() {
               cannot sit under the password field as the last thing they read.
             */}
             {sessionEndedReason ? <Message text={sessionEndedReason} kind="info" /> : null}
+
+            {/*
+              The user tapped a link in their email and is watching the app open. Showing a
+              password field first reads as the confirmation having failed, so the exchange
+              gets said out loud while it runs.
+            */}
+            {confirming ? <Message text="Confirming your email…" kind="info" /> : null}
+
+            {/*
+              Its own state, not `sessionEndedReason`. That one says "Your session expired…
+              everything you logged is still on this device", which after a stale confirmation
+              link is false in every clause and sends the user looking for data loss that never
+              happened. The resend button below stays on screen for every branch, so a bad link
+              is never a dead end.
+            */}
+            {confirmationError ? <Message text={confirmationError} kind="error" /> : null}
 
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
               {(['in', 'up'] as const).map(m => {
@@ -199,7 +227,7 @@ export default function LoginScreen() {
               haptic
             />
 
-            {awaiting && email.trim().length > 3 ? (
+            {canResend ? (
               <Button
                 label="Resend confirmation email"
                 variant="ghost"

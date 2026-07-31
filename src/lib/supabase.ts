@@ -17,8 +17,8 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL } from './env'
  *
  * `detectSessionInUrl` MUST stay false. It exists for the browser OAuth redirect flow; on
  * native there is no `window.location` to read and leaving it on makes the client throw
- * during construction. Any OAuth flow added later has to arrive over a deep link and be
- * handed to `supabase.auth.setSession` explicitly.
+ * during construction. Any flow that arrives over a deep link is handled explicitly instead —
+ * see `useConfirmationLink` in ./AuthProvider.
  */
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
@@ -26,6 +26,17 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
+    /*
+      PKCE, not the default implicit flow.
+
+      Implicit returns the session in the URL *fragment* (`#access_token=…`). Fragments are a
+      browser concept: they are not sent to servers, and Android's intent delivery drops them
+      often enough that a confirmation link would work on one device and silently fail on the
+      next. PKCE puts a single-use `?code=` in the query string, which survives the trip
+      intact, and the exchange happens over HTTPS from this client rather than by parsing a
+      token out of a URL.
+    */
+    flowType: 'pkce',
   },
 })
 

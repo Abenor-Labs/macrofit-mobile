@@ -8,6 +8,8 @@ import React, {
   useState,
 } from 'react'
 import { AppState } from 'react-native'
+import * as Linking from 'expo-linking'
+import Constants from 'expo-constants'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
@@ -93,6 +95,17 @@ interface AuthContextValue {
    */
   sessionEndedReason: string | null
   clearSessionEndedReason: () => void
+  /**
+   * A confirmation link is being exchanged for a session right now.
+   *
+   * The login screen shows this instead of its form: the user tapped a link in their email
+   * and is watching the app open, and a password field appearing first would read as the
+   * confirmation having failed.
+   */
+  confirming: boolean
+  /** Why the confirmation link could not be used. Its own state, with its own copy. */
+  confirmationError: string | null
+  clearConfirmationError: () => void
 }
 
 const AuthContext = createContext<AuthContextValue>(null!)
@@ -138,8 +151,65 @@ const UNSYNCED_KEY = 'macrofit-unsynced-owner'
 /** A publish licence is only valid for the account AND the store contents it was cut for. */
 const licenceFor = (epoch: string, userId: string) => `${epoch}:${userId}`
 
+/**
+ * Where Supabase sends someone after they tap the confirmation link in their email.
+ *
+ * WHY THIS EXISTS:
+ * `signUp` passed no `emailRedirectTo`, so GoTrue fell back to the project's Site URL — the
+ * website. Someone who created an account in the app, on their phone, tapped the link in the
+ * email and landed in a browser looking at the marketing site, with no indication that the
+ * confirmation had worked or that they should switch back to the app.
+ *
+ * WHY IT IS WRITTEN OUT RATHER THAN BUILT WITH `Linking.createURL`:
+ * That helper returns `macrofit:///auth/callback` here — three slashes, because it inserts an
+ * empty authority. It is a legal URL and it works, but this exact string has to be copied by
+ * hand into a dashboard field, and a URL nobody can predict from reading the code is a URL
+ * that gets typed in wrong. The literal is checked against the configured scheme below, so it
+ * cannot silently drift from app.json either.
+ *
+ * REQUIRES A DASHBOARD CHANGE THIS CODE CANNOT MAKE:
+ * Supabase rejects any redirect that is not on its allow-list, and a rejection looks exactly
+ * like the old behaviour — the link opens the website. Add this exact URL under
+ * Authentication → URL Configuration → Redirect URLs. See the README.
+ */
+const CONFIRM_REDIRECT = 'macrofit://auth/callback'
+
+if (__DEV__) {
+  const configured = Constants.expoConfig?.scheme
+  const schemes = Array.isArray(configured) ? configured : configured ? [configured] : []
+  if (schemes.length > 0 && !schemes.includes('macrofit')) {
+    console.warn(
+      `[auth] CONFIRM_REDIRECT is '${CONFIRM_REDIRECT}' but app.json declares scheme(s) ` +
+        `${schemes.join(', ')}. The confirmation link will not open the app until they agree.`,
+    )
+  }
+}
+
 const SESSION_EXPIRED_MESSAGE =
   'Your session expired, so you were signed out. Everything you logged is still on this device — sign in to sync it.'
+
+/**
+ * What went wrong confirming an email address, in words that name the actual cause.
+ *
+ * Deliberately NOT routed through `sessionEndedReason`. That channel says "Your session
+ * expired, so you were signed out. Everything you logged is still on this device" — which,
+ * shown after a stale confirmation link, is false in every clause and sends the user hunting
+ * for data loss that did not happen.
+ */
+const describeConfirmationError = (code: string | null, description: string | null): string => {
+  if (code === 'otp_expired') {
+    return 'That confirmation link has expired. Send yourself a new one and open it within the hour.'
+  }
+  if (code === 'access_denied') {
+    return 'That confirmation link has already been used. Try signing in.'
+  }
+  if (description) {
+    // GoTrue's own descriptions are written for humans and arrive URL-encoded with plus signs
+    // for spaces, which reads as machine output if passed through untouched.
+    return `${description.replace(/\+/g, ' ')}. Try signing in, or send yourself a new link.`
+  }
+  return 'We could not confirm your email from that link. Try signing in, or send yourself a new link.'
+}
 
 const SIGN_OUT_FAILED_MESSAGE =
   'Could not sign out — check your connection and try again.'
@@ -169,6 +239,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [hydrating, setHydrating] = useState(false)
   const [hydrationOutcome, setHydrationOutcome] = useState<HydrationOutcome>('pending')
   const [sessionEndedReason, setSessionEndedReason] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const [confirmationError, setConfirmationError] = useState<string | null>(null)
   const [hasUnsyncedChanges, setHasUnsyncedChanges] = useState(false)
   const [hasLoadedAccount, setHasLoadedAccount] = useState(false)
   const [isNewAccount, setIsNewAccount] = useState(false)
@@ -743,6 +815,64 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => sub.remove()
   }, [flushSave, retrySync])
 
+  /*
+    Confirmation links, arriving as `macrofit://auth/callback?code=…`.
+
+    `detectSessionInUrl` is false and has to stay false — it reads `window.location`, which
+    does not exist here — so nothing in supabase-js is watching for this. Without the handler
+    below, the link opened the app and then simply sat on the login screen: the account WAS
+    confirmed server-side by the time the redirect fired, but the app never picked up the
+    session, so the user was asked to sign in by an app they had just proved themselves to.
+
+    Both entry points are needed. `getInitialURL` covers a cold start, where the link is what
+    launched the process; the listener covers the app already being open in the background,
+    which is the common case seconds after signing up.
+  */
+  const exchangeConfirmation = useCallback(async (url: string): Promise<void> => {
+    const { queryParams } = Linking.parse(url)
+    const readParam = (key: string): string | null => {
+      const value = queryParams?.[key]
+      return typeof value === 'string' && value.length > 0 ? value : null
+    }
+
+    // GoTrue reports a refused or expired link by redirecting WITH the error rather than by
+    // failing to redirect, so this has to be checked before looking for a code.
+    const errorCode = readParam('error_code') ?? readParam('error')
+    if (errorCode !== null) {
+      setConfirmationError(describeConfirmationError(errorCode, readParam('error_description')))
+      return
+    }
+
+    const code = readParam('code')
+    if (code === null) return
+
+    setConfirming(true)
+    setConfirmationError(null)
+    try {
+      const { error } = await supabase.auth.exchangeCodeForSession(code)
+      if (error) {
+        setConfirmationError(describeConfirmationError(error.code ?? null, error.message))
+        return
+      }
+      // Success needs no handling here: exchangeCodeForSession stores the session, which
+      // fires SIGNED_IN, which adopts the user and routes them exactly like a sign-in.
+    } catch {
+      setConfirmationError(describeConfirmationError(null, null))
+    } finally {
+      setConfirming(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void Linking.getInitialURL().then(url => {
+      if (url) void exchangeConfirmation(url)
+    })
+    const sub = Linking.addEventListener('url', event => {
+      void exchangeConfirmation(event.url)
+    })
+    return () => sub.remove()
+  }, [exchangeConfirmation])
+
   const signIn: AuthContextValue['signIn'] = useCallback(async (rawEmail, password) => {
     const email = normalizeEmail(rawEmail)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
@@ -756,7 +886,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signUp: AuthContextValue['signUp'] = useCallback(async (rawEmail, password) => {
     const email = normalizeEmail(rawEmail)
-    const { data, error } = await supabase.auth.signUp({ email, password })
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      // Without this, GoTrue falls back to the project's Site URL and the confirmation link
+      // opens the website — on the phone the account was just created on. See CONFIRM_REDIRECT.
+      options: { emailRedirectTo: CONFIRM_REDIRECT },
+    })
     if (error) return { error: describeAuthError(error, email), notice: null }
 
     // GoTrue refuses to leak whether an address is registered: signing up an existing one
@@ -788,7 +924,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const resendConfirmation: AuthContextValue['resendConfirmation'] = useCallback(async rawEmail => {
     const email = normalizeEmail(rawEmail)
-    const { error } = await supabase.auth.resend({ type: 'signup', email })
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email,
+      // Must match signUp's. A resend that omits it sends a link back to the website, so the
+      // user's second attempt fails the same way as the first for no visible reason.
+      options: { emailRedirectTo: CONFIRM_REDIRECT },
+    })
     if (error) return { error: describeAuthError(error, email), notice: null }
     return { error: null, notice: `Confirmation email sent again to ${email}.` }
   }, [])
@@ -955,6 +1097,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   )
 
   const clearSessionEndedReason = useCallback(() => setSessionEndedReason(null), [])
+  const clearConfirmationError = useCallback(() => setConfirmationError(null), [])
 
   /**
    * Memoised because `syncStatus` cycles saving → saved → idle on every autosave, and
@@ -984,6 +1127,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       hasUnsyncedChanges,
       sessionEndedReason,
       clearSessionEndedReason,
+      confirming,
+      confirmationError,
+      clearConfirmationError,
     }),
     [
       user,
@@ -1004,6 +1150,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       hasUnsyncedChanges,
       sessionEndedReason,
       clearSessionEndedReason,
+      confirming,
+      confirmationError,
+      clearConfirmationError,
     ]
   )
 
