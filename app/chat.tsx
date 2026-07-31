@@ -26,7 +26,7 @@ import {
 } from 'lucide-react-native'
 
 import type { Food } from '@core/types'
-import { getTodayString, kgToLbs, lbsToKg } from '@core/utils/calculations'
+import { getDayNutrition, getTodayString, kgToLbs, lbsToKg } from '@core/utils/calculations'
 import { postChat, type ChatMessageParam } from '@/lib/api'
 import { useStore } from '@/store/useStore'
 import { useTheme, type Theme } from '@/theme/useTheme'
@@ -89,6 +89,78 @@ const actionIcon = (
 const Dot: React.FC<{ color: string }> = ({ color }) => (
   <View style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: color }} />
 )
+
+/**
+ * Renders the small amount of Markdown a chat reply is allowed to contain.
+ *
+ * WHY THIS EXISTS RATHER THAN A MARKDOWN LIBRARY:
+ * The model was writing `### Your Remaining Budget`, `**1034 kcal**` and three-column pipe
+ * tables, and the bubble rendered every character of it literally, because nothing here ever
+ * parsed Markdown. A table is the one construct that cannot degrade — `| Calories | 2234 |
+ * 1200 |` is unreadable as text and barely better rendered, on a bubble about three hundred
+ * points wide.
+ *
+ * So the answer is not a parser that can draw tables. It is a prompt that does not ask for
+ * them (see api/chat.ts) plus this, which handles what is left: bold for the numbers that
+ * matter, and bullets. Headings are stripped rather than styled — a four-line answer has
+ * nothing to organise, and a heading in a chat bubble is the model padding.
+ *
+ * Anything unrecognised falls through as plain text, so a new construct degrades to something
+ * readable instead of to punctuation.
+ */
+const AssistantText: React.FC<{ text: string; color: string }> = ({ text, color }) => {
+  const lines = text.split('\n')
+  const blocks: React.ReactNode[] = []
+
+  lines.forEach((raw, index) => {
+    // Table rows and their separators. Belt and braces: the prompt forbids them, but a model
+    // is not a compiler and one slipping through must not print as pipes.
+    if (/^\s*\|/.test(raw) || /^\s*\|?[\s:-]*-{3,}[\s:|-]*$/.test(raw)) return
+
+    const line = raw.replace(/^\s*#{1,6}\s*/, '').trimEnd()
+    if (line.trim() === '') return
+
+    const bullet = /^\s*([-*•]|\d+\.)\s+/.exec(line)
+    const content = bullet ? line.slice(bullet[0].length) : line
+
+    // Split on the bold delimiter, keeping the delimited runs. Odd indices are the bold parts.
+    const parts = content.split(/\*\*(.+?)\*\*/g)
+
+    blocks.push(
+      <View
+        key={index}
+        style={{ flexDirection: 'row', gap: bullet ? spacing.xs : 0, alignItems: 'flex-start' }}
+      >
+        {bullet ? (
+          <Body size={14} style={{ color, opacity: 0.7 }}>
+            {'•'}
+          </Body>
+        ) : null}
+        <Body size={14} style={{ flex: 1, color }}>
+          {parts.map((part, i) =>
+            i % 2 === 1 ? (
+              <Body key={i} size={14} weight="semibold" style={{ color }}>
+                {part}
+              </Body>
+            ) : (
+              part.replace(/[*_`]/g, '')
+            ),
+          )}
+        </Body>
+      </View>,
+    )
+  })
+
+  if (blocks.length === 0) {
+    return (
+      <Body size={14} style={{ color }}>
+        {text}
+      </Body>
+    )
+  }
+
+  return <View style={{ gap: spacing.xs }}>{blocks}</View>
+}
 
 /** Macro identity is carried by the written name as well as the color. */
 const MacroChip: React.FC<{ name: string; grams: number; color: string; theme: Theme }> = ({
@@ -223,15 +295,28 @@ export default function ChatScreen() {
 
     try {
       const day = diary[today]
+      /*
+        Macros travel with every entry, and the day's totals travel alongside them.
+
+        This used to send `{id, name, meal, calories}` and nothing else, so the assistant was
+        answering "how much protein have I got left" from food names alone. It estimated, said
+        so, and was wrong — while `e.food.protein` sat one property away, already exact, already
+        rendered on the dashboard. The model was never the problem; it was never told.
+      */
       const todayEntries = day
         ? day.entries.map(e => ({
             id: e.id,
             name: e.food.name,
             meal: e.mealType,
-            calories: e.food.calories * e.servings,
+            calories: Math.round(e.food.calories * e.servings),
+            protein: Math.round(e.food.protein * e.servings),
+            carbs: Math.round(e.food.carbs * e.servings),
+            fat: Math.round(e.food.fat * e.servings),
           }))
         : []
-      const todayCalories = todayEntries.reduce((sum, e) => sum + e.calories, 0)
+      // The same function the diary and dashboard total with, so all three agree.
+      const totals = getDayNutrition(day ?? { date: today, entries: [], waterIntake: 0, exercises: [] })
+      const todayCalories = totals.calories
       const displayWeight =
         profile.weightUnit === 'lbs' ? kgToLbs(currentWeightKg) : currentWeightKg
 
@@ -243,6 +328,13 @@ export default function ChatScreen() {
           fat: goals.fat,
         },
         todayCalories: Math.round(todayCalories),
+        consumed: {
+          calories: Math.round(totals.calories),
+          protein: Math.round(totals.protein),
+          carbs: Math.round(totals.carbs),
+          fat: Math.round(totals.fat),
+          fiber: Math.round(totals.fiber),
+        },
         todayEntries,
         currentWeight: `${displayWeight.toFixed(1)} ${profile.weightUnit}`,
         weightUnit: profile.weightUnit,
@@ -426,9 +518,10 @@ export default function ChatScreen() {
                         </Body>
                       </View>
                     ) : (
-                      <Body size={14} style={{ color: mine ? theme.brandOn : theme.text }}>
-                        {message.text}
-                      </Body>
+                      <AssistantText
+                        text={message.text}
+                        color={mine ? theme.brandOn : theme.text}
+                      />
                     )}
                   </View>
 
