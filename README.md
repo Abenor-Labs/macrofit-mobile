@@ -30,6 +30,20 @@ npm run android                        # gradle build + install
 to hand-edit Kotlin/Swift, delete those entries from `.gitignore` and the folders become
 yours to maintain.
 
+### Supabase setup you have to do by hand
+
+Add this to **Authentication → URL Configuration → Redirect URLs** in the Supabase
+dashboard:
+
+```
+macrofit://auth/callback
+```
+
+Without it, Supabase refuses the redirect and falls back to the project's Site URL — so
+the sign-up confirmation email opens the **website** instead of the app, on the phone the
+account was just created on. A rejection looks exactly like having never configured it,
+which is what makes this worth stating rather than assuming.
+
 ## Environment
 
 | Variable                              | Purpose                                                        |
@@ -39,6 +53,13 @@ yours to maintain.
 | `EXPO_PUBLIC_API_URL`               | Base URL of the deployed web app, which hosts the AI endpoints |
 | `EXPO_PUBLIC_USDA_API_KEY`          | USDA FoodData Central key (defaults to`DEMO_KEY`)            |
 | `EXPO_PUBLIC_ENABLE_HEALTH_CONNECT` | Enable Google Fit / Health Connect integration (Android)       |
+
+`EXPO_PUBLIC_USDA_API_KEY` genuinely takes effect as of the food-search fix; before that
+it was documented here but never read, because the shared module took it from
+`import.meta.env`, which Metro cannot evaluate. Every mobile search silently used
+`DEMO_KEY` — 30 requests a minute and 1000 a day, shared with every other anonymous caller
+on the internet, which is why search failed at busy times and worked at quiet ones. Get
+your own from https://fdc.nal.usda.gov/api-key-signup.html; it is free and takes a minute.
 
 `EXPO_PUBLIC_API_URL` must be a LAN IP or a deployed URL — **not** `localhost`. On a
 phone or emulator, `localhost` means the device itself, not your dev machine. This is the
@@ -83,6 +104,15 @@ If it is not there, `sync:core` fails loudly and the committed copy in `src/core
 as-is, so the app still builds. Only the platform layer differs between the two apps: the
 web store persists to `localStorage`, this one to `AsyncStorage`.
 
+`src/core/` is **committed**, not git-ignored. That is deliberate and it is the safety net
+for the whole arrangement: `npm start` deletes and re-copies the directory, so a bad sync
+or a mistaken hand-edit shows up as a diff you can see and revert, instead of vanishing.
+Check `git status` after a sync if anything surprising happens.
+
+Nothing under `src/core/` may read a platform global — no `import.meta`, no `process.env`,
+no native module. Both apps run this code, and only one of them has any given global. Pass
+platform values in instead; `src/core/utils/foodApiConfig.ts` is the pattern.
+
 ## Architecture
 
 ```
@@ -91,8 +121,9 @@ app/                 expo-router routes
   login.tsx          auth
   goals.tsx          coach plan + manual targets
   chat.tsx           AI assistant
-  food-search.tsx    food picker (local + USDA + custom)
+  food-search.tsx    food picker (bundled + USDA + Open Food Facts + custom)
   lift-picker.tsx    lift picker
+  weigh-in.tsx       weight logging, opened from the log button
 src/components/      design-system primitives (Glass, Text, Button, MacroRing, Layout)
 src/theme/           tokens + useTheme
 src/store/           zustand store wired to AsyncStorage
@@ -101,8 +132,14 @@ src/core/            GENERATED — shared logic, see above
 ```
 
 Design rules live in [`docs/MOBILE-DESIGN.md`](docs/MOBILE-DESIGN.md) and are binding:
-warm stone neutrals, a jade brand, Fraunces for every number the user reads as data, and
-native blur used only where something genuinely floats above content.
+warm stone neutrals in light mode, a jade brand, Fraunces for every number the user reads
+as data, and native blur used only where something genuinely floats above content.
+
+Dark mode is **not** the light palette inverted. It has its own ladder (`ink` in
+`src/theme/tokens.ts`), spaced in OKLab lightness rather than by contrast ratio — which is
+useless below about L 0.3, where its `+0.05` constant swamps the difference between steps
+that look nothing alike. Neutrals there sit on the jade axis, not the warm stone one, so
+the ambient wash over them does not mix to olive.
 
 The macro palette is not a taste decision — it was validated for lightness band, chroma
 floor, colour-vision separation, normal-vision separation and contrast across all pairs
