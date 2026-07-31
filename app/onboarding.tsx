@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -6,16 +6,23 @@ import {
   Activity,
   ArrowLeft,
   Check,
+  Download,
   Flame,
   NotebookPen,
   Sparkles,
   Target,
   TrendingUp,
+  TriangleAlert,
 } from 'lucide-react-native'
 
 import { useStore } from '@/store/useStore'
 import { useHealthSync } from '@/hooks/useHealthSync'
-import { readWeightHistory } from '@/lib/healthConnect'
+import {
+  isFullyDenied,
+  openHealthConnectInstall,
+  readWeightHistory,
+  type HealthGrants,
+} from '@/lib/healthConnect'
 import { useTheme } from '@/theme/useTheme'
 import { Backdrop } from '@/components/Backdrop'
 import { GlassSurface } from '@/components/Glass'
@@ -190,23 +197,61 @@ export default function OnboardingScreen() {
   const health = useHealthSync()
   const [step, setStep] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  /** What Health Connect actually had. Null until the step has run; set even when empty. */
-  const [imported, setImported] = useState<{ height: boolean; weight: boolean; weighIns: number } | null>(null)
+  /**
+   * What Health Connect actually had. Null until the step has run; set even when empty.
+   *
+   * The `*Allowed` flags are carried alongside the values because "we found nothing" and "we
+   * were not allowed to look" are different sentences, and only the first one is true when a
+   * permission was refused. Without them the screen told users with a perfectly good height on
+   * file that they had none.
+   */
+  const [imported, setImported] = useState<{
+    height: boolean
+    weight: boolean
+    weighIns: number
+    heightAllowed: boolean
+    weightAllowed: boolean
+    historyAllowed: boolean
+  } | null>(null)
+  /** Set when the permission sheet came back with nothing. Health Connect will not ask twice. */
+  const [refused, setRefused] = useState(false)
 
   /*
-    Built from availability, which is 'unavailable' until the probe in useHealthSync returns.
-    The step therefore appears a beat after mount — acceptable because it can only appear
-    while the user is still reading the Welcome screen, never underneath them mid-flow.
+    The phone step exists where Health Connect can be reached — which includes phones that do
+    not have it installed yet, because that is a Play Store link away and hiding the feature
+    from exactly those users was backwards.
   */
-  const STEPS: StepName[] = useMemo(
-    () =>
-      health.availability === 'available'
-        ? ['Welcome', 'Your phone', 'About you', 'Your days', 'Your goal', 'Your plan']
-        : BASE_STEPS,
-    [health.availability]
-  )
+  const phoneStepApplies =
+    health.availability === 'available' || health.availability === 'not_installed'
+
+  /*
+    Latched once the user leaves Welcome.
+
+    `availability` is resolved asynchronously and re-probed on every foreground, so this list
+    could previously grow from five entries to six at any moment — including while someone was
+    typing on 'About you', which would silently become 'Your phone' under them. The old comment
+    asserted this could only happen on the Welcome screen; nothing enforced it. Now something
+    does.
+  */
+  const [lockedSteps, setLockedSteps] = useState<StepName[] | null>(null)
+
+  const STEPS: StepName[] = useMemo(() => {
+    if (lockedSteps !== null) return lockedSteps
+    return phoneStepApplies
+      ? ['Welcome', 'Your phone', 'About you', 'Your days', 'Your goal', 'Your plan']
+      : BASE_STEPS
+  }, [lockedSteps, phoneStepApplies])
 
   const current: StepName = STEPS[Math.min(step, STEPS.length - 1)]
+
+  /*
+    A refusal made in Health Connect's own settings, while this screen sat waiting, is picked
+    up by the provider's foreground re-probe. Mirroring it here keeps the recovery copy from
+    lingering after the user has actually fixed the thing it describes.
+  */
+  useEffect(() => {
+    if (refused && !isFullyDenied(health.grants)) setRefused(false)
+  }, [refused, health.grants])
 
   const [name, setName] = useState('')
   const [gender, setGender] = useState<UserProfile['gender']>(profile.gender)
@@ -307,12 +352,28 @@ export default function OnboardingScreen() {
    */
   const pullFromPhone = async () => {
     setError(null)
-    if (!health.grants.readWeight && !health.grants.readHeight) {
-      await health.connect()
-      // connect() resolves after the permission sheet closes and has already re-read what was
-      // granted, so the provider's own state is the answer — no second query needed. A refusal
-      // is not an error to report either: the step stays put and Skip is still right there.
-      return
+
+    /*
+      One press does the whole job.
+
+      This used to request permission and return, on the reasoning that the provider's state
+      was now the answer. It was — but not in this closure, which still held the grants from
+      before the sheet opened. So granting everything imported nothing until the button was
+      pressed a second time, with no hint that a second press was wanted.
+
+      Refusing was worse. Health Connect remembers a refusal and never prompts again, so every
+      later press called `requestPermission` for permissions already denied, which returns
+      immediately having shown nothing. The button became inert with no message, no error and
+      no way forward. `connect()` now hands back what it got, so both branches are answerable
+      here.
+    */
+    let grants: HealthGrants = health.grants
+    if (!grants.readWeight && !grants.readHeight) {
+      grants = await health.connect()
+      if (isFullyDenied(grants)) {
+        setRefused(true)
+        return
+      }
     }
 
     /*
@@ -354,6 +415,9 @@ export default function OnboardingScreen() {
       height: basics.heightCm !== null,
       weight: basics.weightKg !== null,
       weighIns: history.filter(entry => !existing.has(entry.date)).length,
+      heightAllowed: grants.readHeight,
+      weightAllowed: grants.readWeight,
+      historyAllowed: grants.readHistory,
     })
   }
 
@@ -401,6 +465,9 @@ export default function OnboardingScreen() {
       return
     }
     setError(null)
+    // Freeze the sequence on the way out of Welcome, which is the last moment it can change
+    // without moving the ground under someone. See `lockedSteps`.
+    if (lockedSteps === null) setLockedSteps(STEPS)
     if (step < STEPS.length - 1) setStep(step + 1)
     else finish()
   }
@@ -473,18 +540,24 @@ export default function OnboardingScreen() {
                     width: 56,
                     height: 56,
                     borderRadius: radius.control,
-                    backgroundColor: jade[600],
+                    // The token pair, not a hardcoded jade and a hardcoded white. Those two were
+                    // fixed while everything around them changed with the theme, so the one mark
+                    // on the first screen a user ever sees was the one that ignored dark mode.
+                    backgroundColor: theme.brand,
                     alignItems: 'center',
                     justifyContent: 'center',
                   }}
                 >
-                  <Sparkles size={28} color="#FFFFFF" />
+                  <Sparkles size={28} color={theme.brandOn} />
                 </View>
                 <View style={{ gap: spacing.sm }}>
                   <SectionTitle style={{ fontSize: 24 }}>Let&apos;s set up your targets</SectionTitle>
+                  {/* Three, not five. The old number counted screens rather than questions, and
+                      it was wrong either way on a phone with Health Connect, where the progress
+                      bar directly below it reads "1 of 6". */}
                   <Body tone="secondary">
-                    Five short questions. We work out what your body burns in a day, then turn that
-                    into a calorie and protein target you can actually hit.
+                    Three short questions. We work out what your body burns in a day, then turn
+                    that into a calorie and protein target you can actually hit.
                   </Body>
                 </View>
                 <View style={{ gap: spacing.md }}>
@@ -529,23 +602,96 @@ export default function OnboardingScreen() {
                   </Body>
                 </View>
 
-                {imported === null ? (
-                  <Body size={13} tone="muted">
-                    Nothing is written until you press on, and anything that comes across can be
-                    typed over.
-                  </Body>
+                {/*
+                  Four states, and each one has somewhere to go.
+
+                  The step used to render exactly one of them, so a phone without Health
+                  Connect never saw the step at all and a refusal left the button below
+                  looking identical to a fresh start while doing nothing at all.
+                */}
+                {health.availability === 'not_installed' ? (
+                  <>
+                    <Body size={13} tone="secondary">
+                      Health Connect is the Android app that holds this data and decides who may
+                      read it. It is a free Google app and it is not installed here yet, or the
+                      copy on this phone is too old to talk to.
+                    </Body>
+                    <Button
+                      label="Get Health Connect"
+                      variant="secondary"
+                      full
+                      onPress={() => void openHealthConnectInstall()}
+                      icon={<Download size={15} color={theme.text} strokeWidth={2} />}
+                    />
+                    <Body size={12} tone="muted">
+                      Install it and come back — Skip below carries on without it, and you can
+                      connect any time from Profile.
+                    </Body>
+                  </>
+                ) : refused ? (
+                  <>
+                    <View
+                      style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}
+                    >
+                      <TriangleAlert size={15} color={theme.status.warning} strokeWidth={2} />
+                      <Body size={13} tone="secondary" style={{ flex: 1 }}>
+                        Nothing was shared. Health Connect only asks once, so turning this on now
+                        has to happen in its own settings.
+                      </Body>
+                    </View>
+                    <Button
+                      label="Open Health Connect settings"
+                      variant="secondary"
+                      full
+                      onPress={() => void health.openSettings()}
+                      icon={<Activity size={15} color={theme.text} strokeWidth={2} />}
+                    />
+                    <Body size={12} tone="muted">
+                      Or skip it. Everything below still works, you will just type your height
+                      and weight in yourself.
+                    </Body>
+                  </>
+                ) : imported === null ? (
+                  <>
+                    <Body size={13} tone="muted">
+                      Nothing is written until you press on, and anything that comes across can be
+                      typed over.
+                    </Body>
+                    <Button
+                      label="Bring in my details"
+                      full
+                      loading={health.busy}
+                      onPress={() => void pullFromPhone()}
+                      icon={<Activity size={16} color={theme.brandOn} strokeWidth={2.2} />}
+                    />
+                  </>
                 ) : (
                   <View style={{ gap: spacing.sm }}>
                     {/*
                       Reports what was found, including nothing. "Connected" alone would leave
                       someone with no records on file wondering what it actually did.
+
+                      A refused permission is reported as a refusal rather than as an absence.
+                      Saying "no height on file" to someone who has a height on file and simply
+                      declined to share it is a plain falsehood, and it sends them looking for
+                      the missing record instead of at the switch they just turned down.
                     */}
                     {[
-                      imported.height ? 'Height filled in' : 'No height on file — we will ask',
-                      imported.weight ? 'Weight filled in' : 'No weight on file — we will ask',
+                      imported.height
+                        ? 'Height filled in'
+                        : imported.heightAllowed
+                          ? 'No height on file — we will ask'
+                          : 'Height was not shared — we will ask',
+                      imported.weight
+                        ? 'Weight filled in'
+                        : imported.weightAllowed
+                          ? 'No weight on file — we will ask'
+                          : 'Weight was not shared — we will ask',
                       imported.weighIns > 0
                         ? `${imported.weighIns} past weigh-in${imported.weighIns === 1 ? '' : 's'} ready to bring across — your weight trend will work from day one`
-                        : 'No past weigh-ins found',
+                        : imported.weightAllowed
+                          ? 'No past weigh-ins found'
+                          : 'No past weigh-ins — bodyweight was not shared',
                     ].map(line => (
                       <View
                         key={line}
@@ -557,17 +703,16 @@ export default function OnboardingScreen() {
                         </Body>
                       </View>
                     ))}
-                  </View>
-                )}
 
-                {imported === null && (
-                  <Button
-                    label="Bring in my details"
-                    full
-                    loading={health.busy}
-                    onPress={() => void pullFromPhone()}
-                    icon={<Activity size={16} color={theme.brandOn} strokeWidth={2.2} />}
-                  />
+                    {/* Android 14+ caps every read at 30 days without the history permission.
+                        Profile says so; this screen is where the promise is actually made. */}
+                    {imported.weightAllowed && !imported.historyAllowed ? (
+                      <Body size={12} tone="muted">
+                        Only the last 30 days could be read. Allow access to past data in Health
+                        Connect to bring across the rest.
+                      </Body>
+                    ) : null}
+                  </View>
                 )}
               </View>
             ) : null}

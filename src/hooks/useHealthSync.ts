@@ -42,7 +42,15 @@ export interface HealthSyncState {
   /** Number of weigh-ins pulled in by the last import. Null until one has run. */
   importedWeights: number | null
   busy: boolean
-  connect: () => Promise<void>
+  /**
+   * Shows the permission sheet and returns what came back.
+   *
+   * Returns rather than only setting state because the caller needs the answer in the same
+   * tick. Setup used to call this and return, leaving its own closure holding the grants from
+   * before the sheet opened — so a user who granted everything saw nothing happen and had to
+   * press the button a second time, and a user who refused saw nothing happen ever.
+   */
+  connect: () => Promise<HealthGrants>
   /** Opens Health Connect's own settings, the only route back after a refusal. */
   openSettings: () => Promise<void>
   importWeightHistory: () => Promise<void>
@@ -156,13 +164,14 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => sub.remove()
   }, [probe])
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (): Promise<HealthGrants> => {
     setBusy(true)
     try {
       const next = await requestPermissions()
-      if (!mounted.current) return
+      if (!mounted.current) return next
       setGrants(next)
       if (next.readSteps) await refreshSteps()
+      return next
     } finally {
       if (mounted.current) setBusy(false)
     }

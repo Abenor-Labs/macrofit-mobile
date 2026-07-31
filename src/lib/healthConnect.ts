@@ -1,4 +1,4 @@
-import { Platform } from 'react-native'
+import { Linking, Platform } from 'react-native'
 import type { UserProfile, WeightEntry } from '@core/types'
 import { getDateString } from '@core/utils/calculations'
 import { healthRuntimePermissions } from './healthPermissions'
@@ -17,6 +17,9 @@ import { healthRuntimePermissions } from './healthPermissions'
  */
 
 export type HealthAvailability = 'available' | 'unsupported' | 'not_installed' | 'unavailable'
+
+/** The Health Connect provider, as it is listed on the Play Store. */
+const PROVIDER_PACKAGE = 'com.google.android.apps.healthdata'
 
 export interface StepDay {
   /** 'YYYY-MM-DD' local date. */
@@ -182,6 +185,32 @@ export const openHealthSettings = async (): Promise<void> => {
     hc.openHealthConnectSettings()
   } catch {
     // Nothing to recover from: the caller already told the user what to do.
+  }
+}
+
+/**
+ * Opens the Play Store on the Health Connect provider.
+ *
+ * `getAvailability` returns 'not_installed' for two different phones: one running an Android
+ * old enough that Health Connect is a separate download, and one whose installed provider is
+ * too old for this SDK. Both are fixed in the same place, in under a minute, by the user.
+ *
+ * Until this existed there was no way to say so. Every surface gated itself on
+ * `availability === 'available'`, so the phones one tap away from the feature were the only
+ * ones never told it exists — the exact opposite of who should hear about it.
+ */
+export const openHealthConnectInstall = async (): Promise<void> => {
+  if (!supported()) return
+  try {
+    await Linking.openURL(`market://details?id=${PROVIDER_PACKAGE}`)
+  } catch {
+    // No Play Store app resolves the market: scheme — some OEM builds, and any device where
+    // it has been disabled. The https listing opens the same page in a browser.
+    try {
+      await Linking.openURL(`https://play.google.com/store/apps/details?id=${PROVIDER_PACKAGE}`)
+    } catch {
+      // Nothing left to try. The caller's copy already names what to install.
+    }
   }
 }
 

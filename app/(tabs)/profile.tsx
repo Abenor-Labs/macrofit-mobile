@@ -54,7 +54,7 @@ import { useStore } from '@/store/useStore'
 import { useAuth } from '@/lib/AuthProvider'
 import { useHealthSync } from '@/hooks/useHealthSync'
 import { useLogWeight } from '@/hooks/useLogWeight'
-import { isFullyDenied, missingGrantLabels } from '@/lib/healthConnect'
+import { isFullyDenied, missingGrantLabels, openHealthConnectInstall } from '@/lib/healthConnect'
 import { useTheme } from '@/theme/useTheme'
 import { radius, spacing } from '@/theme/tokens'
 import { GlassSurface, Surface } from '@/components/Glass'
@@ -337,6 +337,15 @@ export default function ProfileScreen() {
   const resetOnboarding = useStore(s => s.resetOnboarding)
 
   const health = useHealthSync()
+  /**
+   * The permission sheet came back with nothing.
+   *
+   * Needed because "never asked" and "asked and refused" are the same set of grants — all
+   * false — and only one of them has "Connect" as a working answer. Health Connect will not
+   * prompt a second time, so without this the button sat there looking pressable and did
+   * nothing at all on every press after the first.
+   */
+  const [connectRefused, setConnectRefused] = useState(false)
 
   const unit = profile.weightUnit
   const toDisplay = (kg: number): number =>
@@ -1196,9 +1205,63 @@ export default function ProfileScreen() {
                 have to enter data your phone already has. Weights you log here are written
                 back, so your other apps stay up to date.
               </Body>
-              <Button label="Connect" onPress={() => void health.connect()} loading={health.busy} />
+              {connectRefused ? (
+                <>
+                  <View
+                    style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}
+                  >
+                    <TriangleAlert size={15} color={theme.status.warning} strokeWidth={2} />
+                    <Body size={12} tone="secondary" style={{ flex: 1 }}>
+                      Nothing was shared. Health Connect only asks once, so this has to be turned
+                      on in its own settings now.
+                    </Body>
+                  </View>
+                  <Button
+                    label="Open Health Connect settings"
+                    variant="secondary"
+                    onPress={() => void health.openSettings()}
+                    icon={<Activity size={15} color={theme.text} strokeWidth={2} />}
+                  />
+                </>
+              ) : (
+                <Button
+                  label="Connect"
+                  loading={health.busy}
+                  onPress={() => {
+                    void health.connect().then(next => setConnectRefused(isFullyDenied(next)))
+                  }}
+                />
+              )}
             </>
           )}
+        </Section>
+      )}
+
+      {/*
+        Installed is not the same as reachable, and this section used to render for neither.
+
+        `getAvailability` returns 'not_installed' both for an Android old enough that Health
+        Connect is a separate download and for a provider too old to talk to this SDK. Every
+        surface gated itself on 'available' alone, so the phones one Play Store tap away from
+        the entire feature were the only ones never told it existed.
+      */}
+      {health.availability === 'not_installed' && (
+        <Section
+          title="Health Connect"
+          icon={<Activity size={16} color={theme.brandText} strokeWidth={2} />}
+          subtitle="Not installed"
+        >
+          <Body size={13} tone="secondary">
+            Health Connect is the free Google app that holds steps and bodyweight and decides
+            which apps may read them. With it installed, MacroFit can read your step count and
+            write your weigh-ins back to whatever else you use.
+          </Body>
+          <Button
+            label="Get Health Connect"
+            variant="secondary"
+            onPress={() => void openHealthConnectInstall()}
+            icon={<Download size={15} color={theme.text} strokeWidth={2} />}
+          />
         </Section>
       )}
 
