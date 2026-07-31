@@ -27,6 +27,7 @@
       "permissions": [
         "android.permission.REQUEST_INSTALL_PACKAGES"
       ],
+      "softwareKeyboardLayoutMode": "pan",
       "versionCode": 2
     },
     "web": {

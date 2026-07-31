@@ -174,7 +174,19 @@ export const Field: React.FC<FieldProps> = ({ label, numeric = false, style, ...
             fontFamily: numeric ? fonts.display : fonts.body,
             fontSize: 16,
           },
-          numeric && { textAlign: 'center', fontVariant: ['tabular-nums'] },
+          /*
+            No `fontVariant: ['tabular-nums']` here, deliberately.
+
+            It is a Text style, and Android's TextInput does not implement it — but it does not
+            ignore it cleanly either. Combined with the Fraunces display face and centred text
+            it re-measured the input on keystrokes, which is what made the numeric fields
+            (serving amount, height, weight) jump and lose the cursor mid-edit.
+
+            `StatValue` keeps it, where it is both valid and needed: that is a Text, and column
+            alignment across a table of figures is the reason the token exists. An input holds
+            one number the user is looking straight at, so it gains nothing there.
+          */
+          numeric && { textAlign: 'center' },
           style,
         ]}
         {...props}
