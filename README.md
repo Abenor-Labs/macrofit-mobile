@@ -44,6 +44,42 @@ the sign-up confirmation email opens the **website** instead of the app, on the 
 account was just created on. A rejection looks exactly like having never configured it,
 which is what makes this worth stating rather than assuming.
 
+### Email: the built-in sender is two per hour
+
+Supabase's bundled email service is for development, and its quota is **per project, not
+per user** — two messages an hour, total. The second person to sign up in an hour is
+turned away, and it surfaces as `over_email_send_rate_limit`. Custom SMTP is not an
+optimisation here; it is the difference between one tester at a time and a usable app.
+
+**Project Settings → Authentication → SMTP Settings → Enable Custom SMTP.**
+
+Gmail works and is the quickest thing that does, because Google performs the actual
+delivery — it signs DKIM and the send passes SPF on Google's own IPs:
+
+| Field | Value |
+| --- | --- |
+| Host | `smtp.gmail.com` |
+| Port | `465` |
+| Username | the full Gmail address |
+| Password | a **Google App Password**, not the account password |
+| Sender email | the same Gmail address — Google enforces the match |
+
+The App Password needs 2-Step Verification enabled first, then
+`myaccount.google.com/apppasswords`. Google removed plain-password SMTP in September 2024,
+so the account password fails with an authentication error that names nothing.
+
+Its ceiling is roughly 500 recipients a day and automated sending trips abuse detection
+well before that, so it covers a tester group and not a launch. A domain plus Resend or
+Postmark is the answer past that point — note that a free `*.vercel.app` subdomain
+**cannot** be verified for email: it is on the Public Suffix List and its DNS belongs to
+Vercel, so there is nowhere to put the SPF and DKIM records.
+
+**Then raise the limit, which custom SMTP does not do by itself:**
+
+> Authentication → Rate Limits → *Rate limit for sending emails*
+
+Configure SMTP and skip this and the project still sends two an hour.
+
 ## Environment
 
 | Variable                              | Purpose                                                        |
