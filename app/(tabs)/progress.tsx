@@ -1,35 +1,31 @@
-import React, { useMemo, useState } from 'react'
-import { Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { PanResponder, Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native'
 import Svg, { Circle, Line, Path, Rect } from 'react-native-svg'
+import { useGlobalSearchParams, useRouter } from 'expo-router'
 import {
   Activity,
-  CheckCircle2,
   Dumbbell,
   Flame,
   Minus,
   RefreshCw,
   Scale,
+  Sparkles,
   TrendingDown,
   TrendingUp,
   Trophy,
   Utensils,
 } from 'lucide-react-native'
 
-import { Button } from '@/components/Button'
+import { Button, IconButton } from '@/components/Button'
 import { Surface } from '@/components/Glass'
 import { EmptyState, Screen } from '@/components/Layout'
 import { ProgressTrack } from '@/components/MacroRing'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
+import { WeightTargetCard } from '@/components/WeightTarget'
+import { DateNavigator } from '@/components/DateNavigator'
 import { useStore } from '@/store/useStore'
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
-import {
-  getHealthConnectStatus,
-  getHistoricalData,
-  openHealthConnectPlayStore,
-  requestHealthPermissions,
-  type HealthRecordNormalized,
-} from '@/lib/health'
 import {
   formatDate,
   getDayNutrition,
@@ -61,8 +57,16 @@ const GUTTER = 44
 const PAD_X = 4
 const PAD_Y = 8
 const USABLE_H = CHART_H - PAD_Y * 2
+/** Scrub readout width. Wide enough for '2,427 kcal' plus a date under it. */
+const TOOLTIP_W = 116
 
-const RANGE_DAYS = { '7d': 7, '30d': 30 } as const
+/*
+  Day sits alongside the week and the month because the Intake ring on the dashboard opens here
+  and has to land on the day it was showing. Fit draws the same three: a detail screen answers
+  "today", "this week" and "this month" from one place rather than making the user guess which
+  screen owns which span.
+*/
+const RANGE_DAYS = { day: 1, '7d': 7, '30d': 30 } as const
 
 type RangeKey = keyof typeof RANGE_DAYS
 type TabKey = 'calories' | 'macros' | 'weight' | 'training'
@@ -192,6 +196,10 @@ interface LineChartProps {
   goalColor?: string
   showDots: boolean
   format: (value: number) => string
+  /** One date per slot, so a scrubbed point can say which day it is. */
+  dates?: readonly string[]
+  /** Appended to the scrubbed value, e.g. 'kcal'. The axis has no room to repeat it. */
+  unit?: string
 }
 
 const LineChart: React.FC<LineChartProps> = ({
@@ -205,8 +213,37 @@ const LineChart: React.FC<LineChartProps> = ({
   goalColor,
   showDots,
   format,
+  dates,
+  unit,
 }) => {
   const theme = useTheme()
+
+  /*
+    Press and drag to read the series. At this width a 30-day chart puts its points about ten
+    pixels apart, which is under half a fingertip: without scrubbing the only way to know what
+    a dot is worth is to count gridlines and guess.
+
+    The index is kept in state and the hit-testing in a ref. PanResponder is built once, so a
+    handler that closed over `points` directly would still be reading the first render's data
+    a week later; the ref is reassigned on every render and the handlers call through it.
+  */
+  const [active, setActive] = useState<number | null>(null)
+  const nearestRef = useRef<(x: number) => number | null>(() => null)
+
+  const responder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      // The chart lives inside a ScrollView. Granting termination lets a vertical drag that
+      // started on the chart still scroll the page instead of trapping the finger.
+      onPanResponderTerminationRequest: () => true,
+      onPanResponderGrant: event => setActive(nearestRef.current(event.nativeEvent.locationX)),
+      onPanResponderMove: event => setActive(nearestRef.current(event.nativeEvent.locationX)),
+      onPanResponderRelease: () => setActive(null),
+      onPanResponderTerminate: () => setActive(null),
+    })
+  ).current
+
   if (points.length === 0) return null
 
   const plotW = Math.max(width - GUTTER, 1)
@@ -259,11 +296,68 @@ const LineChart: React.FC<LineChartProps> = ({
     ).toFixed(2)} ${base} Z`
   }
 
+  /*
+    Snap to the nearest plotted point rather than to the nearest slot. On a sparse month most
+    slots hold nothing, and a crosshair that lands between two logged days and reports neither
+    is worse than one that always names a real reading.
+  */
+  nearestRef.current = (x: number): number | null => {
+    let best = points[0]
+    let bestDistance = Math.abs(xOf(best.index) - x)
+    for (const point of points) {
+      const distance = Math.abs(xOf(point.index) - x)
+      if (distance < bestDistance) {
+        best = point
+        bestDistance = distance
+      }
+    }
+    return best.index
+  }
+
+  const activePoint = active === null ? null : (points.find(p => p.index === active) ?? null)
+  const activeX = activePoint === null ? 0 : xOf(activePoint.index)
+  const activeDate = activePoint === null ? undefined : dates?.[activePoint.index]
+
   return (
     <View>
-      <View style={{ flexDirection: 'row' }}>
+      {activePoint ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: 0,
+            // Clamped so a reading at either end stays on screen instead of hanging off it.
+            left: Math.min(Math.max(GUTTER + activeX - TOOLTIP_W / 2, 0), GUTTER + plotW - TOOLTIP_W),
+            width: TOOLTIP_W,
+            zIndex: 2,
+            alignItems: 'center',
+            gap: 1,
+            paddingVertical: 6,
+            borderRadius: radius.control,
+            borderWidth: StyleSheet.hairlineWidth * 2,
+            borderColor: theme.border,
+            backgroundColor: theme.surfaceRaised,
+          }}
+        >
+          <StatValue size={15}>{`${format(activePoint.value)}${unit ? ` ${unit}` : ''}`}</StatValue>
+          {activeDate ? <Label>{formatDate(activeDate)}</Label> : null}
+        </View>
+      ) : null}
+
+      <View style={{ flexDirection: 'row' }} {...responder.panHandlers}>
         <YAxis ticks={ticks} format={format} />
         <Svg width={plotW} height={CHART_H}>
+          {activePoint ? (
+            <Line
+              x1={activeX}
+              y1={PAD_Y}
+              x2={activeX}
+              y2={PAD_Y + USABLE_H}
+              stroke={theme.textMuted}
+              strokeWidth={1}
+              strokeDasharray="3 3"
+            />
+          ) : null}
           {/* Grid stays recessive — a hairline in the border token, never a black axis. */}
           {ticks.map((tick, i) => (
             <Line
@@ -314,6 +408,17 @@ const LineChart: React.FC<LineChartProps> = ({
               />
             )
           )}
+
+          {activePoint ? (
+            <Circle
+              cx={activeX}
+              cy={yOf(activePoint.value)}
+              r={6}
+              fill={color}
+              stroke={theme.surface}
+              strokeWidth={2}
+            />
+          ) : null}
 
           {showDots
             ? points.map(point => (
@@ -590,8 +695,9 @@ const TABS: readonly SegmentedOption<TabKey>[] = [
 ]
 
 const RANGES: readonly SegmentedOption<RangeKey>[] = [
-  { key: '7d', label: '7d' },
-  { key: '30d', label: '30d' },
+  { key: 'day', label: 'Day' },
+  { key: '7d', label: 'Week' },
+  { key: '30d', label: 'Month' },
 ]
 
 const TAB_CAPTION: Record<TabKey, string> = {
@@ -612,89 +718,214 @@ interface DayStat {
   sodium: number
 }
 
+
+/* ------------------------------------------------------------------ *
+ * Day breakdown — one day, by the hour
+ * ------------------------------------------------------------------ */
+
+/** Bar height for the busiest hour of the day. */
+const HOUR_BAR_MAX = 92
+
+/**
+ * A single day's intake, hour by hour.
+ *
+ * The line chart is wrong at this span: one logged day is one point, and a point plotted
+ * between two axis labels both reading the same date says nothing at all. What a day actually
+ * has that a week does not is *timing* — every food entry carries a timestamp, and until now
+ * nothing in the app read it.
+ *
+ * So the day view answers questions the other spans cannot: when the calories went in, whether
+ * the day front-loads or back-loads, and how much of the target is still open. Fit's Day tab
+ * does the same thing with its hourly bars.
+ */
+const DayBreakdown: React.FC<{
+  entries: readonly { hour: number; calories: number }[]
+  total: number
+  goal: number
+}> = ({ entries, total, goal }) => {
+  const theme = useTheme()
+
+  const hours = React.useMemo(() => {
+    const buckets = Array.from({ length: 24 }, () => 0)
+    for (const entry of entries) {
+      if (entry.hour >= 0 && entry.hour < 24) buckets[entry.hour] += entry.calories
+    }
+    return buckets
+  }, [entries])
+
+  const busiest = Math.max(...hours, 1)
+  const remaining = goal - total
+  const over = remaining < 0
+
+  return (
+    <View style={{ gap: spacing.lg }}>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
+        <StatValue size={34} color={over ? theme.status.critical : undefined}>
+          {withCommas(total)}
+        </StatValue>
+        <Body size={13} tone="secondary">
+          {'of '}
+          <StatValue size={13} tone="secondary">
+            {withCommas(goal)}
+          </StatValue>
+          {' kcal'}
+        </Body>
+      </View>
+
+      <ProgressTrack
+        progress={total / Math.max(goal, 1)}
+        color={over ? theme.status.critical : theme.brand}
+        over={over}
+      />
+
+      <Body size={13} tone="secondary">
+        {total === 0
+          ? 'Nothing logged on this day.'
+          : over
+            ? `${withCommas(Math.abs(remaining))} kcal over the target.`
+            : `${withCommas(remaining)} kcal of the target still open.`}
+      </Body>
+
+      <View style={{ gap: 6 }}>
+        <Label>By hour</Label>
+        <View
+          accessible
+          accessibilityLabel={
+            total === 0
+              ? 'No intake to break down by hour'
+              : `Intake by hour. Busiest hour holds ${withCommas(busiest)} kilocalories.`
+          }
+          style={{
+            flexDirection: 'row',
+            alignItems: 'flex-end',
+            gap: 2,
+            height: HOUR_BAR_MAX,
+          }}
+        >
+          {hours.map((value, hour) => (
+            <View
+              key={hour}
+              style={{ flex: 1, height: HOUR_BAR_MAX, justifyContent: 'flex-end' }}
+            >
+              <View
+                style={{
+                  // A hairline for empty hours, so the day reads as 24 slots rather than as
+                  // however many happen to hold food.
+                  height: value > 0 ? Math.max((value / busiest) * HOUR_BAR_MAX, 4) : 2,
+                  borderRadius: 2,
+                  backgroundColor: value > 0 ? theme.brand : theme.border,
+                }}
+              />
+            </View>
+          ))}
+        </View>
+        {/* Four labels rather than twenty-four: the bars carry the shape, and a legible axis
+            matters more than naming every hour. */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+          {['00', '06', '12', '18', '24'].map(mark => (
+            <StatValue key={mark} size={11} tone="muted">
+              {mark}
+            </StatValue>
+          ))}
+        </View>
+      </View>
+    </View>
+  )
+}
+
 /* ------------------------------------------------------------------ *
  * Screen
  * ------------------------------------------------------------------ */
 
+const isTabKey = (value: string | undefined): value is TabKey =>
+  value === 'calories' || value === 'macros' || value === 'weight' || value === 'training'
+
+const isRangeKey = (value: string | undefined): value is RangeKey =>
+  value === 'day' || value === '7d' || value === '30d'
+
 export default function ProgressScreen() {
   const theme = useTheme()
-  const [tab, setTab] = useState<TabKey>('calories')
+  /*
+    The metric can arrive as a param so cards elsewhere can open the one they are about — the
+    dashboard's Today card lands on Calories rather than dropping the user on this screen to
+    find their way back to what they tapped. Unrecognised or absent values fall back to
+    Calories, which is what this screen opened on before it took params at all.
+  */
+  /*
+    Global, not local. useLocalSearchParams only reports params while its route is the active
+    one, and this screen is a tab: it stays mounted in the background, so a link fired from the
+    dashboard changed the URL and this screen never heard about it. The metric arrived, the tab
+    did not move, and the link looked like it did nothing.
+  */
+  const params = useGlobalSearchParams<{ metric?: string; range?: string }>()
+  const [tab, setTab] = useState<TabKey>(isTabKey(params.metric) ? params.metric : 'calories')
   const [range, setRange] = useState<RangeKey>('7d')
+  /*
+    Which day the Day range is showing. Separate from `range` because moving the cursor must not
+    reset the span, and switching to Week and back should return to the day you were on.
+  */
+  const [day, setDay] = useState(getTodayString())
 
   const diary = useStore(s => s.diary)
   const goals = useStore(s => s.goals)
   const weightLog = useStore(s => s.weightLog)
   const workoutLog = useStore(s => s.workoutLog)
   const weightUnit = useStore(s => s.profile.weightUnit)
-  const addWeightEntry = useStore(s => s.addWeightEntry)
-  const updateProfile = useStore(s => s.updateProfile)
 
-  const [healthSyncLoading, setHealthSyncLoading] = useState(false)
-  const [healthSyncResult, setHealthSyncResult] = useState<HealthRecordNormalized | null>(null)
-  const [healthSyncMessage, setHealthSyncMessage] = useState<string | null>(null)
+  const router = useRouter()
 
-  const handleHealthSync = async () => {
-    setHealthSyncLoading(true)
-    setHealthSyncMessage(null)
-    setHealthSyncResult(null)
+  /*
+    The initial state above only runs once, and a tab screen stays mounted for the life of the
+    app — so without this, the first card to send someone here would decide the metric forever
+    and every later link would be silently ignored.
 
-    const status = await getHealthConnectStatus()
-    if (status === 'not_installed') {
-      setHealthSyncMessage('Health Connect is not installed. Tap below to install it from Play Store.')
-      setHealthSyncLoading(false)
-      return
-    }
+    The param is cleared once applied. Otherwise it keeps applying: pick Weight by hand, leave
+    via the tab bar, come back the same way, and a stale `metric=calories` from an hour ago
+    would drag you off the tab you chose.
+  */
+  useEffect(() => {
+    if (!isTabKey(params.metric)) return
+    setTab(params.metric)
+    router.setParams({ metric: undefined })
+  }, [params.metric, router])
 
-    if (status === 'not_supported') {
-      setHealthSyncMessage('Health Connect is only supported on Android devices.')
-      setHealthSyncLoading(false)
-      return
-    }
+  /*
+    The span can arrive as a param too, so the dashboard's Intake ring lands on the day it was
+    showing rather than on whatever span this screen was last left in. Cleared once applied, for
+    the same reason the metric is: a stale param must not drag the user off a span they chose.
+  */
+  useEffect(() => {
+    if (!isRangeKey(params.range)) return
+    setRange(params.range)
+    if (params.range === 'day') setDay(getTodayString())
+    router.setParams({ range: undefined })
+  }, [params.range, router])
 
-    const granted = await requestHealthPermissions()
-    if (!granted) {
-      setHealthSyncMessage('Permission to read Google Fit / Health Connect was not granted.')
-      setHealthSyncLoading(false)
-      return
-    }
+  /*
+    Day exists for intake only. The other three tabs would render it as a chart of one point —
+    the same degenerate view the calorie day replaced — so the option is not offered there, and
+    a tab switch away from Calories carries the span back to the week rather than leaving a
+    selected range that the tab cannot draw.
 
-    const syncRes = await getHistoricalData({ daysBack: 365 })
-    setHealthSyncLoading(false)
-
-    if (!syncRes.success || !syncRes.data) {
-      setHealthSyncMessage(syncRes.error || 'Could not fetch historical data.')
-      return
-    }
-
-    setHealthSyncResult(syncRes.data)
-  }
-
-  const handleConfirmImport = () => {
-    if (!healthSyncResult) return
-
-    for (const w of healthSyncResult.weights) {
-      addWeightEntry({
-        date: w.date,
-        weight: weightUnit === 'lbs' ? kgToLbs(w.weight) : w.weight,
-        notes: w.notes,
-      })
-    }
-
-    if (healthSyncResult.latestHeightCm) {
-      updateProfile({ heightCm: healthSyncResult.latestHeightCm })
-    }
-
-    setHealthSyncMessage(`Successfully imported ${healthSyncResult.weights.length} weigh-in entries!`)
-    setHealthSyncResult(null)
-  }
+    Offering a control that produces a broken view is worse than not offering it: the user reads
+    the empty chart as missing data rather than as a span this screen does not answer.
+  */
+  useEffect(() => {
+    if (range === 'day' && tab !== 'calories') setRange('7d')
+  }, [range, tab])
 
   const unitLabel = weightUnit === 'lbs' ? 'lb' : 'kg'
   // Volume comes out of workoutMath in kg. Convert only here, at the display edge.
   const toDisplayWeight = (kg: number): number => (weightUnit === 'lbs' ? kgToLbs(kg) : kg)
 
   const dates = useMemo(
-    () => (range === '7d' ? getLast7Days() : getLast30Days()),
-    [range]
+    /*
+      Day is the one range that is not "the last N days ending now": it is a single chosen day,
+      so it carries its own cursor and the arrows move it. Week and month stay anchored to
+      today, which is what makes them comparable from one visit to the next.
+    */
+    () => (range === 'day' ? [day] : range === '7d' ? getLast7Days() : getLast30Days()),
+    [range, day]
   )
   const slots = dates.length
 
@@ -721,9 +952,43 @@ export default function ProgressScreen() {
     return out
   }, [dates, diary])
 
+  /*
+    The selected day's entries reduced to (hour, calories). Only built for the day range, since
+    nothing else reads timestamps — a month of them would be work for a view that never shows
+    the result.
+  */
+  const dayHours = useMemo(() => {
+    if (range !== 'day') return []
+    const stored = diary[day]
+    if (!stored) return []
+    return (stored.entries ?? []).map(entry => ({
+      hour: new Date(entry.timestamp).getHours(),
+      calories: entry.food.calories * entry.servings,
+    }))
+  }, [range, diary, day])
+
+  const dayTotal = useMemo(
+    () => dayHours.reduce((sum, entry) => sum + entry.calories, 0),
+    [dayHours]
+  )
+
   const loggedDays = dayStats.length
+
+  /*
+    Averages run over finished days only. Today is still plotted — it is a real data point and
+    the chart is a record of what happened — but it is a day in progress, and at lunchtime it
+    holds one meal. With a 7-day range and a single logged day that produced "You averaged
+    1,727 kcal below goal", which described nothing except the hour of the afternoon.
+
+    "Days logged" keeps counting today, because it is logged. The two figures answer different
+    questions and it would be worse to make either of them lie to match the other. The
+    dashboard's week card splits them the same way.
+  */
+  const today = getTodayString()
+  const settledStats = useMemo(() => dayStats.filter(d => d.date !== today), [dayStats, today])
+  const settledDays = settledStats.length
   const average = (pick: (d: DayStat) => number): number | null =>
-    loggedDays > 0 ? dayStats.reduce((total, d) => total + pick(d), 0) / loggedDays : null
+    settledDays > 0 ? settledStats.reduce((total, d) => total + pick(d), 0) / settledDays : null
 
   const avgCalories = average(d => d.calories)
   const avgProtein = average(d => d.protein)
@@ -775,11 +1040,22 @@ export default function ProgressScreen() {
     [workoutLog]
   )
 
-  const rangeWords = range === '7d' ? 'last 7 days' : 'last 30 days'
+  const rangeWords =
+    range === 'day' ? formatDate(day) : range === '7d' ? 'last 7 days' : 'last 30 days'
 
   /* --------------------------- Calories --------------------------- */
 
-  const caloriesTab = (
+  /*
+    The day gets its own card rather than a one-point line chart, and it replaces the Summary
+    too: an average over a single day is either that day's total or nothing, and "Avg intake"
+    over one date is a label with no meaning behind it.
+  */
+  const caloriesTab = range === 'day' ? (
+    <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
+      <CardHeader title="Calories" caption={`Intake on ${rangeWords}`} />
+      <DayBreakdown entries={dayHours} total={Math.round(dayTotal)} goal={goals.calories} />
+    </Surface>
+  ) : (
     <>
       <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
         <CardHeader title="Calories" caption={`Intake per day, ${rangeWords}`} />
@@ -815,6 +1091,8 @@ export default function ProgressScreen() {
                     goalColor={theme.textMuted}
                     showDots={slots <= 7}
                     format={withCommas}
+                    dates={dates}
+                    unit="kcal"
                   />
                   <AxisDates from={dates[0]} to={dates[slots - 1]} />
                 </View>
@@ -835,7 +1113,16 @@ export default function ProgressScreen() {
           <StatTile label="Daily goal" value={withCommas(goals.calories)} unit="kcal" />
           <StatTile label="Days logged" value={`${loggedDays}/${slots}`} />
         </View>
-        {avgCalories === null ? null : Math.round(avgCalories) === Math.round(goals.calories) ? (
+        {avgCalories === null ? (
+          /* An "Avg intake —" with nothing next to it reads as a bug rather than as a screen
+             waiting for data, and the reason differs: either today is the only logged day and
+             is not finished, or the range is genuinely empty. */
+          <Body size={13} tone="secondary">
+            {loggedDays > 0
+              ? 'Today is still in progress, so it is not in the average yet.'
+              : `Nothing logged in the ${rangeWords}.`}
+          </Body>
+        ) : Math.round(avgCalories) === Math.round(goals.calories) ? (
           <Body size={13} tone="secondary">
             You averaged exactly your calorie goal.
           </Body>
@@ -978,13 +1265,20 @@ export default function ProgressScreen() {
 
   const weightTab = (
     <>
+      {/*
+        The tab that answers "is my weight going the right way" had no way to weigh in and
+        no on-track verdict — it sent people to another tab to do the one thing this screen
+        is about. This is the same card the dashboard uses.
+      */}
+      <WeightTargetCard />
+
       <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
         <CardHeader title="Weight" caption={`Weigh-ins in ${unitLabel}, ${rangeWords}`} />
         {weightPoints.length === 0 ? (
           <EmptyState
             icon={<Scale size={24} color={theme.textMuted} strokeWidth={1.8} />}
             title="No weigh-ins yet"
-            message={`Log your weight from the Profile tab. Two entries in the ${rangeWords} draw a trend.`}
+            message={`Add today's weight above. Two entries in the ${rangeWords} draw a trend.`}
           />
         ) : (
           <ChartArea
@@ -1001,6 +1295,8 @@ export default function ProgressScreen() {
                   connectGaps
                   showDots
                   format={oneDecimal}
+                  dates={dates}
+                  unit={unitLabel}
                 />
                 <AxisDates from={dates[0]} to={dates[slots - 1]} />
               </View>
@@ -1070,71 +1366,6 @@ export default function ProgressScreen() {
         ) : null}
       </Surface>
 
-      <Surface style={{ padding: spacing.lg, gap: spacing.md }}>
-        <CardHeader
-          title="Import from Google Fit"
-          caption="Sync weight, height & body composition historical records via Health Connect"
-        />
-
-        {healthSyncResult ? (
-          <View style={{ gap: spacing.md }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-              <CheckCircle2 size={20} color={theme.brand} />
-              <Body size={14} weight="semibold">
-                Found {healthSyncResult.totalRecordsFound} historical entries
-              </Body>
-            </View>
-            <Body size={13} tone="secondary">
-              • {healthSyncResult.weights.length} weigh-in logs{'\n'}
-              {healthSyncResult.latestHeightCm ? `• Latest height: ${healthSyncResult.latestHeightCm} cm\n` : ''}
-              {healthSyncResult.latestBodyFatPct ? `• Body Fat: ${healthSyncResult.latestBodyFatPct}%\n` : ''}
-            </Body>
-            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-              <Button
-                label="Confirm & Import"
-                onPress={handleConfirmImport}
-                variant="primary"
-                haptic
-              />
-              <Button
-                label="Cancel"
-                onPress={() => setHealthSyncResult(null)}
-                variant="ghost"
-              />
-            </View>
-          </View>
-        ) : (
-          <View style={{ gap: spacing.md }}>
-            <Body size={13} tone="secondary">
-              Import past body metrics from Google Fit in 1 tap. Make sure Health Connect is enabled in Google Fit settings.
-            </Body>
-
-            {healthSyncMessage ? (
-              <Body size={13} tone="muted" style={{ color: theme.macro.protein }}>
-                {healthSyncMessage}
-              </Body>
-            ) : null}
-
-            <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }}>
-              <Button
-                label="Sync from Google Fit"
-                onPress={handleHealthSync}
-                loading={healthSyncLoading}
-                variant="secondary"
-                icon={<Activity size={16} color={theme.text} />}
-                haptic
-              />
-              {healthSyncMessage?.includes('not installed') ? (
-                <Button
-                  label="Install Health Connect"
-                  onPress={openHealthConnectPlayStore}
-                  variant="ghost"
-                />
-              ) : null}
-            </View>
-          </View>
-        )}
-      </Surface>
     </>
   )
 
@@ -1237,7 +1468,15 @@ export default function ProgressScreen() {
     )
 
   return (
-    <Screen title="Progress" subtitle={TAB_CAPTION[tab]}>
+    <Screen
+      title="Progress"
+      subtitle={TAB_CAPTION[tab]}
+      right={
+        <IconButton accessibilityLabel="Open AI Assistant" onPress={() => router.push('/chat')}>
+          <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
+        </IconButton>
+      }
+    >
       <View style={{ gap: spacing.md }}>
         <Segmented options={TABS} value={tab} onChange={setTab} groupLabel="Metric" />
         <View
@@ -1252,10 +1491,21 @@ export default function ProgressScreen() {
             {tabIcon}
             <Label>{rangeWords}</Label>
           </View>
-          <View style={{ width: 132 }}>
-            <Segmented options={RANGES} value={range} onChange={setRange} groupLabel="Range" />
+          <View style={{ width: 168 }}>
+            <Segmented
+              options={tab === 'calories' ? RANGES : RANGES.filter(r => r.key !== 'day')}
+              value={range}
+              onChange={setRange}
+              groupLabel="Range"
+            />
           </View>
         </View>
+
+        {/* Only the Day range has a cursor to move. Week and month stay anchored to today,
+            which is what keeps them comparable between visits. */}
+        {range === 'day' ? (
+          <DateNavigator date={day} today={getTodayString()} onChange={setDay} />
+        ) : null}
       </View>
 
       {tab === 'calories' ? caloriesTab : null}

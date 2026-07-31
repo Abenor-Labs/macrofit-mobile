@@ -1,10 +1,12 @@
 import React, { useMemo, useState } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { Pressable, StyleSheet, View } from 'react-native'
+import { useRouter } from 'expo-router'
 import { ArrowDown, ArrowUp, CalendarClock, Check, Minus, Scale, TriangleAlert } from 'lucide-react-native'
 
 import { getWeightTargetProgress, type TrackStatus } from '@core/utils/weightTarget'
-import { getTodayString } from '@core/utils/calculations'
+import { formatDate, getTodayString } from '@core/utils/calculations'
 import { useStore } from '@/store/useStore'
+import { useLogWeight } from '@/hooks/useLogWeight'
 import { useTheme } from '@/theme/useTheme'
 import { radius, spacing } from '@/theme/tokens'
 import { Surface } from './Glass'
@@ -30,29 +32,21 @@ const STATUS_META: Record<
 }
 
 /**
- * Goal weight, today's weigh-in, and an honest read on whether the trend is heading the
- * right way. This is the screen's answer to "am I actually making progress?".
+ * The trend read, its tone, and its icon — shared by the full card and by the standalone
+ * verdict the dashboard shows above the fold.
  */
-export const WeightTargetCard: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
+const useWeightVerdict = () => {
   const theme = useTheme()
   const profile = useStore(s => s.profile)
   const weightLog = useStore(s => s.weightLog)
   const currentWeightKg = useStore(s => s.currentWeightKg)
-  const addWeightEntry = useStore(s => s.addWeightEntry)
-
-  const [draft, setDraft] = useState('')
 
   const today = getTodayString()
-  const loggedToday = weightLog.some(e => e.date === today)
 
   const progress = useMemo(
     () => getWeightTargetProgress(weightLog, profile, currentWeightKg, today),
     [weightLog, profile, currentWeightKg, today],
   )
-
-  const unit = profile.weightUnit
-  const toDisplay = (kg: number): number =>
-    Math.round((unit === 'lbs' ? kg * LBS_PER_KG : kg) * 10) / 10
 
   const meta = STATUS_META[progress.status]
   const toneColor =
@@ -67,6 +61,148 @@ export const WeightTargetCard: React.FC<{ compact?: boolean }> = ({ compact = fa
   const StatusIcon =
     meta.tone === 'good' ? Check : meta.tone === 'critical' ? TriangleAlert : Minus
 
+  return { progress, meta, toneColor, StatusIcon, today }
+}
+
+/** The toned callout itself. One shape, so the two placements cannot drift apart. */
+const VerdictBox: React.FC<{
+  label: string
+  message: string
+  toneColor: string
+  Icon: React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>
+}> = ({ label, message, toneColor, Icon }) => (
+  <View
+    style={{
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.sm,
+      padding: spacing.md,
+      borderRadius: radius.control,
+      borderWidth: StyleSheet.hairlineWidth * 2,
+      borderColor: toneColor + '55',
+      backgroundColor: toneColor + '14',
+    }}
+  >
+    <Icon size={16} color={toneColor} strokeWidth={2.2} />
+    <View style={{ flex: 1, gap: 2 }}>
+      <Body size={13} weight="semibold" style={{ color: toneColor }}>
+        {label}
+      </Body>
+      <Body size={13} tone="secondary">
+        {message}
+      </Body>
+    </View>
+  </View>
+)
+
+/**
+ * The verdict on its own, for the top of the dashboard.
+ *
+ * "Weight has been flat for 26 days with 3.7 kg to go. A change in intake is needed to start
+ * moving." is the only line on that screen that asks the user to change something, and it used
+ * to sit seventh of eight — below a steps tile, four swipes down, where a ten-second check-in
+ * never reaches it. It reads directly under the calorie hero now, so the screen answers "am I
+ * on track today" and "is any of this working" in the same glance.
+ *
+ * WeightTargetCard drops it when `compact`, which is how the dashboard renders it, so the
+ * sentence is promoted rather than printed twice.
+ *
+ * Renders nothing without a goal to measure against: there is no verdict to give, and an empty
+ * callout above the fold would cost the position without earning it.
+ *
+ * Opens the weight history, because "flat for 26 days" is a claim about a trend and the trend
+ * is the thing worth looking at next. The copy inside the card is left alone: this is a link on
+ * the dashboard only, and the same box inside WeightTargetCard on Progress is already there.
+ */
+export const WeightVerdict: React.FC = () => {
+  const router = useRouter()
+  const theme = useTheme()
+  const profile = useStore(s => s.profile)
+  const weightLog = useStore(s => s.weightLog)
+  const { progress, meta, toneColor, StatusIcon, today } = useWeightVerdict()
+
+  /*
+    No goal weight is not the same as nothing to say.
+
+    This returned null whenever `targetKg` was null, and goal weight is optional in setup — so
+    a large share of users saw NOTHING about weight on the dashboard, which is most of why
+    "where is the weight logging in the app?" was asked at all. There is no verdict to give
+    without a target, but there is still the most useful thing on the subject: whether they
+    have weighed in today, and what the last reading was.
+
+    One line, not a card. The dashboard already carries a finding for having too much above
+    the fold, and the actual logging now lives in the log button.
+  */
+  if (progress.targetKg === null) {
+    const loggedToday = weightLog.some(entry => entry.date === today)
+    const latest = weightLog[0]
+    const unit = profile.weightUnit
+
+    return (
+      <Pressable
+        accessibilityRole="link"
+        accessibilityLabel={
+          loggedToday
+            ? `Weighed in today. Open weight history.`
+            : 'No weigh-in yet today. Open weight history.'
+        }
+        onPress={() => router.push({ pathname: '/progress', params: { metric: 'weight' } })}
+        style={({ pressed }) => ({
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: spacing.sm,
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        <Scale size={15} color={theme.textMuted} strokeWidth={2} />
+        <Body size={13} tone="secondary" style={{ flex: 1 }}>
+          {loggedToday
+            ? `Weighed in today${latest ? ` · ${latest.weight} ${unit}` : ''}`
+            : latest
+              ? `No weigh-in today · last ${latest.weight} ${unit} on ${formatDate(latest.date)}`
+              : 'No weigh-ins yet — log one from the + button'}
+        </Body>
+      </Pressable>
+    )
+  }
+
+  return (
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel={`${meta.label}. ${progress.message} Open weight history.`}
+      onPress={() => router.push({ pathname: '/progress', params: { metric: 'weight' } })}
+      style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
+    >
+      <VerdictBox
+        label={meta.label}
+        message={progress.message}
+        toneColor={toneColor}
+        Icon={StatusIcon}
+      />
+    </Pressable>
+  )
+}
+
+/**
+ * Goal weight, today's weigh-in, and an honest read on whether the trend is heading the
+ * right way. This is the screen's answer to "am I actually making progress?".
+ */
+export const WeightTargetCard: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
+  const theme = useTheme()
+  const profile = useStore(s => s.profile)
+  const weightLog = useStore(s => s.weightLog)
+  const currentWeightKg = useStore(s => s.currentWeightKg)
+  const { logWeight } = useLogWeight()
+
+  const [draft, setDraft] = useState('')
+
+  const { progress, meta, toneColor, StatusIcon, today } = useWeightVerdict()
+  const loggedToday = weightLog.some(e => e.date === today)
+
+  const unit = profile.weightUnit
+  const toDisplay = (kg: number): number =>
+    Math.round((unit === 'lbs' ? kg * LBS_PER_KG : kg) * 10) / 10
+
   const TrendIcon =
     progress.trendKgPerWeek === null
       ? Minus
@@ -80,7 +216,7 @@ export const WeightTargetCard: React.FC<{ compact?: boolean }> = ({ compact = fa
     const value = Number(draft.replace(',', '.').trim())
     if (!Number.isFinite(value) || value <= 0) return
     // Stored in the user's display unit, exactly like the rest of the weight log.
-    addWeightEntry({ date: today, weight: Math.round(value * 10) / 10 })
+    logWeight({ date: today, displayWeight: Math.round(value * 10) / 10 })
     setDraft('')
   }
 
@@ -141,28 +277,16 @@ export const WeightTargetCard: React.FC<{ compact?: boolean }> = ({ compact = fa
             </View>
           )}
 
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'flex-start',
-              gap: spacing.sm,
-              padding: spacing.md,
-              borderRadius: radius.control,
-              borderWidth: StyleSheet.hairlineWidth * 2,
-              borderColor: toneColor + '55',
-              backgroundColor: toneColor + '14',
-            }}
-          >
-            <StatusIcon size={16} color={toneColor} strokeWidth={2.2} />
-            <View style={{ flex: 1, gap: 2 }}>
-              <Body size={13} weight="semibold" style={{ color: toneColor }}>
-                {meta.label}
-              </Body>
-              <Body size={13} tone="secondary">
-                {progress.message}
-              </Body>
-            </View>
-          </View>
+          {/* Not in compact: the dashboard promotes this to the top of the screen as
+              <WeightVerdict />, and saying it twice on one screen would undo the point. */}
+          {!compact && (
+            <VerdictBox
+              label={meta.label}
+              message={progress.message}
+              toneColor={toneColor}
+              Icon={StatusIcon}
+            />
+          )}
 
           {!compact && progress.trendKgPerWeek !== null && (
             <View style={{ flexDirection: 'row', gap: spacing.lg }}>

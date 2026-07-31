@@ -2,7 +2,7 @@
   "expo": {
     "name": "MacroFit",
     "slug": "macrofit",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "macrofit",
@@ -23,7 +23,12 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.REQUEST_INSTALL_PACKAGES"
+      ],
+      "softwareKeyboardLayoutMode": "pan",
+      "versionCode": 3
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -46,17 +51,10 @@
         }
       ],
       "expo-splash-screen",
-      [
-        "react-native-health-connect",
-        {
-          "permissions": [
-            "READ_WEIGHT",
-            "READ_HEIGHT",
-            "READ_BODY_FAT",
-            "READ_STEPS"
-          ]
-        }
-      ]
+      "react-native-health-connect",
+      "./plugins/with-health-connect-permissions",
+      "./plugins/with-health-connect-delegate",
+      "./plugins/with-release-signing"
     ],
     "experiments": {
       "typedRoutes": true

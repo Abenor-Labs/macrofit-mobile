@@ -208,6 +208,31 @@ export const caloriesForPace = (
 }
 
 /**
+ * Days and whole weeks to cover `distanceKg` at `kgPerWeek`. Returns zeros when the
+ * distance is already closed or the rate cannot produce an answer.
+ *
+ * The single source of truth for "how long", because there is more than one screen that
+ * answers that question and they have to agree. Setup used to round the week count and the
+ * weight-goal card used to round it a different way, so the same plan read as 8 weeks on one
+ * screen and 7 on the other, on the same day.
+ *
+ * Both figures round UP, and the week count is derived from the day count rather than
+ * computed alongside it. Rounding down would print a date the plan cannot hit.
+ */
+export const horizonFor = (
+  distanceKg: number,
+  kgPerWeek: number,
+): { days: number; weeks: number } => {
+  const distance = Math.abs(distanceKg)
+  const rate = Math.abs(kgPerWeek)
+  if (!Number.isFinite(distance) || !Number.isFinite(rate) || rate <= 0 || distance < 0.1) {
+    return { days: 0, weeks: 0 }
+  }
+  const days = Math.max(1, Math.ceil((distance / rate) * 7))
+  return { days, weeks: Math.max(1, Math.ceil(days / 7)) }
+}
+
+/**
  * Weeks to reach the target at the chosen pace, or null when it cannot be worked out.
  * Used to answer the only question people actually ask of a target: how long.
  */
@@ -217,9 +242,7 @@ export const weeksToTarget = (
   kgPerWeek: number | undefined,
 ): number | null => {
   if (targetKg === undefined || kgPerWeek === undefined || kgPerWeek <= 0) return null
-  const distance = Math.abs(targetKg - currentKg)
-  if (distance < 0.1) return 0
-  return Math.ceil(distance / kgPerWeek)
+  return horizonFor(targetKg - currentKg, kgPerWeek).weeks
 }
 
 /** "about 7 weeks" / "about 4 months" — a horizon, not a promise of a date. */

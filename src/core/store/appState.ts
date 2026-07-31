@@ -97,6 +97,18 @@ export interface AppState {
    */
   onboardedAt: number | null
   completeOnboarding: () => void
+  /**
+   * Send the user back through setup without touching anything they have logged.
+   *
+   * The escape hatch for a wrong answer to "has this person been set up?". That question is
+   * inferred on hydrate (see hydrateStore), and a wrong inference used to be permanent: the
+   * user was left with the shipped defaults — a 30-year-old 175 cm male — driving every
+   * calorie target, and no route back to the screen that would fix it.
+   *
+   * Diary, weigh-ins and workouts are deliberately untouched. This re-asks the questions; it
+   * does not delete the answers to anything else.
+   */
+  resetOnboarding: () => void
 
   // Coach
   recommendation: Recommendation | null
@@ -136,8 +148,19 @@ const DEFAULT_PROFILE: UserProfile = {
   gender: 'male',
   heightCm: 175,
   activityLevel: 'moderately_active',
-  weightUnit: 'lbs',
-  heightUnit: 'cm',
+  /*
+    Metric weight, imperial height. That looks inconsistent and is not: it is what most of
+    the world outside the US actually uses, and India in particular — people give their
+    weight in kilograms and their height in feet and inches, in the same sentence.
+
+    These are DEFAULTS for a profile nobody has configured yet. zustand's persist middleware
+    merges, and hydrateStore overwrites `profile` wholesale from the server, so an existing
+    user's stored choice always wins. Nothing here migrates anyone: silently rewriting a US
+    user's `lbs` to `kg` would change every number on their screen without asking, and their
+    unit is a preference they set, not a default they inherited.
+  */
+  weightUnit: 'kg',
+  heightUnit: 'ft',
   goal: 'maintain',
 }
 
@@ -441,6 +464,10 @@ export const createAppState: StateCreator<AppState, [['zustand/immer', never]], 
     state.onboardedAt = Date.now()
   }),
 
+  resetOnboarding: () => set((state) => {
+    state.onboardedAt = null
+  }),
+
   // --- Coach ---
 
   setRecommendation: (rec) => set((state) => {
@@ -616,12 +643,46 @@ export const createAppState: StateCreator<AppState, [['zustand/immer', never]], 
       }
     }
 
-    // Accounts that predate the setup flow have no `onboardedAt`, and sending someone who
-    // has been logging for months back to "what should we call you?" would look like their
-    // data had been lost. Anything they have actually recorded stands in for having
-    // finished setup.
-    if (state.onboardedAt === null && (state.weightLog.length > 0 || Object.keys(state.diary).length > 0)) {
+    /*
+      Accounts that predate the setup flow have no `onboardedAt`, and sending someone who has
+      been logging for months back to "what should we call you?" would look like their data
+      had been lost. So a store with real history behind it counts as set up.
+
+      "Real history" used to mean ONE weigh-in or ONE diary day, which is not evidence of
+      anything. Signing up on the website writes a row after the first thing you log, so a
+      user who tried the site and then installed the app arrived with a single weigh-in
+      against an untouched profile, was marked as onboarded, and never saw setup at all —
+      leaving them with the store's defaults, which describe a 30-year-old 175 cm male who is
+      not them, driving every calorie target in the app.
+
+      The test is now for evidence that a human answered the questions: either a profile that
+      differs from the shipped defaults, or enough logging that inferring it is safe anyway.
+      A single entry against a pristine profile proves neither, and is exactly the case that
+      should see setup.
+
+      `profileWasAnswered` deliberately checks the three fields setup asks for and the
+      formulas read. Name is excluded: it is optional in setup, so its absence is not
+      evidence, and its presence can come from elsewhere.
+    */
+    const defaults = DEFAULT_PROFILE
+    const profileWasAnswered =
+      state.profile.age !== defaults.age ||
+      state.profile.heightCm !== defaults.heightCm ||
+      state.profile.gender !== defaults.gender
+
+    const loggedEnoughToInfer =
+      state.weightLog.length > 1 || Object.keys(state.diary).length > 1
+
+    if (state.onboardedAt === null && (profileWasAnswered || loggedEnoughToInfer)) {
       state.onboardedAt = Date.now()
+      if (typeof console !== 'undefined') {
+        // Which branch set this is the first question worth asking when someone reports that
+        // setup did or did not appear, and it is otherwise unanswerable after the fact.
+        console.info(
+          `[onboarding] inferred from hydrated data (profileAnswered=${profileWasAnswered}, ` +
+            `weighIns=${state.weightLog.length}, diaryDays=${Object.keys(state.diary).length})`,
+        )
+      }
     }
   }),
 })

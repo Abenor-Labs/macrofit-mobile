@@ -2,7 +2,6 @@ import React from 'react'
 import { View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useTheme } from '@/theme/useTheme'
-import { jade } from '@/theme/tokens'
 
 /**
  * Ambient colour behind the whole screen.
@@ -18,17 +17,19 @@ import { jade } from '@/theme/tokens'
  */
 export const Backdrop: React.FC = () => {
   const theme = useTheme()
-  const dark = theme.mode === 'dark'
 
-  // Dark mode needs more opacity to register at all; light mode needs less or it muddies
-  // the warm stone canvas.
-  const warm = dark ? 'rgba(120,113,108,0.16)' : 'rgba(214,211,209,0.55)'
-
+  /*
+    The three washes come off the theme rather than being picked from `mode` here. Workout
+    mode is dark but lime, and a hardcoded jade bloom under a lime accent does not read as
+    a second brand colour — it reads as a bug. Per-mode opacity is baked into the token:
+    dark surfaces need more of it to register, light ones need less or the warm stone
+    canvas turns muddy.
+  */
   return (
     <View pointerEvents="none" style={{ ...StyleSheetAbsolute, overflow: 'hidden' }}>
-      {/* Top-left jade bloom, sits behind the glass header. */}
+      {/* Top-left bloom, sits behind the glass header. */}
       <LinearGradient
-        colors={[dark ? 'rgba(18,161,117,0.22)' : 'rgba(56,188,141,0.30)', 'transparent']}
+        colors={[theme.bloom.top, 'transparent']}
         start={{ x: 0.1, y: 0 }}
         end={{ x: 0.9, y: 1 }}
         style={{
@@ -41,9 +42,9 @@ export const Backdrop: React.FC = () => {
         }}
       />
 
-      {/* Warm counterweight on the right so the wash is not uniformly green. */}
+      {/* Counterweight on the right so the wash is not uniformly one hue. */}
       <LinearGradient
-        colors={[warm, 'transparent']}
+        colors={[theme.bloom.counterweight, 'transparent']}
         start={{ x: 1, y: 0 }}
         end={{ x: 0, y: 1 }}
         style={{
@@ -58,7 +59,7 @@ export const Backdrop: React.FC = () => {
 
       {/* Low bloom behind the floating tab bar, so it has colour to pick up. */}
       <LinearGradient
-        colors={['transparent', dark ? 'rgba(12,130,97,0.20)' : 'rgba(113,213,175,0.28)']}
+        colors={['transparent', theme.bloom.bottom]}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
         style={{

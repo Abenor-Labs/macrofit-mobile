@@ -15,7 +15,7 @@ import { getCoachAlerts } from '@core/utils/coachAlerts'
 import { buildLocalRecommendation } from '@core/utils/localRecommendation'
 import { getDateString } from '@core/utils/calculations'
 import { useStore } from '@/store/useStore'
-import { postRecommend, type RecentMacros, type RecommendRequest } from '@/lib/api'
+import { isOffline, postRecommend, type RecentMacros, type RecommendRequest } from '@/lib/api'
 
 /**
  * The coach, ported from the web app's `src/hooks/useCoach.ts`.
@@ -35,12 +35,18 @@ const MIN_QUALIFYING_CALORIES = 500
 const STALE_PLAN_MS = 7 * 86_400_000
 
 /**
- * Appended to whatever `postRecommend` threw. The thrown message names the real cause
- * (offline, timed out, misconfigured API URL); this half tells the user what they are
- * looking at instead, because a plan is still on screen either way.
+ * Why the coach could not be used, for a screen that is already showing a local plan.
+ *
+ * `offline` is not cosmetic. It decides between "you appear to be offline" and "the service
+ * did not answer", which are different problems with different remedies, and telling
+ * someone with full signal to reconnect sends them to reboot a router over a server-side
+ * timeout.
  */
-const OFFLINE_SUFFIX =
-  'The plan below was calculated on your device instead, so it is a plain formula rather than a coached judgement.'
+export interface CoachError {
+  message: string
+  /** True only when the request never reached a server. */
+  offline: boolean
+}
 
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value)
@@ -217,7 +223,7 @@ export const useCoachData = (): CoachData => {
 export interface CoachState extends CoachData {
   loading: boolean
   /** Set only when the network plan could not be used; the local plan is showing instead. */
-  error: string | null
+  error: CoachError | null
   /** Always calls the API. Falls back to the local plan rather than leaving the user empty. */
   refresh: () => void
   /** Writes the plan's calories and macros into the goals. */
@@ -240,7 +246,7 @@ export const useCoach = (): CoachState => {
   const weightLog = useStore(s => s.weightLog)
 
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<CoachError | null>(null)
 
   // The request payload is read from a ref so `refresh` keeps a stable identity and the
   // auto-refresh effect below cannot re-fire every time a diary entry changes.
@@ -301,8 +307,20 @@ export const useCoach = (): CoachState => {
             anchorTdee: fallbackRef.current.anchorTdee,
           }),
         )
+        /*
+          The message is what postRecommend threw, unmodified.
+
+          It used to have OFFLINE_SUFFIX appended — "The plan below was calculated on your
+          device instead, so it is a plain formula rather than a coached judgement." That is
+          word for word what `buildLocalRecommendation` already writes into `rationale`, and
+          Goals renders the rationale directly above this notice. So the screen said the same
+          thing twice, in two boxes, about the same plan.
+
+          The rationale explains what a local plan IS. This explains only why the coach was
+          not reached. Neither repeats the other.
+        */
         const message = err instanceof Error ? err.message : 'Could not reach the coach.'
-        if (mountedRef.current) setError(`${message} ${OFFLINE_SUFFIX}`)
+        if (mountedRef.current) setError({ message, offline: isOffline(err) })
       } finally {
         inFlightRef.current = false
         if (mountedRef.current) setLoading(false)

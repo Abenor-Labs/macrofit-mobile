@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   View,
@@ -57,6 +58,12 @@ interface LoggedAction {
   label: string
   value: number
   unit: string
+  /*
+    The food this action created, so the write can be reversed. `addFoodEntry` mints the entry
+    id internally and returns nothing, but every chat-created Food gets a unique `chat_<uuid>`,
+    which is enough to find the entry again in the day it landed in.
+  */
+  foodId?: string
   macros?: { protein: number; carbs: number; fat: number }
 }
 
@@ -162,6 +169,42 @@ export default function ChatScreen() {
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }))
   }, [])
 
+  /*
+    Turns whose writes have been reversed. The card stays on screen saying so rather than
+    disappearing: the conversation above it still reads "I logged that", and a card that
+    vanished would leave the user unsure whether the undo worked or the app forgot.
+  */
+  const [undone, setUndone] = useState<Record<string, true>>({})
+
+  /*
+    Reverses what a single reply wrote.
+
+    The assistant decides on the server which tools to call, and this screen applies every one
+    of them without asking — so a question phrased as "if I ate four eggs, what would that
+    cost me?" can be answered by logging four eggs. That judgement cannot be fixed from here.
+    What can be fixed is that the write was one-way.
+
+    Food is found by the chat-minted food id rather than an entry id, because addFoodEntry
+    generates the entry id internally and hands nothing back. Water reverses by adding a
+    negative amount, which is what the water card's own minus button does. Weight is
+    deliberately not reversed: a weigh-in is a single editable row the user can see in the
+    weight log, and silently deleting body-weight history is worse than leaving one wrong
+    number visible.
+  */
+  const undoTurn = (message: ChatEntry) => {
+    const day = useStore.getState().diary[getTodayString()]
+
+    for (const action of message.actions ?? []) {
+      if (action.type === 'food' && action.foodId) {
+        const entry = day?.entries.find(e => e.food.id === action.foodId)
+        if (entry) removeFoodEntry(getTodayString(), entry.id)
+      }
+      if (action.type === 'water') addWater(getTodayString(), -action.value)
+    }
+
+    setUndone(prev => ({ ...prev, [message.id]: true }))
+  }
+
   const send = async () => {
     const text = input.trim()
     if (text.length === 0 || loading) return
@@ -245,6 +288,7 @@ export default function ChatScreen() {
             label: inp.name,
             value: Math.round(inp.calories),
             unit: 'kcal',
+            foodId: food.id,
             macros: { protein: inp.protein, carbs: inp.carbs, fat: inp.fat },
           })
         }
@@ -393,9 +437,37 @@ export default function ChatScreen() {
                       radius={radius.control}
                       style={{ alignSelf: 'stretch', padding: spacing.md, gap: spacing.md }}
                     >
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                        <Check size={12} color={theme.status.good} strokeWidth={2.6} />
-                        <Label style={{ color: theme.status.good }}>Logged</Label>
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 5,
+                        }}
+                      >
+                        {undone[message.id] ? (
+                          <>
+                            <X size={12} color={theme.textMuted} strokeWidth={2.6} />
+                            <Label style={{ flex: 1, color: theme.textMuted }}>Removed</Label>
+                          </>
+                        ) : (
+                          <>
+                            <Check size={12} color={theme.status.good} strokeWidth={2.6} />
+                            <Label style={{ flex: 1, color: theme.status.good }}>Logged</Label>
+                            {/* The assistant writes to the diary on its own judgement of what
+                                the message meant. When it reads a question as an instruction,
+                                this is the way back. */}
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel="Remove what this reply logged"
+                              onPress={() => undoTurn(message)}
+                              style={styles.undo}
+                            >
+                              <Body size={13} weight="semibold" style={{ color: theme.brandText }}>
+                                Undo
+                              </Body>
+                            </Pressable>
+                          </>
+                        )}
                       </View>
 
                       {message.actions.map((action, index) => {
@@ -525,10 +597,12 @@ export default function ChatScreen() {
             gap: spacing.md,
           }}
         >
+          {/* No blurMethod on purpose: the composer is inside the same content view the chrome
+              blurs, and a BlurView cannot sample a target it is itself part of. The overlay
+              below carries the material instead. */}
           <BlurView
             tint={theme.glass.tint}
             intensity={theme.glass.intensity + 20}
-            experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
             style={StyleSheet.absoluteFill}
           />
           <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.glass.overlay }]} />
@@ -569,3 +643,14 @@ export default function ChatScreen() {
     </Screen>
   )
 }
+
+const styles = StyleSheet.create({
+  /* Static rather than a style function: the pressed-state form is what silently lost its
+     styles twice in this codebase, and there is no reason to reintroduce the shape. */
+  undo: {
+    minHeight: HIT_SIZE,
+    minWidth: HIT_SIZE,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+})

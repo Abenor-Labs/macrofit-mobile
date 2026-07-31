@@ -1,5 +1,6 @@
 import type { UserProfile, WeightEntry } from '../types'
 import { getTodayString, lbsToKg } from './calculations'
+import { horizonFor } from './onboarding'
 
 /**
  * Progress toward a goal bodyweight, and whether the recent trend is actually moving
@@ -125,15 +126,20 @@ const addDays = (from: string, days: number): string | null => {
   return base.toISOString().slice(0, 10)
 }
 
-/** Weeks, days and calendar date for a remaining distance at a signed weekly rate. */
+/**
+ * Weeks, days and calendar date for a remaining distance at a signed weekly rate.
+ *
+ * The week and day counts come from `horizonFor` rather than being rounded here, so this
+ * card and the setup flow cannot disagree about the same plan.
+ */
 const horizonFrom = (
   remainingKg: number,
   kgPerWeek: number,
   today: string,
 ): { etaWeeks: number; etaDays: number; etaDate: string | null } => {
-  const weeksExact = Math.abs(remainingKg / kgPerWeek)
-  const etaDays = Math.max(1, Math.round(weeksExact * 7))
-  return { etaWeeks: Math.max(1, Math.round(weeksExact)), etaDays, etaDate: addDays(today, etaDays) }
+  const { days, weeks } = horizonFor(remainingKg, kgPerWeek)
+  const etaDays = Math.max(1, days)
+  return { etaWeeks: Math.max(1, weeks), etaDays, etaDate: addDays(today, etaDays) }
 }
 
 /** "3 weeks (21 days), around 18 Aug" — the countdown, not just the rate. */

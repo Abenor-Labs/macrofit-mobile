@@ -220,22 +220,99 @@ const snippet = (raw: string): string => {
 // --- Transport --------------------------------------------------------------
 
 /**
- * Returns the message for a non-2xx reply, preferring the handler's own `{ error }` field
- * and falling back to an excerpt of whatever actually came back.
+ * A failed call, in two registers.
+ *
+ * `message` is for the user and never contains a status code, a path, or anything the
+ * hosting platform wrote. `detail` is the raw truth for a developer, and is attached to the
+ * Error's `cause` rather than rendered.
  */
-const describeFailure = (path: string, status: number, raw: string): string => {
-  let detail = snippet(raw)
+export interface ApiFailure {
+  message: string
+  detail: string
+  status: number
+  /** False when the request never reached a server, which is the only real offline case. */
+  reachedServer: boolean
+}
+
+/**
+ * Returns the user-facing message for a status code.
+ *
+ * WHY THIS IS NOT THE RESPONSE BODY:
+ * `describeFailure` used to paste the body straight into a visible string. For a
+ * platform-level failure that body is written by Vercel, not by us, so a coach timeout
+ * rendered on the Goals screen as:
+ *
+ *   /api/recommend failed (HTTP 504): An error occurred with your deployment
+ *   FUNCTION_INVOCATION_TIMEOUT bom1::kqj4c-1785470216889-8eadf8fda7a4
+ *
+ * A deployment region and a trace ID are things the user can neither act on nor understand,
+ * and putting them on screen turns a recoverable hiccup into something that reads like the
+ * app is broken. The detail is kept — see `ApiFailure.detail` — it just stops being the
+ * headline.
+ *
+ * A handler's OWN `{ error }` message is different and is preferred where present: those
+ * are written for a human, and `requireApiKey` in particular returns instructions worth
+ * reading.
+ */
+const messageForStatus = (status: number): string => {
+  if (status === 429) return 'Too many requests just now. Wait a minute and try again.'
+  if (status === 502 || status === 503 || status === 504) {
+    return 'The service is taking too long to answer right now. Try again in a moment.'
+  }
+  if (status >= 500) return 'The service hit an error. Try again in a moment.'
+  if (status === 413) return 'That was too large to send. Try a smaller image.'
+  if (status >= 400) return 'That request was rejected. Try again.'
+  return 'Something went wrong. Try again.'
+}
+
+/**
+ * Splits a non-2xx reply into what the user reads and what a developer needs.
+ *
+ * The handler's own `{ error }` string wins when there is one: `api/*.ts` writes those for
+ * humans. Anything else — an HTML error page, a platform timeout, a proxy's plain text —
+ * gets the mapped message above, because it was not written for this user.
+ */
+const describeFailure = (path: string, status: number, raw: string): ApiFailure => {
+  const detail = `${path} failed (HTTP ${status}): ${snippet(raw)}`
+
+  let handlerMessage: string | null = null
   try {
     const parsed: unknown = JSON.parse(raw)
-    if (isRecord(parsed)) {
-      const message = nonEmptyString(parsed.error)
-      if (message !== null) detail = message
-    }
+    if (isRecord(parsed)) handlerMessage = nonEmptyString(parsed.error)
   } catch {
-    // Not JSON — the excerpt is the best detail available.
+    // Not JSON. Whatever this is, it did not come from one of our handlers.
   }
-  return detail.length > 0 ? `${path} failed (HTTP ${status}): ${detail}` : `${path} failed (HTTP ${status}).`
+
+  return {
+    message: handlerMessage ?? messageForStatus(status),
+    detail,
+    status,
+    reachedServer: true,
+  }
 }
+
+/**
+ * An Error carrying both registers.
+ *
+ * `message` is what any existing `catch (e) { show(e.message) }` renders, so every call site
+ * gets the human copy without being changed. `cause` carries the `ApiFailure` for anything
+ * that wants to branch on the real cause — which the Goals screen does, to tell a server
+ * timeout apart from being genuinely offline.
+ */
+export class ApiError extends Error {
+  readonly failure: ApiFailure
+
+  constructor(failure: ApiFailure) {
+    super(failure.message, { cause: failure })
+    this.name = 'ApiError'
+    this.failure = failure
+    if (__DEV__) console.warn(`[api] ${failure.detail}`)
+  }
+}
+
+/** True when the throw came from a request that never reached a server. */
+export const isOffline = (error: unknown): boolean =>
+  error instanceof ApiError && !error.failure.reachedServer
 
 /** Performs the request and drains the body. Split out so the timer guards both halves. */
 const performPost = async (
@@ -272,30 +349,45 @@ const postJson = async (path: string, body: unknown, timeoutMs: number): Promise
   try {
     result = await performPost(url, body, controller.signal)
   } catch {
+    // Neither of these reached a server, so both are genuinely offline-ish and callers are
+    // right to say so. Everything past this point did reach one, and must not.
     if (timedOut) {
-      throw new Error(
-        `${path} timed out after ${Math.round(timeoutMs / 1000)}s. Check your connection and try again.`,
-      )
+      throw new ApiError({
+        message: `This took longer than ${Math.round(timeoutMs / 1000)} seconds. Check your connection and try again.`,
+        detail: `${path} aborted after ${timeoutMs}ms`,
+        status: 0,
+        reachedServer: false,
+      })
     }
-    throw new Error(
-      `Could not reach ${url}. Check that EXPO_PUBLIC_API_URL points at an address this ` +
+    throw new ApiError({
+      message: 'Could not reach the server. Check your connection and try again.',
+      // The setup advice is real and worth keeping, but it is advice for whoever configured
+      // the build, not for the person holding the phone.
+      detail:
+        `Could not reach ${url}. Check that EXPO_PUBLIC_API_URL points at an address this ` +
         'device can reach (a LAN IP or a deployed URL, never localhost) and that the server is running.',
-    )
+      status: 0,
+      reachedServer: false,
+    })
   } finally {
     clearTimeout(timer)
   }
 
   if (result.status < 200 || result.status >= 300) {
-    throw new Error(describeFailure(path, result.status, result.raw))
+    throw new ApiError(describeFailure(path, result.status, result.raw))
   }
 
   try {
     return JSON.parse(result.raw) as unknown
   } catch {
-    throw new Error(
-      `${path} returned a non-JSON response. Is EXPO_PUBLIC_API_URL pointing at the API ` +
+    throw new ApiError({
+      message: 'The server sent back something unreadable. Try again in a moment.',
+      detail:
+        `${path} returned a non-JSON response. Is EXPO_PUBLIC_API_URL pointing at the API ` +
         `server rather than the Metro bundler? Response began: ${snippet(result.raw)}`,
-    )
+      status: result.status,
+      reachedServer: true,
+    })
   }
 }
 

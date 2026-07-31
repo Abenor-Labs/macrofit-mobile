@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native'
-import { router } from 'expo-router'
+import { router, useGlobalSearchParams } from 'expo-router'
 import * as Haptics from 'expo-haptics'
 import {
   AlertCircle,
@@ -19,6 +19,7 @@ import { Field, Pill, Screen } from '@/components/Layout'
 import { ProgressTrack } from '@/components/MacroRing'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
 import { useStore } from '@/store/useStore'
+import { DateNavigator } from '@/components/DateNavigator'
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
 import type { DiaryDay, FoodEntry, MealType } from '@core/types'
@@ -41,32 +42,6 @@ const MEAL_TYPES: readonly MealType[] = [
 
 const HAIRLINE = StyleSheet.hairlineWidth * 2
 
-const WEEKDAYS = [
-  'Sunday',
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
-] as const
-
-/**
- * Parses 'YYYY-MM-DD' into a *local* Date.
- *
- * `new Date('2026-07-27')` parses as UTC midnight and then renders in local time, which
- * silently shows the previous day west of Greenwich. Splitting the parts avoids that.
- */
-const parseISODate = (iso: string): Date => {
-  const [year, month, day] = iso.split('-').map(Number)
-  return new Date(year, month - 1, day)
-}
-
-const shiftISODate = (iso: string, days: number): string => {
-  const date = parseISODate(iso)
-  date.setDate(date.getDate() + days)
-  return getDateString(date)
-}
 
 const round2 = (value: number): number => Math.round(value * 100) / 100
 
@@ -114,55 +89,6 @@ const MacroChips: React.FC<{ protein: number; carbs: number; fat: number }> = ({
 }
 
 // --- Date navigator ---------------------------------------------------------
-
-const DateNavigator: React.FC<{
-  date: string
-  today: string
-  onChange: (next: string) => void
-}> = ({ date, today, onChange }) => {
-  const theme = useTheme()
-  const isToday = date === today
-  const relative =
-    isToday
-      ? 'Today'
-      : date === shiftISODate(today, -1)
-        ? 'Yesterday'
-        : date === shiftISODate(today, 1)
-          ? 'Tomorrow'
-          : WEEKDAYS[parseISODate(date).getDay()]
-  const spoken = `${relative}, ${formatDate(date)}`
-
-  return (
-    <Surface style={{ padding: spacing.md, gap: spacing.sm }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <IconButton
-          accessibilityLabel="Show the previous day"
-          onPress={() => onChange(shiftISODate(date, -1))}
-        >
-          <ChevronLeft size={22} color={theme.text} strokeWidth={2} />
-        </IconButton>
-
-        <View style={{ flex: 1, alignItems: 'center', gap: 2 }} accessible accessibilityLabel={spoken}>
-          <SectionTitle>{formatDate(date)}</SectionTitle>
-          <Body size={12} tone={isToday ? 'brand' : 'muted'} weight="medium">
-            {relative}
-          </Body>
-        </View>
-
-        <IconButton
-          accessibilityLabel="Show the next day"
-          onPress={() => onChange(shiftISODate(date, 1))}
-        >
-          <ChevronRight size={22} color={theme.text} strokeWidth={2} />
-        </IconButton>
-      </View>
-
-      {!isToday && (
-        <Button label="Jump to today" variant="secondary" full onPress={() => onChange(today)} />
-      )}
-    </Surface>
-  )
-}
 
 // --- Day totals -------------------------------------------------------------
 
@@ -669,6 +595,25 @@ export default function DiaryScreen() {
   // would otherwise keep calling yesterday "Today".
   const today = getTodayString()
   const [date, setDate] = useState(today)
+
+  /*
+    Open on the day the caller was looking at.
+
+    The dashboard has its own date navigator, so tapping Intake or a meal row while it showed
+    Jul 29 used to land here on today — the same numbers the user had just navigated away from,
+    with no sign the date had changed under them.
+
+    The parameter is cleared once consumed. Without that it survives in the route, so switching
+    to another tab and back would drag the user to that day again long after they had moved on.
+  */
+  const params = useGlobalSearchParams<{ date?: string }>()
+  useEffect(() => {
+    const requested = params.date
+    if (typeof requested !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(requested)) return
+    // A date after today would put the navigator past its own bound.
+    if (requested <= today) setDate(requested)
+    router.setParams({ date: undefined })
+  }, [params.date, today])
 
   const storedDay = useStore(s => s.diary[date])
   const day = useMemo(() => storedDay ?? emptyDay(date), [storedDay, date])

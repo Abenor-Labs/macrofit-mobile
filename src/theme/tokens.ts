@@ -20,6 +20,19 @@ export const jade = {
   900: '#0A4335',
 } as const
 
+/**
+ * Workout mode's accent. Nothing else in the app uses it, which is the point — it cannot
+ * collide with a status colour, and landing on it says "different room" before a word is
+ * read. Only used against the near-black workout surfaces, where lime-300 sits at about
+ * 15:1 and carries near-black text back at the same ratio.
+ */
+export const lime = {
+  300: '#BEF264',
+  400: '#A3E635',
+  500: '#84CC16',
+  600: '#65A30D',
+} as const
+
 export const stone = {
   50: '#FAFAF9',
   100: '#F5F5F4',
@@ -34,12 +47,80 @@ export const stone = {
   950: '#0C0A09',
 } as const
 
+/**
+ * The dark mode ladder, derived rather than picked.
+ *
+ * WHY IT IS NOT WARM STONE:
+ * Dark mode used the same warm stone scale as light mode. Warm is right for a light canvas —
+ * it reads as paper — but at near-black a hue around 50° reads as brown, and the ambient jade
+ * wash `Backdrop` paints over it mixed to olive. That is what "not properly dark, and I didn't
+ * like the colours" was describing: not a lack of darkness, a colour cast.
+ *
+ * These sit on the jade axis instead, at a chroma low enough to read as neutral (0.006–0.011,
+ * where the eye stops seeing a hue) but high enough that the brand wash over them stays the
+ * same colour it started as.
+ *
+ * WHY THE STEPS ARE WHAT THEY ARE:
+ * Spaced in OKLab lightness, which is perceptually uniform, so a step means the same thing
+ * everywhere on the ladder. WCAG contrast ratio is useless here — its +0.05 constant swamps
+ * everything below about L 0.3, and it rates the old canvas→surface step and the new one as
+ * identically 1.1:1 while they look nothing alike.
+ *
+ * The old ladder measured:  0.147 → 0.216 → 0.242 → 0.268
+ *                                   +0.069  +0.026  +0.026
+ *
+ * The +0.026 steps are the bug. A card at 0.242 on a page at 0.216 is not a card, it is a
+ * slightly different shade of the same field, and its border at 0.268 was doing all the work
+ * of separating them. Three surfaces that look like one is why the screen read as flat.
+ *
+ * This ladder measures:     0.150 → 0.212 → 0.262 → 0.318
+ *                                   +0.062  +0.050  +0.056
+ *
+ * Every step is now visible on its own, so elevation survives without a border and the border
+ * is free to be a border.
+ */
+export const ink = {
+  /** L 0.150 — the page. */
+  canvas: '#090C0A',
+  /** L 0.212 — cards and inputs. */
+  surface: '#151A18',
+  /** L 0.262 — something above a card: a tooltip, a menu, a sheet. */
+  raised: '#212623',
+  /** L 0.318 — hairlines and dividers that have to survive on either surface. */
+  border: '#2E3431',
+  /** L 0.431 — the unfilled half of a progress track. */
+  track: '#4B524E',
+  /**
+   * L 0.640 — de-emphasised text. 4.6:1 on `raised`, 5.3:1 on `surface`, 5.9:1 on `canvas`.
+   *
+   * Solved against `raised`, the LIGHTEST surface it ever sits on, so the weakest case is the
+   * one that passes and every other placement has headroom. The old stone-500 measured 3.4:1
+   * there and 3.7:1 on the page — under the 4.5:1 body-text floor on every surface in the app,
+   * which is the sort of thing that only shows up when someone runs the numbers. It carries
+   * timestamps, units and captions, so it is small text failing AA, not decoration.
+   */
+  textMuted: '#888E8B',
+  /** L 0.734 — secondary text. 7.5:1 on surface. */
+  textSecondary: '#A6AAA8',
+  /** L 0.955 — primary text. 15.5:1 on surface. */
+  text: '#EEF1EF',
+} as const
+
 export interface Theme {
   mode: 'light' | 'dark'
   canvas: string
   surface: string
   surfaceRaised: string
   border: string
+  /**
+   * Unfilled portion of a progress track.
+   *
+   * Darker than `border` on purpose. `border` is tuned to sit against `surface`, and a
+   * 5px bar in that colour vanishes on the tinted washes the setup and dashboard screens
+   * use — the last segment of the onboarding bar disappeared entirely, so step 4 of 5
+   * looked like the bar simply ended.
+   */
+  trackMuted: string
   hairline: string
   text: string
   textSecondary: string
@@ -49,11 +130,29 @@ export interface Theme {
   brandOn: string
   macro: { protein: string; carbs: string; fat: string; fiber: string }
   status: { good: string; warning: string; critical: string }
+  /**
+   * The three ambient colour fields Backdrop paints behind every screen, in draw order:
+   * behind the glass header, a counterweight on the right so the wash is not one flat hue,
+   * and a low bloom behind the tab bar. Lives on the theme because workout mode swaps them
+   * for lime — a jade bloom under a lime accent reads as a rendering fault.
+   */
+  bloom: { top: string; counterweight: string; bottom: string }
   /** Blur tint + overlay colors for GlassSurface. */
   glass: {
     tint: 'light' | 'dark'
     intensity: number
+    /**
+     * Tint for surfaces that cannot blur what is behind them — the in-content cards in
+     * Glass.tsx, which sit inside the very view the chrome samples. Opaque enough to read as
+     * deliberate material on its own, because for those it is the only material there is.
+     */
     overlay: string
+    /**
+     * Tint for the floating chrome — tab bar, screen headers — which does blur real content
+     * via ChromeBlur. Much lighter than `overlay`: at 0.55 the tint is doing the work and the
+     * blur is wasted underneath it. Kept at or above 0.28 so tab labels hold their contrast.
+     */
+    chromeOverlay: string
     border: string
     highlight: string
   }
@@ -65,6 +164,7 @@ export const lightTheme: Theme = {
   surface: '#FFFFFF',
   surfaceRaised: '#FFFFFF',
   border: stone[200],
+  trackMuted: stone[400],
   hairline: 'rgba(28,25,23,0.08)',
   text: stone[900],
   textSecondary: stone[600],
@@ -75,10 +175,16 @@ export const lightTheme: Theme = {
   brandOn: '#FFFFFF',
   macro: { protein: '#168BE1', carbs: '#C97004', fat: '#9B204A', fiber: '#924BAC' },
   status: { good: jade[600], warning: '#B45309', critical: '#B91C1C' },
+  bloom: {
+    top: 'rgba(56,188,141,0.30)',
+    counterweight: 'rgba(214,211,209,0.55)',
+    bottom: 'rgba(113,213,175,0.28)',
+  },
   glass: {
     tint: 'light',
     intensity: 40,
     overlay: 'rgba(255,255,255,0.55)',
+    chromeOverlay: 'rgba(255,255,255,0.30)',
     border: 'rgba(28,25,23,0.10)',
     highlight: 'rgba(255,255,255,0.85)',
   },
@@ -86,25 +192,125 @@ export const lightTheme: Theme = {
 
 export const darkTheme: Theme = {
   mode: 'dark',
-  canvas: stone[950],
-  surface: stone[900],
-  surfaceRaised: '#221F1D',
-  border: stone[800],
-  hairline: 'rgba(250,250,249,0.10)',
-  text: stone[100],
-  textSecondary: stone[400],
-  textMuted: stone[500],
-  brand: jade[600],
-  brandText: jade[400],
-  brandOn: '#FFFFFF',
+  canvas: ink.canvas,
+  surface: ink.surface,
+  surfaceRaised: ink.raised,
+  border: ink.border,
+  trackMuted: ink.track,
+  hairline: 'rgba(238,241,239,0.10)',
+  text: ink.text,
+  textSecondary: ink.textSecondary,
+  textMuted: ink.textMuted,
+  /*
+    The brand goes UP a step in dark mode, not down.
+
+    `brand` is a fill that carries `brandOn` text — buttons, selected chips, the log button.
+    It was jade-600, which measures 3.7:1 against the dark surface: a dark green block on a
+    dark page, with white text on it at 4.1:1. Meanwhile `brandText` was the bright jade-400,
+    so the same brand appeared as a murky fill and a vivid link on one screen.
+
+    Both are bright now and differ only by step, which is the standard tonal pattern for dark
+    surfaces: jade-400 fills at 7.3:1, jade-300 sets text at 9.9:1. Light mode is untouched —
+    it has the opposite problem and already solved it the opposite way.
+  */
+  brand: jade[400],
+  brandText: jade[300],
+  // Near-black on jade-400, not white. White on jade-400 is 2.2:1 and unreadable; the canvas
+  // ink measures 8.2:1 on it.
+  brandOn: ink.canvas,
+  /*
+    Unchanged, and deliberately so. These four were produced by the dataviz palette validator
+    and re-checked against the new surface: lightness band, chroma floor, CVD separation
+    (worst adjacent pair fiber↔fat, ΔE 11.4 protan), normal-vision separation (ΔE 15.0), and
+    contrast (all ≥ 3:1, the floor for graphical marks). Substituting a nicer-looking hex
+    silently breaks that guarantee, and moving to a darker surface did not weaken any of it.
+  */
   macro: { protein: '#2F9AF2', carbs: '#DD7610', fat: '#DA5F8B', fiber: '#9851B2' },
+  // Reserved, never used as a series colour, and always paired with an icon and a word — so
+  // proximity to the macro hues cannot be the only thing telling them apart.
   status: { good: jade[400], warning: '#F59E0B', critical: '#F87171' },
+  /*
+    Roughly half the previous alpha.
+
+    `Backdrop` paints these as three 400px gradient circles, so between them they cover most
+    of the viewport. At 0.20–0.22 over a warm near-black that was not ambient light, it was a
+    colour cast over the whole app — and jade over warm brown mixes to olive, which is the
+    part that looked wrong rather than merely strong.
+
+    The counterweight is cool now rather than warm stone. It exists to stop the wash being one
+    flat hue, and a warm grey was the other half of the brown.
+  */
+  bloom: {
+    top: 'rgba(56,188,141,0.12)',
+    counterweight: 'rgba(122,142,152,0.08)',
+    bottom: 'rgba(18,161,117,0.10)',
+  },
   glass: {
     tint: 'dark',
     intensity: 50,
-    overlay: 'rgba(28,25,23,0.55)',
-    border: 'rgba(250,250,249,0.12)',
-    highlight: 'rgba(250,250,249,0.16)',
+    /*
+      Keyed to the ladder above, not to the old stone-900.
+
+      This is the single biggest contributor to "everything looks the same". The overlay was
+      rgba(28,25,23,·) — the OLD surface — so an in-content card sat about 3% lighter than the
+      page behind it and the whole screen read as one flat field. Tinting with the new
+      surface, over the new darker canvas, is what makes a card look like a card.
+    */
+    overlay: 'rgba(21,26,24,0.55)',
+    chromeOverlay: 'rgba(9,12,10,0.34)',
+    border: 'rgba(238,241,239,0.12)',
+    highlight: 'rgba(238,241,239,0.14)',
+  },
+}
+
+/**
+ * Workout mode.
+ *
+ * Same type, same spacing, same components — only the surface and the accent change. The
+ * point is that walking into the workout tab feels like walking into a different room of
+ * the same building, the way Instamart does inside Swiggy. Not a different building:
+ * training and eating are one loop here, the sets drive the calorie target, and a full
+ * sub-brand would quietly claim they are unrelated products.
+ *
+ * The greys are deliberately COOL where the rest of the app is warm stone. Warm reads as
+ * kitchen; cool reads as equipment. That difference registers before the accent does, and
+ * it is what stops a dark-mode user from seeing no change at all when they switch tabs.
+ *
+ * `good` is lime rather than jade because a completed set tints its whole row with it, and
+ * that tint is the main thing a person sees while training. Warning and critical keep their
+ * amber and red: they are a different hue family from lime, so the row still says which of
+ * the three it is.
+ */
+export const workoutTheme: Theme = {
+  mode: 'dark',
+  canvas: '#08090A',
+  surface: '#131619',
+  surfaceRaised: '#1B1F23',
+  border: '#262B31',
+  trackMuted: '#3F474F',
+  hairline: 'rgba(236,244,250,0.10)',
+  text: '#F3F6F8',
+  textSecondary: '#A6B0B9',
+  textMuted: '#79848D',
+  brand: lime[300],
+  brandText: lime[300],
+  // Near-black on lime, not white. White on lime-300 is 1.2:1 and unreadable.
+  brandOn: '#08090A',
+  macro: { protein: '#2F9AF2', carbs: '#DD7610', fat: '#DA5F8B', fiber: '#9851B2' },
+  status: { good: lime[300], warning: '#F59E0B', critical: '#F87171' },
+  bloom: {
+    top: 'rgba(163,230,53,0.16)',
+    counterweight: 'rgba(120,140,160,0.14)',
+    bottom: 'rgba(190,242,100,0.12)',
+  },
+  glass: {
+    tint: 'dark',
+    intensity: 50,
+    overlay: 'rgba(8,9,10,0.62)',
+    chromeOverlay: 'rgba(8,9,10,0.36)',
+    // A faint lime edge, so even the frosted chrome belongs to this mode.
+    border: 'rgba(190,242,100,0.14)',
+    highlight: 'rgba(243,246,248,0.14)',
   },
 }
 

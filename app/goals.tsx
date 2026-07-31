@@ -6,13 +6,16 @@ import {
   AlertTriangle,
   ArrowLeft,
   Check,
+  CloudOff,
   Flame,
   Info,
   Minus,
   RefreshCw,
   Repeat,
+  ServerCrash,
   ShieldCheck,
   SlidersHorizontal,
+  Smartphone,
   Sparkles,
   TrendingDown,
   TrendingUp,
@@ -22,7 +25,8 @@ import {
 import type { CoachAlert, PhaseType, TdeeEstimate } from '@core/types'
 import { calculateBMR, calculateCalorieGoal, calculateTDEE } from '@core/utils/calculations'
 import { useStore } from '@/store/useStore'
-import { useCoach } from '@/hooks/useCoach'
+import { useCoach, type CoachError } from '@/hooks/useCoach'
+import { useHealthSync } from '@/hooks/useHealthSync'
 import { useTheme, type Theme } from '@/theme/useTheme'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
 import { GlassSurface, Surface } from '@/components/Glass'
@@ -204,6 +208,35 @@ const Notice: React.FC<{ icon: React.ReactNode; children: string; theme: Theme }
   </View>
 )
 
+/**
+ * Why the coach was not reached, told apart from being offline.
+ *
+ * The two are different problems with different remedies, and this screen used to render
+ * both as `WifiOff` followed by "Press Refresh once you are back online". That line was
+ * shown for a server-side timeout — an HTTP 504 that travelled to Mumbai and back — so a
+ * user on full signal was told to fix their connection. The remedy it suggested could not
+ * work, because nothing was wrong at their end.
+ *
+ * `reachedServer` is the only honest test: if a status code came back, the network is fine
+ * and the service is not.
+ */
+const CoachErrorNotice: React.FC<{ error: CoachError; theme: Theme }> = ({ error, theme }) => (
+  <Notice
+    icon={
+      error.offline ? (
+        <WifiOff size={16} color={theme.textMuted} strokeWidth={2} />
+      ) : (
+        <ServerCrash size={16} color={theme.textMuted} strokeWidth={2} />
+      )
+    }
+    theme={theme}
+  >
+    {error.offline
+      ? `${error.message} Press Refresh once you are back online.`
+      : `${error.message} Press Refresh to ask again.`}
+  </Notice>
+)
+
 /** Coach alerts. Severity is carried by the icon and the spoken prefix, not by color alone. */
 const AlertRow: React.FC<{ alert: CoachAlert; theme: Theme }> = ({ alert, theme }) => {
   const warning = alert.severity === 'warning'
@@ -317,6 +350,7 @@ export default function GoalsScreen() {
   const theme = useTheme()
   const router = useRouter()
   const coach = useCoach()
+  const health = useHealthSync()
 
   const goals = useStore(s => s.goals)
   const profile = useStore(s => s.profile)
@@ -463,14 +497,7 @@ export default function GoalsScreen() {
               icon={<Sparkles size={16} color={theme.brandOn} strokeWidth={2} />}
               full
             />
-            {coach.error ? (
-              <Notice
-                icon={<WifiOff size={16} color={theme.textMuted} strokeWidth={2} />}
-                theme={theme}
-              >
-                {coach.error}
-              </Notice>
-            ) : null}
+            {coach.error ? <CoachErrorNotice error={coach.error} theme={theme} /> : null}
           </>
         ) : (
           <>
@@ -553,20 +580,23 @@ export default function GoalsScreen() {
               {rec.rationale}
             </Body>
 
+            {/*
+              Only one of these ever renders, and neither repeats `rec.rationale` directly
+              above. A local plan's rationale already explains that it is a device-side
+              formula rather than a coached judgement; saying so again in a box under it was
+              the same sentence twice in one screenful.
+
+              The error branch says only what the rationale cannot: that the coach was asked
+              and did not answer.
+            */}
             {coach.error ? (
-              <Notice
-                icon={<WifiOff size={16} color={theme.textMuted} strokeWidth={2} />}
-                theme={theme}
-              >
-                {`${coach.error} Press Refresh once you are back online.`}
-              </Notice>
+              <CoachErrorNotice error={coach.error} theme={theme} />
             ) : rec.source === 'local' ? (
               <Notice
-                icon={<WifiOff size={16} color={theme.textMuted} strokeWidth={2} />}
+                icon={<CloudOff size={16} color={theme.textMuted} strokeWidth={2} />}
                 theme={theme}
               >
-                This is the offline estimate, calculated on your device from your own numbers
-                rather than by the AI coach. Refresh to ask the coach for a full plan.
+                Refresh to ask the AI coach for a full plan.
               </Notice>
             ) : null}
 
@@ -663,6 +693,35 @@ export default function GoalsScreen() {
             />
           )}
         </View>
+
+        {/*
+          A third opinion, and deliberately the weakest of the three.
+
+          "Measured" above is intake weighed against actual weight change, which is the honest
+          way to find a burn rate. This is a sensor estimate from a phone or watch, and those
+          are known to be off by a wide margin in both directions. It is shown because the user
+          can see it in Google Fit anyway and a silent disagreement between two apps on their
+          phone is worse than a stated one — but it is never fed into the target, and the copy
+          says so rather than leaving the reader to guess the ranking.
+
+          Hidden entirely when absent. Most phones write nothing here, and an empty cell reading
+          "0 kcal" would be a lie about the one number on this screen people act on.
+        */}
+        {health.energy.totalKcal === null ? null : (
+          <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'center' }}>
+            <FigureCell
+              theme={theme}
+              label="Your phone"
+              icon={<Smartphone size={13} color={theme.textMuted} strokeWidth={2} />}
+              value={fmtInt(health.energy.totalKcal)}
+              caption="kcal/day · from Health Connect"
+            />
+            <Body size={12} tone="muted" style={{ flex: 1 }}>
+              What your phone or watch reckons you burned today. Not used to set your target —
+              sensors guess at this, and your own log measures it.
+            </Body>
+          </View>
+        )}
 
         <View style={{ flexDirection: 'row', gap: spacing.md }}>
           <View style={{ flex: 1, gap: 4 }}>
