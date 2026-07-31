@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native'
-import { router } from 'expo-router'
+import { router, useGlobalSearchParams } from 'expo-router'
 import * as Haptics from 'expo-haptics'
 import {
   AlertCircle,
@@ -595,6 +595,25 @@ export default function DiaryScreen() {
   // would otherwise keep calling yesterday "Today".
   const today = getTodayString()
   const [date, setDate] = useState(today)
+
+  /*
+    Open on the day the caller was looking at.
+
+    The dashboard has its own date navigator, so tapping Intake or a meal row while it showed
+    Jul 29 used to land here on today — the same numbers the user had just navigated away from,
+    with no sign the date had changed under them.
+
+    The parameter is cleared once consumed. Without that it survives in the route, so switching
+    to another tab and back would drag the user to that day again long after they had moved on.
+  */
+  const params = useGlobalSearchParams<{ date?: string }>()
+  useEffect(() => {
+    const requested = params.date
+    if (typeof requested !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(requested)) return
+    // A date after today would put the navigator past its own bound.
+    if (requested <= today) setDate(requested)
+    router.setParams({ date: undefined })
+  }, [params.date, today])
 
   const storedDay = useStore(s => s.diary[date])
   const day = useMemo(() => storedDay ?? emptyDay(date), [storedDay, date])

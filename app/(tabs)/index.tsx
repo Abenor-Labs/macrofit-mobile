@@ -172,6 +172,7 @@ export default function DashboardScreen() {
         proteinGoal={goals.protein}
         carbsGoal={goals.carbs}
         fatGoal={goals.fat}
+        date={today}
       />
 
       {/* Second, not first. It is the only line on this screen that asks for a change, and
@@ -217,7 +218,9 @@ const MacroCard: React.FC<{
   proteinGoal: number
   carbsGoal: number
   fatGoal: number
-}> = ({ theme, nutrition, goalCalories, proteinGoal, carbsGoal, fatGoal }) => {
+  /** The day these figures describe, so the diary opens on it rather than on today. */
+  date: string
+}> = ({ theme, nutrition, goalCalories, proteinGoal, carbsGoal, fatGoal, date }) => {
   const router = useRouter()
 
   const legend = [
@@ -230,10 +233,17 @@ const MacroCard: React.FC<{
 
   return (
     /*
-      Opens the intake detail on Day, showing the day this ring is showing, with Week and Month
-      a tap away in the same screen. That is the shape Google Fit uses: the home ring is a
-      headline, and one detail behind it answers today, this week and this month rather than
-      scattering the three across separate screens.
+      Opens the diary on the day this ring is showing.
+
+      It used to open Progress on its Day range, reasoning that the home ring is a headline and
+      one detail screen should answer day, week and month the way Google Fit does. The reasoning
+      was fine and the destination was wrong: Progress plots calories by hour. Someone tapping a
+      ring that reads "1,340 of 2,100" wants to know what made up the 1,340 — which foods, at
+      what serving — and a chart of when the calories landed answers a question they did not ask
+      and cannot act on.
+
+      Week and month are still one tap away in Progress, from the trend card lower down this
+      screen. That is the right door for them, because they are the questions a chart answers.
 
       Press feedback is opacity rather than a background change, the same choice CoachCard
       makes: the card is a Surface with its own fill, so a background swap underneath it would
@@ -241,12 +251,10 @@ const MacroCard: React.FC<{
     */
     <Pressable
       accessibilityRole="link"
-      accessibilityLabel={`Today: ${formatNumber(nutrition.calories)} of ${formatNumber(
+      accessibilityLabel={`${formatNumber(nutrition.calories)} of ${formatNumber(
         goalCalories
-      )} kilocalories. Open intake detail.`}
-      onPress={() =>
-        router.push({ pathname: '/progress', params: { metric: 'calories', range: 'day' } })
-      }
+      )} kilocalories. Open the diary for this day.`}
+      onPress={() => router.push({ pathname: '/diary', params: { date } })}
       style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
     >
       <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
@@ -521,7 +529,10 @@ const MealsCard: React.FC<{ theme: Theme; date: string; mealTotals: MealTotals }
             accessibilityLabel={label}
             onPress={() =>
               data
-                ? router.push('/diary')
+                ? // The date goes with it. Without it, reviewing Jul 29's breakfast opened
+                  // today's diary, which is the same bug the empty branch never had because
+                  // it was already passing the date through to the picker.
+                  router.push({ pathname: '/diary', params: { date } })
                 : router.push({ pathname: '/food-search', params: { meal, date } })
             }
             style={({ pressed }) => ({
