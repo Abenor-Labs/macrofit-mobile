@@ -1197,6 +1197,58 @@ export default function ProfileScreen() {
                   Fit is set to sync with Health Connect.
                 </Body>
               )}
+
+              {/*
+                What else is flowing, named one line at a time.
+
+                Each of these is its own permission and any of them can be off while the rest
+                are on, so a single sentence covering "syncing" would be wrong for most people.
+                Listing only what is actually granted also means the list doubles as the answer
+                to "why is my food not showing up in Fit".
+              */}
+              {(health.grants.writeNutrition ||
+                health.grants.writeExercise ||
+                health.grants.writeHydration) && (
+                <View style={{ gap: 4 }}>
+                  <Label>Also sent to Health Connect</Label>
+                  {health.grants.writeNutrition && (
+                    <Body size={12} tone="muted">
+                      Meals you log, one entry per meal per day, with calories and macros.
+                    </Body>
+                  )}
+                  {health.grants.writeExercise && (
+                    <Body size={12} tone="muted">
+                      Workouts, once you finish them.
+                    </Body>
+                  )}
+                  {health.grants.writeHydration && (
+                    <Body size={12} tone="muted">
+                      Water intake.
+                    </Body>
+                  )}
+                </View>
+              )}
+
+              {/*
+                Reads the app cannot promise will contain anything.
+
+                Health Connect stores what other apps write, and most phones write no calorie
+                total at all — Google Fit largely does not. Saying "your burn will appear here"
+                would be a promise about someone else's app, so this reports the state instead.
+              */}
+              {(health.grants.readTotalCalories || health.grants.readActiveCalories) && (
+                <Body size={12} tone="muted">
+                  {health.energy.totalKcal === null
+                    ? 'No calorie burn on file for today. Most phones record none unless a watch or a fitness app writes it — Goals still uses your own log for that.'
+                    : `Your phone recorded ${health.energy.totalKcal} kcal burned today. Goals shows it beside the figure measured from your log.`}
+                </Body>
+              )}
+
+              {health.grants.readBodyFat && health.measuredBodyFatPct !== null && (
+                <Body size={12} tone="muted">
+                  {`A scale recorded ${health.measuredBodyFatPct}% body fat. Progress uses that in place of the estimate from your measurements.`}
+                </Body>
+              )}
             </>
           ) : (
             <>

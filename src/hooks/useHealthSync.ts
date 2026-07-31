@@ -9,17 +9,27 @@ import React, {
 } from 'react'
 import { AppState, type AppStateStatus } from 'react-native'
 import { useStore } from '@/store/useStore'
+import type { DiaryDay } from '@core/types'
+import { getDateString } from '@core/utils/calculations'
 import {
   getAvailability,
   getGrants,
   isFullyGranted,
+  NO_GRANTS,
   openHealthSettings,
+  readEnergyBurned,
+  readLatestBodyFatPct,
   readLatestHeightCm,
   readLatestWeightKg,
   readSteps,
   readTodaySteps,
   readWeightHistory,
   requestPermissions,
+  writeBodyFatPct,
+  writeExerciseSession,
+  writeHydrationMl,
+  writeNutritionForDay,
+  type EnergyBurned,
   type HealthAvailability,
   type HealthGrants,
   type StepDay,
@@ -39,6 +49,17 @@ export interface HealthSyncState {
   granted: boolean
   todaySteps: number | null
   weekSteps: StepDay[]
+  /**
+   * Measured energy burned today. Every field is separately null — see `EnergyBurned`.
+   *
+   * This is the phone's answer to the question the app otherwise answers with a formula. It is
+   * frequently absent, so a consumer must branch on null rather than treating it as a number.
+   */
+  energy: EnergyBurned
+  /** Body-fat percentage measured by a scale, or null. Beats the app's own estimate. */
+  measuredBodyFatPct: number | null
+  /** Sends an estimated body-fat percentage out, for users with no scale. */
+  pushBodyFat: (pct: number, date: string) => Promise<boolean>
   /** Number of weigh-ins pulled in by the last import. Null until one has run. */
   importedWeights: number | null
   busy: boolean
@@ -91,17 +112,19 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const profile = useStore(s => s.profile)
   const weightLog = useStore(s => s.weightLog)
   const addWeightEntry = useStore(s => s.addWeightEntry)
+  const diary = useStore(s => s.diary)
+  const workoutLog = useStore(s => s.workoutLog)
 
   const [availability, setAvailability] = useState<HealthAvailability>('unavailable')
-  const [grants, setGrants] = useState<HealthGrants>({
-    readSteps: false,
-    readWeight: false,
-    readHeight: false,
-    writeWeight: false,
-    readHistory: false,
-  })
+  const [grants, setGrants] = useState<HealthGrants>(NO_GRANTS)
   const [todaySteps, setTodaySteps] = useState<number | null>(null)
   const [weekSteps, setWeekSteps] = useState<StepDay[]>([])
+  const [energy, setEnergy] = useState<EnergyBurned>({
+    totalKcal: null,
+    activeKcal: null,
+    basalKcal: null,
+  })
+  const [measuredBodyFatPct, setMeasuredBodyFatPct] = useState<number | null>(null)
   const [importedWeights, setImportedWeights] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -115,12 +138,25 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const lastRefreshRef = useRef(0)
 
+  /*
+    Steps, measured energy and body fat move together because they refresh together: all three
+    are read-only platform facts on the same throttle, and splitting them would mean three
+    round trips to the provider where one does.
+  */
   const refreshSteps = useCallback(async () => {
     lastRefreshRef.current = Date.now()
-    const [today, week] = await Promise.all([readTodaySteps(), readSteps(7)])
+    const today = getDateString(new Date())
+    const [steps, week, burned, fat] = await Promise.all([
+      readTodaySteps(),
+      readSteps(7),
+      readEnergyBurned(today),
+      readLatestBodyFatPct(),
+    ])
     if (!mounted.current) return
-    setTodaySteps(today)
+    setTodaySteps(steps)
     setWeekSteps(week)
+    setEnergy(burned)
+    setMeasuredBodyFatPct(fat)
   }, [])
 
   /** Re-reads permissions and, if steps are allowed, the step counts. Cheap and silent. */
@@ -134,7 +170,22 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const next = await getGrants()
       if (!mounted.current) return
       setGrants(next)
-      if (!next.readSteps) return
+
+      /*
+        Any read at all, not steps specifically.
+
+        This used to bail unless steps were granted, which was fine while steps were the only
+        thing read. It is not any more: someone who allows energy and refuses steps would get
+        no calories, no body fat and no explanation, because the one permission the gate
+        happened to name was the one they said no to.
+      */
+      const readsAnything =
+        next.readSteps ||
+        next.readTotalCalories ||
+        next.readActiveCalories ||
+        next.readBasalRate ||
+        next.readBodyFat
+      if (!readsAnything) return
 
       const due = options?.force || Date.now() - lastRefreshRef.current > REFRESH_THROTTLE_MS
       if (due) await refreshSteps()
@@ -198,6 +249,75 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [profile, weightLog, addWeightEntry])
 
+  const pushBodyFat = useCallback(
+    async (pct: number, date: string): Promise<boolean> => writeBodyFatPct(pct, date),
+    [],
+  )
+
+  /*
+    OUTBOUND SYNC
+
+    Both effects below watch store state rather than being called from the screens that change
+    it. That is deliberate: food reaches the diary from search, from the barcode scanner, from
+    a photo, from a meal template and from the chat assistant, and a workout can end from the
+    workout screen or by being abandoned. Hooking each of those sites means the sync works
+    until someone adds a seventh, and then silently does not.
+
+    The cost is that this runs on every store change, so both are debounced and both remember
+    what they last sent.
+  */
+
+  /** Cheap identity of a day's loggable content. Changes exactly when a write is warranted. */
+  const diaryFingerprint = (day: DiaryDay): string =>
+    `${day.waterIntake}|${day.entries.map(e => `${e.id}:${e.servings}`).join(',')}`
+
+  const syncedDaysRef = useRef<Record<string, string>>({})
+
+  useEffect(() => {
+    if (!grants.writeNutrition && !grants.writeHydration) return
+
+    /*
+      Every changed day, not just today. Logging yesterday's dinner from the diary's date
+      picker is ordinary, and a today-only sync would drop it without saying so.
+    */
+    const stale = Object.values(diary).filter(
+      day => syncedDaysRef.current[day.date] !== diaryFingerprint(day),
+    )
+    if (stale.length === 0) return
+
+    // Long enough that typing a serving size sends one record rather than four.
+    const timer = setTimeout(() => {
+      void (async () => {
+        for (const day of stale) {
+          if (grants.writeNutrition) await writeNutritionForDay(day)
+          if (grants.writeHydration && day.waterIntake > 0) {
+            await writeHydrationMl(day.date, day.waterIntake)
+          }
+          // Recorded after the write, so a failure is retried on the next change rather than
+          // being marked done and never attempted again.
+          syncedDaysRef.current[day.date] = diaryFingerprint(day)
+        }
+      })()
+    }, 3000)
+
+    return () => clearTimeout(timer)
+  }, [diary, grants.writeNutrition, grants.writeHydration])
+
+  const syncedWorkoutsRef = useRef<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (!grants.writeExercise) return
+    void (async () => {
+      for (const session of workoutLog) {
+        // Still running: Health Connect has no open-ended session to write.
+        if (session.endedAt === undefined) continue
+        if (syncedWorkoutsRef.current.has(session.id)) continue
+        const ok = await writeExerciseSession(session)
+        if (ok) syncedWorkoutsRef.current.add(session.id)
+      }
+    })()
+  }, [workoutLog, grants.writeExercise])
+
   const readBasics = useCallback(async (): Promise<HealthBasics> => {
     setBusy(true)
     try {
@@ -215,6 +335,8 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       granted: isFullyGranted(grants),
       todaySteps,
       weekSteps,
+      energy,
+      measuredBodyFatPct,
       importedWeights,
       busy,
       connect,
@@ -222,12 +344,15 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       importWeightHistory,
       refreshSteps,
       readBasics,
+      pushBodyFat,
     }),
     [
       availability,
       grants,
       todaySteps,
       weekSteps,
+      energy,
+      measuredBodyFatPct,
       importedWeights,
       busy,
       connect,
@@ -235,6 +360,7 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       importWeightHistory,
       refreshSteps,
       readBasics,
+      pushBodyFat,
     ],
   )
 

@@ -15,6 +15,7 @@ import {
   ServerCrash,
   ShieldCheck,
   SlidersHorizontal,
+  Smartphone,
   Sparkles,
   TrendingDown,
   TrendingUp,
@@ -25,6 +26,7 @@ import type { CoachAlert, PhaseType, TdeeEstimate } from '@core/types'
 import { calculateBMR, calculateCalorieGoal, calculateTDEE } from '@core/utils/calculations'
 import { useStore } from '@/store/useStore'
 import { useCoach, type CoachError } from '@/hooks/useCoach'
+import { useHealthSync } from '@/hooks/useHealthSync'
 import { useTheme, type Theme } from '@/theme/useTheme'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
 import { GlassSurface, Surface } from '@/components/Glass'
@@ -348,6 +350,7 @@ export default function GoalsScreen() {
   const theme = useTheme()
   const router = useRouter()
   const coach = useCoach()
+  const health = useHealthSync()
 
   const goals = useStore(s => s.goals)
   const profile = useStore(s => s.profile)
@@ -690,6 +693,35 @@ export default function GoalsScreen() {
             />
           )}
         </View>
+
+        {/*
+          A third opinion, and deliberately the weakest of the three.
+
+          "Measured" above is intake weighed against actual weight change, which is the honest
+          way to find a burn rate. This is a sensor estimate from a phone or watch, and those
+          are known to be off by a wide margin in both directions. It is shown because the user
+          can see it in Google Fit anyway and a silent disagreement between two apps on their
+          phone is worse than a stated one — but it is never fed into the target, and the copy
+          says so rather than leaving the reader to guess the ranking.
+
+          Hidden entirely when absent. Most phones write nothing here, and an empty cell reading
+          "0 kcal" would be a lie about the one number on this screen people act on.
+        */}
+        {health.energy.totalKcal === null ? null : (
+          <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'center' }}>
+            <FigureCell
+              theme={theme}
+              label="Your phone"
+              icon={<Smartphone size={13} color={theme.textMuted} strokeWidth={2} />}
+              value={fmtInt(health.energy.totalKcal)}
+              caption="kcal/day · from Health Connect"
+            />
+            <Body size={12} tone="muted" style={{ flex: 1 }}>
+              What your phone or watch reckons you burned today. Not used to set your target —
+              sensors guess at this, and your own log measures it.
+            </Body>
+          </View>
+        )}
 
         <View style={{ flexDirection: 'row', gap: spacing.md }}>
           <View style={{ flex: 1, gap: 4 }}>

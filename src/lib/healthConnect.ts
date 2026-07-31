@@ -1,5 +1,5 @@
 import { Linking, Platform } from 'react-native'
-import type { UserProfile, WeightEntry } from '@core/types'
+import type { DiaryDay, MealType, UserProfile, WeightEntry, WorkoutSession } from '@core/types'
 import { getDateString } from '@core/utils/calculations'
 import { healthRuntimePermissions } from './healthPermissions'
 
@@ -47,6 +47,7 @@ const PERMISSIONS = healthRuntimePermissions()
  * Every field is answered independently because every one of them can be.
  */
 export interface HealthGrants {
+  // --- Core. These four define "Connected". ---
   readSteps: boolean
   readWeight: boolean
   readHeight: boolean
@@ -54,23 +55,71 @@ export interface HealthGrants {
   writeWeight: boolean
   /** Android 14+: without this, every read is capped at the last 30 days. */
   readHistory: boolean
+
+  // --- Optional. Each gates exactly one feature and nothing else. ---
+  /** Measured total energy expenditure: active plus basal. The app's TDEE is a formula. */
+  readTotalCalories: boolean
+  /** Measured activity energy only. Useful where the provider writes one and not the other. */
+  readActiveCalories: boolean
+  /** A scale's measured BMR, against the app's calculated one. */
+  readBasalRate: boolean
+  readBodyFat: boolean
+  writeBodyFat: boolean
+  /** Sends logged meals out to Health Connect, and through it every other app. */
+  writeNutrition: boolean
+  writeHydration: boolean
+  /** Sends finished workouts out. Logged sessions were app-only until this. */
+  writeExercise: boolean
 }
 
-const NO_GRANTS: HealthGrants = {
+/**
+ * Nothing granted.
+ *
+ * Exported so consumers seed their state from it rather than writing the literal out again.
+ * The provider used to keep its own copy, which stopped compiling the moment a permission was
+ * added — a cheap failure, but one that invites the fix of pasting the new fields in rather
+ * than the fix of not having a second list.
+ */
+export const NO_GRANTS: HealthGrants = {
   readSteps: false,
   readWeight: false,
   readHeight: false,
   writeWeight: false,
   readHistory: false,
+  readTotalCalories: false,
+  readActiveCalories: false,
+  readBasalRate: false,
+  readBodyFat: false,
+  writeBodyFat: false,
+  writeNutrition: false,
+  writeHydration: false,
+  writeExercise: false,
 }
 
-/** True when everything the app needs to function is granted. History is a bonus, not a need. */
+/**
+ * True when everything the app needs to function is granted.
+ *
+ * Deliberately still the four core permissions, and not the eleven the app now requests.
+ * Health Connect draws one switch per permission and people flip the ones whose names they
+ * recognise, so defining "Connected" as the full set would leave almost everyone reading
+ * "Partly connected" forever — which tells them something is broken when nothing is. Each
+ * optional grant gates its own feature and says so where that feature lives.
+ *
+ * History is a bonus rather than a need: without it an import is shorter, not broken.
+ */
 export const isFullyGranted = (grants: HealthGrants): boolean =>
   grants.readSteps && grants.readWeight && grants.readHeight && grants.writeWeight
 
-/** True when nothing at all was granted, which is a refusal rather than a partial answer. */
+/**
+ * True when nothing at all was granted, which is a refusal rather than a partial answer.
+ *
+ * Checks every permission, not just the core four. The distinction drives which button the UI
+ * offers, and Health Connect will not re-prompt for anything already refused — so someone who
+ * allowed only meal writing must be sent to settings, not shown a "Connect" button that would
+ * open a sheet and immediately close it again.
+ */
 export const isFullyDenied = (grants: HealthGrants): boolean =>
-  !grants.readSteps && !grants.readWeight && !grants.readHeight && !grants.writeWeight
+  !Object.values(grants).some(Boolean)
 
 /** Names the missing pieces, for a UI that has to say what is wrong rather than that it is. */
 export const missingGrantLabels = (grants: HealthGrants): string[] => {
@@ -101,6 +150,14 @@ const toGrants = (granted: unknown): HealthGrants => {
     readHeight: has('read', 'Height'),
     writeWeight: has('write', 'Weight'),
     readHistory: has('read', 'ReadHealthDataHistory'),
+    readTotalCalories: has('read', 'TotalCaloriesBurned'),
+    readActiveCalories: has('read', 'ActiveCaloriesBurned'),
+    readBasalRate: has('read', 'BasalMetabolicRate'),
+    readBodyFat: has('read', 'BodyFat'),
+    writeBodyFat: has('write', 'BodyFat'),
+    writeNutrition: has('write', 'Nutrition'),
+    writeHydration: has('write', 'Hydration'),
+    writeExercise: has('write', 'ExerciseSession'),
   }
 }
 
@@ -536,5 +593,356 @@ export const readWeightHistory = async (
       .sort((a, b) => a.date.localeCompare(b.date))
   } catch {
     return []
+  }
+}
+
+// --- Energy expenditure ------------------------------------------------------------------
+
+/**
+ * What the phone measured the user burning, against which the app's TDEE is only a formula.
+ *
+ * Every field is independently nullable because every one of them is independently absent in
+ * practice. Health Connect is a store, not a source: it holds what some other app wrote, and
+ * the apps disagree about which of these they write. Samsung Health, Fitbit and Garmin write
+ * total; Google Fit largely does not. A phone can therefore grant every permission here and
+ * still answer null to all three, which is not an error and must never be rendered as zero.
+ */
+export interface EnergyBurned {
+  /** Active plus basal — directly comparable to the app's TDEE. */
+  totalKcal: number | null
+  /** Activity only, above resting. */
+  activeKcal: number | null
+  /** Resting expenditure across the day. */
+  basalKcal: number | null
+}
+
+const NO_ENERGY: EnergyBurned = { totalKcal: null, activeKcal: null, basalKcal: null }
+
+/** Whole kilocalories, rejecting the implausible rather than passing it on. */
+const asKcal = (value: unknown): number | null => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null
+  // A day above 20000 kcal is a unit error upstream, not an athlete.
+  return value > 20000 ? null : Math.round(value)
+}
+
+/** Midnight-to-midnight for a 'YYYY-MM-DD', in the phone's own timezone. */
+const localDayRange = (date: string): { startTime: string; endTime: string } => {
+  const start = noonOn(date)
+  start.setHours(0, 0, 0, 0)
+  return {
+    startTime: start.toISOString(),
+    endTime: new Date(start.getTime() + 86_400_000).toISOString(),
+  }
+}
+
+/**
+ * Measured energy burned across one local day.
+ *
+ * Each aggregate gets its own try/catch rather than sharing one. They are separate permissions
+ * filled by separate providers, so a phone holding active calories but not total is ordinary —
+ * and a shared catch would discard the reading it did have because of the one it did not.
+ */
+export const readEnergyBurned = async (date: string): Promise<EnergyBurned> => {
+  const hc = await loadModule()
+  if (!hc) return NO_ENERGY
+  try {
+    await hc.initialize()
+    const timeRangeFilter = { operator: 'between' as const, ...localDayRange(date) }
+
+    let totalKcal: number | null = null
+    let activeKcal: number | null = null
+    let basalKcal: number | null = null
+
+    try {
+      const r = await hc.aggregateRecord({ recordType: 'TotalCaloriesBurned', timeRangeFilter })
+      totalKcal = asKcal(r.ENERGY_TOTAL?.inKilocalories)
+    } catch {
+      // Permission refused, or nothing on file. Both mean "no answer".
+    }
+    try {
+      const r = await hc.aggregateRecord({ recordType: 'ActiveCaloriesBurned', timeRangeFilter })
+      activeKcal = asKcal(r.ACTIVE_CALORIES_TOTAL?.inKilocalories)
+    } catch {
+      // As above.
+    }
+    try {
+      const r = await hc.aggregateRecord({ recordType: 'BasalMetabolicRate', timeRangeFilter })
+      basalKcal = asKcal(r.BASAL_CALORIES_TOTAL?.inKilocalories)
+    } catch {
+      // As above.
+    }
+
+    /*
+      Total is the number the app wants and the one most often missing. Active plus basal is the
+      same quantity by definition, so it is reconstructed when both halves are present: a phone
+      whose fitness app writes active calories and whose scale writes a BMR yields a measured
+      total that neither of them wrote.
+    */
+    if (totalKcal === null && activeKcal !== null && basalKcal !== null) {
+      totalKcal = asKcal(activeKcal + basalKcal)
+    }
+
+    return { totalKcal, activeKcal, basalKcal }
+  } catch {
+    return NO_ENERGY
+  }
+}
+
+// --- Body fat ----------------------------------------------------------------------------
+
+/**
+ * Latest measured body-fat percentage, or null.
+ *
+ * The app estimates this from tape measurements. A smart scale measures it. Where both exist
+ * the measurement wins, which is the entire reason for reading it.
+ */
+export const readLatestBodyFatPct = async (): Promise<number | null> => {
+  const hc = await loadModule()
+  if (!hc) return null
+  try {
+    await hc.initialize()
+    const end = new Date()
+    const start = new Date(end.getTime() - 365 * 86_400_000)
+    const result = await hc.readRecords('BodyFat', {
+      timeRangeFilter: {
+        operator: 'between',
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+      },
+    })
+    const pct = latestOf(result.records, r => r.time, r => r.percentage)
+    if (pct === null) return null
+    // Health Connect stores a percentage, but writing 0.18 for 18% is a common upstream mistake
+    // and would otherwise reach the profile as a 0.18% body-fat reading.
+    return pct >= 3 && pct <= 70 ? Math.round(pct * 10) / 10 : null
+  } catch {
+    return null
+  }
+}
+
+/** Writes an estimated body-fat percentage. One record per day, upserted like a weigh-in. */
+export const writeBodyFatPct = async (pct: number, date: string): Promise<boolean> => {
+  const hc = await loadModule()
+  if (!hc) return false
+  if (!Number.isFinite(pct) || pct < 3 || pct > 70) return false
+  try {
+    await hc.initialize()
+    await hc.insertRecords([
+      {
+        recordType: 'BodyFat',
+        time: noonOn(date).toISOString(),
+        percentage: Math.round(pct * 10) / 10,
+        metadata: {
+          clientRecordId: `macrofit-bodyfat-${date}`,
+          clientRecordVersion: Date.now(),
+        },
+      },
+    ])
+    return true
+  } catch {
+    return false
+  }
+}
+
+// --- Nutrition ---------------------------------------------------------------------------
+
+/**
+ * Health Connect's meal types, which are fewer than the app's.
+ *
+ * Pre- and post-workout both fold into SNACK. Health Connect offers nothing richer, and
+ * UNKNOWN would throw away something the user actually told us — a snack is at least true.
+ */
+const MEAL_TYPE_CODES: Record<MealType, number> = {
+  Breakfast: 1,
+  Lunch: 2,
+  Dinner: 3,
+  Snacks: 4,
+  'Pre-Workout': 4,
+  'Post-Workout': 4,
+}
+
+/**
+ * One record per meal per day, so an edit updates rather than duplicates.
+ *
+ * Keyed by meal rather than by day because Health Connect demands a mealType on every record
+ * and one record cannot be two meals. Keyed by meal rather than by entry because adding a
+ * second coffee to breakfast should update breakfast, not append a second breakfast.
+ */
+const nutritionRecordId = (date: string, meal: MealType): string =>
+  `macrofit-nutrition-${date}-${meal.toLowerCase().replace(/[^a-z]/g, '')}`
+
+/**
+ * Sends a day's logged meals to Health Connect, one record per meal type.
+ *
+ * Returns how many records were written, so a caller can tell "nothing to write" from "the
+ * write failed" — a distinction a boolean cannot carry.
+ *
+ * Sodium, potassium and cholesterol go out in milligrams because Health Connect takes a unit
+ * beside the value and the app already stores them that way. Converting to grams first would
+ * round 140 mg of sodium to 0.1 g and lose a digit for no reason.
+ */
+export const writeNutritionForDay = async (day: DiaryDay): Promise<number> => {
+  const hc = await loadModule()
+  if (!hc) return 0
+  if (day.entries.length === 0) return 0
+  try {
+    await hc.initialize()
+
+    interface MealTotals {
+      from: number
+      to: number
+      calories: number
+      protein: number
+      carbs: number
+      fat: number
+      fiber: number
+      sugar: number
+      sodium: number
+      potassium: number
+      cholesterol: number
+      saturatedFat: number
+    }
+
+    const byMeal = new Map<MealType, MealTotals>()
+
+    for (const entry of day.entries) {
+      const n = entry.servings
+      const f = entry.food
+      const at = entry.timestamp
+      const acc: MealTotals = byMeal.get(entry.mealType) ?? {
+        from: at,
+        to: at,
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fat: 0,
+        fiber: 0,
+        sugar: 0,
+        sodium: 0,
+        potassium: 0,
+        cholesterol: 0,
+        saturatedFat: 0,
+      }
+      acc.from = Math.min(acc.from, at)
+      acc.to = Math.max(acc.to, at)
+      acc.calories += f.calories * n
+      acc.protein += f.protein * n
+      acc.carbs += f.carbs * n
+      acc.fat += f.fat * n
+      acc.fiber += f.fiber * n
+      acc.sugar += f.sugar * n
+      acc.sodium += f.sodium * n
+      acc.potassium += f.potassium * n
+      acc.cholesterol += f.cholesterol * n
+      acc.saturatedFat += f.saturatedFat * n
+      byMeal.set(entry.mealType, acc)
+    }
+
+    const grams = (value: number) => ({
+      unit: 'grams' as const,
+      value: Math.round(value * 10) / 10,
+    })
+    const mg = (value: number) => ({
+      unit: 'milligrams' as const,
+      value: Math.round(value * 10) / 10,
+    })
+
+    const records = [...byMeal.entries()].map(([meal, acc]) => ({
+      recordType: 'Nutrition' as const,
+      startTime: new Date(acc.from).toISOString(),
+      /*
+        A meal logged in one tap has from === to, and Health Connect rejects a zero-length
+        interval. A minute is long enough to be accepted and short enough not to claim the user
+        spent an hour on it.
+      */
+      endTime: new Date(Math.max(acc.to, acc.from + 60_000)).toISOString(),
+      mealType: MEAL_TYPE_CODES[meal],
+      name: meal,
+      energy: { unit: 'kilocalories' as const, value: Math.round(acc.calories) },
+      protein: grams(acc.protein),
+      totalCarbohydrate: grams(acc.carbs),
+      totalFat: grams(acc.fat),
+      dietaryFiber: grams(acc.fiber),
+      sugar: grams(acc.sugar),
+      saturatedFat: grams(acc.saturatedFat),
+      sodium: mg(acc.sodium),
+      potassium: mg(acc.potassium),
+      cholesterol: mg(acc.cholesterol),
+      metadata: {
+        clientRecordId: nutritionRecordId(day.date, meal),
+        clientRecordVersion: Date.now(),
+      },
+    }))
+
+    if (records.length === 0) return 0
+    await hc.insertRecords(records as Parameters<typeof hc.insertRecords>[0])
+    return records.length
+  } catch {
+    return 0
+  }
+}
+
+/** Writes a day's water intake. Skipped at zero: an empty record says nothing worth storing. */
+export const writeHydrationMl = async (date: string, ml: number): Promise<boolean> => {
+  const hc = await loadModule()
+  if (!hc) return false
+  if (!Number.isFinite(ml) || ml <= 0) return false
+  try {
+    await hc.initialize()
+    const { startTime, endTime } = localDayRange(date)
+    await hc.insertRecords([
+      {
+        recordType: 'Hydration',
+        startTime,
+        // A second inside the day, so the record cannot spill into tomorrow when read back.
+        endTime: new Date(new Date(endTime).getTime() - 1000).toISOString(),
+        volume: { unit: 'milliliters', value: Math.round(ml) },
+        metadata: {
+          clientRecordId: `macrofit-hydration-${date}`,
+          clientRecordVersion: Date.now(),
+        },
+      },
+    ])
+    return true
+  } catch {
+    return false
+  }
+}
+
+// --- Workouts ----------------------------------------------------------------------------
+
+/** Health Connect's code for weightlifting. The app logs lifts, so this is not a guess. */
+const EXERCISE_TYPE_WEIGHTLIFTING = 81
+
+/**
+ * Sends a finished workout to Health Connect.
+ *
+ * Finished ones only. A session with no `endedAt` is still running, and Health Connect has no
+ * open-ended session — writing one would need an end time invented here, which becomes wrong
+ * the moment the user starts another set.
+ */
+export const writeExerciseSession = async (session: WorkoutSession): Promise<boolean> => {
+  const hc = await loadModule()
+  if (!hc) return false
+  if (session.endedAt === undefined || session.endedAt <= session.startedAt) return false
+  try {
+    await hc.initialize()
+    await hc.insertRecords([
+      {
+        recordType: 'ExerciseSession',
+        startTime: new Date(session.startedAt).toISOString(),
+        endTime: new Date(session.endedAt).toISOString(),
+        exerciseType: EXERCISE_TYPE_WEIGHTLIFTING,
+        title: session.name,
+        ...(session.notes === undefined ? {} : { notes: session.notes }),
+        metadata: {
+          clientRecordId: `macrofit-workout-${session.id}`,
+          clientRecordVersion: Date.now(),
+        },
+      },
+    ] as Parameters<typeof hc.insertRecords>[0])
+    return true
+  } catch {
+    return false
   }
 }
