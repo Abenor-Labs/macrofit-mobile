@@ -88,7 +88,6 @@ Configure SMTP and skip this and the project still sends two an hour.
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY`     | Supabase anon key                                              |
 | `EXPO_PUBLIC_API_URL`               | Base URL of the deployed web app, which hosts the AI endpoints |
 | `EXPO_PUBLIC_USDA_API_KEY`          | USDA FoodData Central key (defaults to`DEMO_KEY`)            |
-| `EXPO_PUBLIC_ENABLE_HEALTH_CONNECT` | Enable Google Fit / Health Connect integration (Android)       |
 
 `EXPO_PUBLIC_USDA_API_KEY` genuinely takes effect as of the food-search fix; before that
 it was documented here but never read, because the shared module took it from
