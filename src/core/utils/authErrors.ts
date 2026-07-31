@@ -89,10 +89,28 @@ export const describeAuthError = (error: AuthError, email: string): string => {
     case 'user_already_exists':
     case 'email_exists':
       return `${email} already has an account. Switch to "Sign in".`
+    /*
+      The email quota, not a per-address throttle, and not a per-minute one.
+
+      This is a PROJECT-WIDE cap on outbound auth email. On Supabase's built-in sender it is
+      two per hour for the whole project — so the second person to sign up in an hour is told
+      to try again, and the third is refused before an account exists. The old copy said "wait
+      a minute", which is off by a factor of sixty and sends the user straight back into the
+      same wall.
+
+      Deliberately vague about the exact number because it is not a property of the app: it
+      depends on whether the project has custom SMTP configured and on what its rate limit is
+      set to. Naming an hour when the deployment allows thirty an hour would be its own lie.
+      "Later" is the honest word, and the sentence points at the one thing that always works,
+      which is that the account may already exist.
+    */
     case 'over_email_send_rate_limit':
-      return 'Too many emails sent to that address. Wait a minute before trying again.'
+      return (
+        'The server has hit its limit for sending emails and cannot send another right now. ' +
+        'If you already have an account, try "Sign in" — otherwise try again later.'
+      )
     case 'over_request_rate_limit':
-      return 'Too many attempts. Wait a minute before trying again.'
+      return 'Too many attempts in a short time. Wait a minute before trying again.'
     case 'weak_password':
       return `That password is too weak. ${humanReadable(error.message)}`
     case 'validation_failed':
