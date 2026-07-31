@@ -6,6 +6,7 @@ import { useStore } from '@/store/useStore'
 import { useTheme } from '@/theme/useTheme'
 import { spacing } from '@/theme/tokens'
 import { useHealthSync } from '@/hooks/useHealthSync'
+import { isFullyDenied } from '@/lib/healthConnect'
 import { Surface } from './Glass'
 import { Body, Label, StatValue } from './Text'
 import { Button } from './Button'
@@ -22,14 +23,26 @@ const DEFAULT_STEP_GOAL = 8000
 export const StepsCard: React.FC = () => {
   const theme = useTheme()
   const profile = useStore(s => s.profile)
-  const { availability, granted, todaySteps, weekSteps, busy, connect, refreshSteps } =
+  const { availability, grants, todaySteps, weekSteps, busy, connect, openSettings, refreshSteps } =
     useHealthSync()
 
   if (availability !== 'available') return null
 
   const goal = Number.isFinite(profile.stepGoal) ? (profile.stepGoal as number) : DEFAULT_STEP_GOAL
 
-  if (!granted) {
+  /*
+    Steps specifically, not "connected" in general.
+
+    This card used to hide behind a single `granted` boolean that was true whenever ANY Health
+    Connect permission had been given. Allow weight, refuse steps — an entirely reasonable
+    choice the permission sheet invites — and the card rendered a step goal beside a permanent
+    zero, with nothing on screen admitting it had never been allowed to look.
+
+    A zero the app is not entitled to read is not an empty state. It is a lie with a progress
+    bar under it.
+  */
+  if (!grants.readSteps) {
+    const refused = isFullyDenied(grants)
     return (
       <Surface style={{ padding: spacing.lg, gap: spacing.md }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
@@ -37,12 +50,19 @@ export const StepsCard: React.FC = () => {
           <Label>Steps</Label>
         </View>
         <Body tone="secondary" size={13}>
-          Connect Health Connect to pull your daily steps and past weigh-ins from your
-          phone, so you do not have to enter them by hand.
+          {refused
+            ? 'Connect Health Connect to pull your daily steps and past weigh-ins from your phone, so you do not have to enter them by hand.'
+            : 'MacroFit is connected to Health Connect, but was not given access to your steps. Everything else is working.'}
         </Body>
+        {/*
+          Health Connect prompts once per permission per install and remembers a refusal, so
+          asking again after one does nothing at all — the sheet does not appear and the button
+          looks broken. Once anything has been refused, its settings screen is the only route
+          left, and saying so is the difference between a dead end and a fix.
+        */}
         <Button
-          label="Connect Health Connect"
-          onPress={() => void connect()}
+          label={refused ? 'Connect Health Connect' : 'Allow steps in Health Connect'}
+          onPress={() => void (refused ? connect() : openSettings())}
           loading={busy}
           icon={<Link2 size={15} color={theme.brandOn} strokeWidth={2} />}
         />

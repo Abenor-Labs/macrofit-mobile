@@ -4,8 +4,9 @@ import { useRouter } from 'expo-router'
 import { ArrowDown, ArrowUp, CalendarClock, Check, Minus, Scale, TriangleAlert } from 'lucide-react-native'
 
 import { getWeightTargetProgress, type TrackStatus } from '@core/utils/weightTarget'
-import { getTodayString } from '@core/utils/calculations'
+import { formatDate, getTodayString } from '@core/utils/calculations'
 import { useStore } from '@/store/useStore'
+import { useLogWeight } from '@/hooks/useLogWeight'
 import { useTheme } from '@/theme/useTheme'
 import { radius, spacing } from '@/theme/tokens'
 import { Surface } from './Glass'
@@ -115,9 +116,55 @@ const VerdictBox: React.FC<{
  */
 export const WeightVerdict: React.FC = () => {
   const router = useRouter()
-  const { progress, meta, toneColor, StatusIcon } = useWeightVerdict()
+  const theme = useTheme()
+  const profile = useStore(s => s.profile)
+  const weightLog = useStore(s => s.weightLog)
+  const { progress, meta, toneColor, StatusIcon, today } = useWeightVerdict()
 
-  if (progress.targetKg === null) return null
+  /*
+    No goal weight is not the same as nothing to say.
+
+    This returned null whenever `targetKg` was null, and goal weight is optional in setup — so
+    a large share of users saw NOTHING about weight on the dashboard, which is most of why
+    "where is the weight logging in the app?" was asked at all. There is no verdict to give
+    without a target, but there is still the most useful thing on the subject: whether they
+    have weighed in today, and what the last reading was.
+
+    One line, not a card. The dashboard already carries a finding for having too much above
+    the fold, and the actual logging now lives in the log button.
+  */
+  if (progress.targetKg === null) {
+    const loggedToday = weightLog.some(entry => entry.date === today)
+    const latest = weightLog[0]
+    const unit = profile.weightUnit
+
+    return (
+      <Pressable
+        accessibilityRole="link"
+        accessibilityLabel={
+          loggedToday
+            ? `Weighed in today. Open weight history.`
+            : 'No weigh-in yet today. Open weight history.'
+        }
+        onPress={() => router.push({ pathname: '/progress', params: { metric: 'weight' } })}
+        style={({ pressed }) => ({
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: spacing.sm,
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        <Scale size={15} color={theme.textMuted} strokeWidth={2} />
+        <Body size={13} tone="secondary" style={{ flex: 1 }}>
+          {loggedToday
+            ? `Weighed in today${latest ? ` · ${latest.weight} ${unit}` : ''}`
+            : latest
+              ? `No weigh-in today · last ${latest.weight} ${unit} on ${formatDate(latest.date)}`
+              : 'No weigh-ins yet — log one from the + button'}
+        </Body>
+      </Pressable>
+    )
+  }
 
   return (
     <Pressable
@@ -145,7 +192,7 @@ export const WeightTargetCard: React.FC<{ compact?: boolean }> = ({ compact = fa
   const profile = useStore(s => s.profile)
   const weightLog = useStore(s => s.weightLog)
   const currentWeightKg = useStore(s => s.currentWeightKg)
-  const addWeightEntry = useStore(s => s.addWeightEntry)
+  const { logWeight } = useLogWeight()
 
   const [draft, setDraft] = useState('')
 
@@ -169,7 +216,7 @@ export const WeightTargetCard: React.FC<{ compact?: boolean }> = ({ compact = fa
     const value = Number(draft.replace(',', '.').trim())
     if (!Number.isFinite(value) || value <= 0) return
     // Stored in the user's display unit, exactly like the rest of the weight log.
-    addWeightEntry({ date: today, weight: Math.round(value * 10) / 10 })
+    logWeight({ date: today, displayWeight: Math.round(value * 10) / 10 })
     setDraft('')
   }
 

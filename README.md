@@ -32,13 +32,13 @@ yours to maintain.
 
 ## Environment
 
-| Variable | Purpose |
-|---|---|
-| `EXPO_PUBLIC_SUPABASE_URL` | Supabase project URL |
-| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key |
-| `EXPO_PUBLIC_API_URL` | Base URL of the deployed web app, which hosts the AI endpoints |
-| `EXPO_PUBLIC_USDA_API_KEY` | USDA FoodData Central key (defaults to `DEMO_KEY`) |
-| `EXPO_PUBLIC_ENABLE_HEALTH_CONNECT` | Enable Google Fit / Health Connect integration (Android) |
+| Variable                              | Purpose                                                        |
+| ------------------------------------- | -------------------------------------------------------------- |
+| `EXPO_PUBLIC_SUPABASE_URL`          | Supabase project URL                                           |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY`     | Supabase anon key                                              |
+| `EXPO_PUBLIC_API_URL`               | Base URL of the deployed web app, which hosts the AI endpoints |
+| `EXPO_PUBLIC_USDA_API_KEY`          | USDA FoodData Central key (defaults to`DEMO_KEY`)            |
+| `EXPO_PUBLIC_ENABLE_HEALTH_CONNECT` | Enable Google Fit / Health Connect integration (Android)       |
 
 `EXPO_PUBLIC_API_URL` must be a LAN IP or a deployed URL — **not** `localhost`. On a
 phone or emulator, `localhost` means the device itself, not your dev machine. This is the
@@ -47,6 +47,7 @@ single most common setup mistake.
 ### Health Data (Health Connect)
 
 On Android, MacroFit imports past weight, height, steps, and body fat metrics via Android 14+ Health Connect.
+
 1. Make sure Health Connect is enabled in Google Fit (`Google Fit > Profile > Settings > Sync Fit with Health Connect`).
 2. Native builds are required for testing (`npm run android`). Expo Go does not support custom native plugins.
 
@@ -109,10 +110,10 @@ in both light and dark. Substituting a "nicer" hex silently breaks that.
 
 ## Scripts
 
-| Script | Does |
-|---|---|
-| `npm start` | sync shared logic, start Metro |
-| `npm run android` | sync, then build and install on Android |
-| `npm run typecheck` | sync, then `tsc --noEmit` |
-| `npm run export` | sync, then produce a production bundle |
-| `npm run sync:core` | refresh `src/core` from the web repo |
+| Script                | Does                                    |
+| --------------------- | --------------------------------------- |
+| `npm start`         | sync shared logic, start Metro          |
+| `npm run android`   | sync, then build and install on Android |
+| `npm run typecheck` | sync, then`tsc --noEmit`              |
+| `npm run export`    | sync, then produce a production bundle  |
+| `npm run sync:core` | refresh`src/core` from the web repo   |

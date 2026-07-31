@@ -15,7 +15,7 @@ import {
 
 import { useStore } from '@/store/useStore'
 import { useHealthSync } from '@/hooks/useHealthSync'
-import { hasPermissions, readWeightHistory } from '@/lib/healthConnect'
+import { readWeightHistory } from '@/lib/healthConnect'
 import { useTheme } from '@/theme/useTheme'
 import { Backdrop } from '@/components/Backdrop'
 import { GlassSurface } from '@/components/Glass'
@@ -307,11 +307,12 @@ export default function OnboardingScreen() {
    */
   const pullFromPhone = async () => {
     setError(null)
-    if (!health.granted) {
+    if (!health.grants.readWeight && !health.grants.readHeight) {
       await health.connect()
-      // connect() resolves after the permission sheet closes; a refusal is not an error to
-      // report, it is an answer. The step stays put and Skip is still right there.
-      if (!(await hasPermissions())) return
+      // connect() resolves after the permission sheet closes and has already re-read what was
+      // granted, so the provider's own state is the answer — no second query needed. A refusal
+      // is not an error to report either: the step stays put and Skip is still right there.
+      return
     }
 
     /*

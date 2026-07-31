@@ -53,6 +53,8 @@ import { estimateBodyComposition, latestUsableMeasurement } from '@core/utils/bo
 import { useStore } from '@/store/useStore'
 import { useAuth } from '@/lib/AuthProvider'
 import { useHealthSync } from '@/hooks/useHealthSync'
+import { useLogWeight } from '@/hooks/useLogWeight'
+import { isFullyDenied, missingGrantLabels } from '@/lib/healthConnect'
 import { useTheme } from '@/theme/useTheme'
 import { radius, spacing } from '@/theme/tokens'
 import { GlassSurface, Surface } from '@/components/Glass'
@@ -321,7 +323,7 @@ export default function ProfileScreen() {
   const recommendation = useStore(s => s.recommendation)
   const currentWeightKg = useStore(s => s.currentWeightKg)
   const weightLog = useStore(s => s.weightLog)
-  const removeWeightEntry = useStore(s => s.removeWeightEntry)
+  const { removeWeight } = useLogWeight()
   const bodyMeasurements = useStore(s => s.bodyMeasurements)
   const addBodyMeasurement = useStore(s => s.addBodyMeasurement)
   const removeBodyMeasurement = useStore(s => s.removeBodyMeasurement)
@@ -936,7 +938,9 @@ export default function ProfileScreen() {
               </View>
               <IconButton
                 accessibilityLabel={`Remove weigh-in from ${formatDate(entry.date)}`}
-                onPress={() => removeWeightEntry(entry.id)}
+                // Goes through the hook so the Health Connect record goes with it. Calling
+                // the store action alone deleted it here and left it visible in Google Fit.
+                onPress={() => removeWeight(entry.id, entry.date)}
               >
                 <Trash2 size={16} color={theme.status.critical} strokeWidth={2} />
               </IconButton>
@@ -1100,15 +1104,53 @@ export default function ProfileScreen() {
         <Section
           title="Health Connect"
           icon={<Activity size={16} color={theme.brandText} strokeWidth={2} />}
-          subtitle={health.granted ? 'Connected' : 'Not connected'}
+          /*
+            Three states, not two. "Connected" used to mean "at least one permission was
+            granted", so a user who allowed weight and refused steps read Connected here and
+            then watched the dashboard show zero steps forever with no way to connect the two
+            facts. Partial access is its own answer and has to say so.
+          */
+          subtitle={
+            health.granted
+              ? 'Connected'
+              : isFullyDenied(health.grants)
+                ? 'Not connected'
+                : `Partly connected — ${missingGrantLabels(health.grants).join(', ')} not allowed`
+          }
         >
-          {health.granted ? (
+          {!isFullyDenied(health.grants) && !health.granted && (
+            <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
+              <TriangleAlert size={15} color={theme.status.warning} strokeWidth={2} />
+              <Body size={12} tone="secondary" style={{ flex: 1 }}>
+                {`MacroFit was not given access to ${missingGrantLabels(health.grants).join(', ')}. Health Connect only asks once, so this has to be changed in its own settings.`}
+              </Body>
+            </View>
+          )}
+
+          {!isFullyDenied(health.grants) && !health.granted && (
+            <Button
+              label="Open Health Connect settings"
+              variant="secondary"
+              onPress={() => void health.openSettings()}
+              icon={<Activity size={15} color={theme.text} strokeWidth={2} />}
+            />
+          )}
+
+          {health.grants.readWeight ? (
             <>
               <Body size={13} tone="secondary">
-                Steps are read automatically. You can also pull in bodyweight recorded by
-                your phone or scale — days you already logged yourself are never
-                overwritten.
+                {health.grants.readSteps
+                  ? 'Steps are read automatically. You can also pull in bodyweight recorded by your phone or scale — days you already logged yourself are never overwritten.'
+                  : 'You can pull in bodyweight recorded by your phone or scale — days you already logged yourself are never overwritten.'}
               </Body>
+              {!health.grants.readHistory && (
+                <Body size={12} tone="muted">
+                  {/* Android 14+ caps every read at 30 days without the history permission, so
+                      promising "any weigh-ins already recorded" would be untrue here. */}
+                  Only the last 30 days can be imported until you allow access to past data in
+                  Health Connect.
+                </Body>
+              )}
               <Button
                 label="Import weight history"
                 variant="secondary"
@@ -1123,22 +1165,36 @@ export default function ProfileScreen() {
                     : `Imported ${health.importedWeights} weigh-in${health.importedWeights === 1 ? '' : 's'}.`}
                 </Body>
               )}
-              <Field
-                numeric
-                label="Daily step goal"
-                value={stepGoal}
-                onChangeText={setStepGoal}
-                onBlur={commitStepGoal}
-                placeholder="8000"
-                keyboardType="number-pad"
-                inputMode="numeric"
-              />
+              {/* A step goal is only a setting if steps can be read. Offering it otherwise
+                  invites the user to configure a number nothing will ever fill in. */}
+              {health.grants.readSteps && (
+                <Field
+                  numeric
+                  label="Daily step goal"
+                  value={stepGoal}
+                  onChangeText={setStepGoal}
+                  onBlur={commitStepGoal}
+                  placeholder="8000"
+                  keyboardType="number-pad"
+                  inputMode="numeric"
+                />
+              )}
+              {/* Says what the sync actually guarantees. "Synced to Google Fit" would be a
+                  promise this app cannot keep: whether Fit displays a Health Connect record
+                  depends on a setting inside Fit, which is off by default. */}
+              {health.grants.writeWeight && (
+                <Body size={12} tone="muted">
+                  Weights you log here are saved to Health Connect. Google Fit shows them if
+                  Fit is set to sync with Health Connect.
+                </Body>
+              )}
             </>
           ) : (
             <>
               <Body size={13} tone="secondary">
                 Let MacroFit read steps and bodyweight from Health Connect so you do not
-                have to enter data your phone already has.
+                have to enter data your phone already has. Weights you log here are written
+                back, so your other apps stay up to date.
               </Body>
               <Button label="Connect" onPress={() => void health.connect()} loading={health.busy} />
             </>

@@ -31,6 +31,76 @@ export interface StepDay {
 */
 const PERMISSIONS = healthRuntimePermissions()
 
+/**
+ * What the user actually granted, permission by permission.
+ *
+ * WHY THIS IS NOT A BOOLEAN:
+ * `requestPermissions` and `hasPermissions` both used to return `granted.length > 0`. Health
+ * Connect presents each permission as its own switch, so a user who allowed weight and refused
+ * steps — a completely ordinary thing to do — satisfied that test. The app reported
+ * "Connected", `readSteps` returned an empty array forever, and the dashboard showed a step
+ * goal next to a permanent zero with nothing anywhere explaining why.
+ *
+ * Every field is answered independently because every one of them can be.
+ */
+export interface HealthGrants {
+  readSteps: boolean
+  readWeight: boolean
+  readHeight: boolean
+  /** Lets a weight logged here reach Health Connect, and through it Google Fit. */
+  writeWeight: boolean
+  /** Android 14+: without this, every read is capped at the last 30 days. */
+  readHistory: boolean
+}
+
+const NO_GRANTS: HealthGrants = {
+  readSteps: false,
+  readWeight: false,
+  readHeight: false,
+  writeWeight: false,
+  readHistory: false,
+}
+
+/** True when everything the app needs to function is granted. History is a bonus, not a need. */
+export const isFullyGranted = (grants: HealthGrants): boolean =>
+  grants.readSteps && grants.readWeight && grants.readHeight && grants.writeWeight
+
+/** True when nothing at all was granted, which is a refusal rather than a partial answer. */
+export const isFullyDenied = (grants: HealthGrants): boolean =>
+  !grants.readSteps && !grants.readWeight && !grants.readHeight && !grants.writeWeight
+
+/** Names the missing pieces, for a UI that has to say what is wrong rather than that it is. */
+export const missingGrantLabels = (grants: HealthGrants): string[] => {
+  const missing: string[] = []
+  if (!grants.readSteps) missing.push('Steps')
+  if (!grants.readWeight) missing.push('Weight (read)')
+  if (!grants.writeWeight) missing.push('Weight (write)')
+  if (!grants.readHeight) missing.push('Height')
+  return missing
+}
+
+/** Reads a granted-permission list into the structured answer above. */
+const toGrants = (granted: unknown): HealthGrants => {
+  if (!Array.isArray(granted)) return NO_GRANTS
+
+  const has = (accessType: 'read' | 'write', recordType: string): boolean =>
+    granted.some(
+      (entry: unknown) =>
+        typeof entry === 'object' &&
+        entry !== null &&
+        (entry as { accessType?: string }).accessType === accessType &&
+        (entry as { recordType?: string }).recordType === recordType
+    )
+
+  return {
+    readSteps: has('read', 'Steps'),
+    readWeight: has('read', 'Weight'),
+    readHeight: has('read', 'Height'),
+    writeWeight: has('write', 'Weight'),
+    readHistory: has('read', 'ReadHealthDataHistory'),
+  }
+}
+
 /** Health Connect exists only on Android 8+ (API 26). */
 const supported = (): boolean => Platform.OS === 'android'
 
@@ -64,28 +134,54 @@ export const getAvailability = async (): Promise<HealthAvailability> => {
   }
 }
 
-/** Returns true when the user granted both reads. Never throws. */
-export const requestPermissions = async (): Promise<boolean> => {
+/**
+ * Shows the permission sheet and reports, per permission, what came back. Never throws.
+ *
+ * Health Connect only prompts once per permission per install: a refusal is remembered, and a
+ * second `requestPermission` for something already denied returns immediately without showing
+ * anything. That is why the caller needs `openHealthSettings` as well — after the first
+ * refusal, the settings app is the only route left.
+ */
+export const requestPermissions = async (): Promise<HealthGrants> => {
   const hc = await loadModule()
-  if (!hc) return false
+  if (!hc) return NO_GRANTS
   try {
     await hc.initialize()
-    const granted = await hc.requestPermission([...PERMISSIONS])
-    return Array.isArray(granted) && granted.length > 0
+    // The sheet's own return value covers only this interaction. Re-reading afterwards also
+    // picks up anything granted in a previous session, which is what the UI has to reflect.
+    await hc.requestPermission([...PERMISSIONS] as Parameters<typeof hc.requestPermission>[0])
+    return toGrants(await hc.getGrantedPermissions())
   } catch {
-    return false
+    return NO_GRANTS
   }
 }
 
-export const hasPermissions = async (): Promise<boolean> => {
+/** What is granted right now, without prompting. Never throws. */
+export const getGrants = async (): Promise<HealthGrants> => {
   const hc = await loadModule()
-  if (!hc) return false
+  if (!hc) return NO_GRANTS
   try {
     await hc.initialize()
-    const granted = await hc.getGrantedPermissions()
-    return Array.isArray(granted) && granted.length > 0
+    return toGrants(await hc.getGrantedPermissions())
   } catch {
-    return false
+    return NO_GRANTS
+  }
+}
+
+/**
+ * Opens the Health Connect settings screen for this app.
+ *
+ * The only recovery path once a permission has been refused, because Health Connect will not
+ * prompt for it again. Without this, "Connect" is a button that does nothing on the second
+ * press and the user has no way to discover why.
+ */
+export const openHealthSettings = async (): Promise<void> => {
+  const hc = await loadModule()
+  if (!hc) return
+  try {
+    hc.openHealthConnectSettings()
+  } catch {
+    // Nothing to recover from: the caller already told the user what to do.
   }
 }
 
@@ -96,10 +192,57 @@ const startOfLocalDay = (d: Date): Date => {
 }
 
 /**
+ * Daily step totals by summing raw records. The fallback, not the primary path.
+ *
+ * Kept only for providers that reject aggregation. It is wrong in two ways that aggregation is
+ * not, which is why it is no longer what runs first:
+ *
+ *  - It DOUBLE COUNTS. A phone and a watch both writing the same walk produce two sets of
+ *    records, and adding them says the user walked twice as far as they did.
+ *  - It TRUNCATES. `readRecords` pages at 1000 records and nothing here follows `pageToken`,
+ *    so a device writing a record a minute silently loses most of a week.
+ */
+const readStepsByRecords = async (
+  hc: NonNullable<Awaited<ReturnType<typeof loadModule>>>,
+  start: Date,
+  end: Date,
+): Promise<StepDay[]> => {
+  const result = await hc.readRecords('Steps', {
+    timeRangeFilter: {
+      operator: 'between',
+      startTime: start.toISOString(),
+      endTime: end.toISOString(),
+    },
+  })
+
+  const buckets = new Map<string, number>()
+  for (const record of result.records) {
+    const at = new Date(record.startTime)
+    if (Number.isNaN(at.getTime())) continue
+    const key = getDateString(at)
+    const count = typeof record.count === 'number' && Number.isFinite(record.count) ? record.count : 0
+    buckets.set(key, (buckets.get(key) ?? 0) + count)
+  }
+
+  return [...buckets.entries()]
+    .map(([date, steps]) => ({ date, steps: Math.round(steps) }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+}
+
+/**
  * Daily step totals for the last `days` days, oldest first.
  *
- * Health Connect returns individual records, often several per day and sometimes from
- * more than one source, so they are bucketed by local calendar day and summed.
+ * WHY AGGREGATION RATHER THAN RAW RECORDS:
+ * Health Connect's `aggregateGroupByPeriod` is the only API that answers "how many steps did
+ * this person take" rather than "what did each app write". It resolves overlapping data from
+ * multiple sources using the user's own app priority list, so a phone and a watch recording the
+ * same walk count once. Summing raw records counts it twice, and that is what Google Fit and
+ * every other well-behaved client avoid by using exactly this call.
+ *
+ * It also sidesteps the 1000-record page cap that silently truncated a week of data.
+ *
+ * `aggregateGroupByPeriod`, `aggregateRecord` and `aggregateGroupByDuration` were all already
+ * exported by the library and none of them were used.
  */
 export const readSteps = async (days = 7): Promise<StepDay[]> => {
   const hc = await loadModule()
@@ -109,37 +252,68 @@ export const readSteps = async (days = 7): Promise<StepDay[]> => {
     const end = new Date()
     const start = startOfLocalDay(new Date(end.getTime() - (days - 1) * 86_400_000))
 
-    const result = await hc.readRecords('Steps', {
+    const groups = await hc.aggregateGroupByPeriod({
+      recordType: 'Steps',
       timeRangeFilter: {
         operator: 'between',
         startTime: start.toISOString(),
         endTime: end.toISOString(),
       },
+      timeRangeSlicer: { period: 'DAYS', length: 1 },
     })
 
-    const buckets = new Map<string, number>()
-    for (const record of result.records) {
-      const at = new Date(record.startTime)
+    const out: StepDay[] = []
+    for (const group of groups) {
+      const at = new Date(group.startTime)
       if (Number.isNaN(at.getTime())) continue
-      const key = getDateString(at)
-      const count = typeof record.count === 'number' && Number.isFinite(record.count) ? record.count : 0
-      buckets.set(key, (buckets.get(key) ?? 0) + count)
+      const total = group.result.COUNT_TOTAL
+      if (typeof total !== 'number' || !Number.isFinite(total)) continue
+      out.push({ date: getDateString(at), steps: Math.round(total) })
     }
-
-    return [...buckets.entries()]
-      .map(([date, steps]) => ({ date, steps: Math.round(steps) }))
-      .sort((a, b) => a.date.localeCompare(b.date))
+    // A day with no steps is omitted by the aggregator rather than returned as zero, which is
+    // the right shape: callers distinguish "no data" from "no movement".
+    return out.sort((a, b) => a.date.localeCompare(b.date))
   } catch {
-    return []
+    // A provider that cannot aggregate should degrade to an approximate answer rather than to
+    // no answer. Both are inside the same try because either can fail.
+    try {
+      const end = new Date()
+      const start = startOfLocalDay(new Date(end.getTime() - (days - 1) * 86_400_000))
+      return await readStepsByRecords(hc, start, end)
+    } catch {
+      return []
+    }
   }
 }
 
-/** Today's step total, or null when there is no data or no permission. */
+/**
+ * Today's step total, or null when there is no data or no permission.
+ *
+ * Aggregated directly over today rather than derived from `readSteps`, so the dashboard's
+ * headline number costs one narrow query instead of a week's worth of buckets.
+ */
 export const readTodaySteps = async (): Promise<number | null> => {
-  const today = getDateString(new Date())
-  const days = await readSteps(2)
-  const match = days.find(d => d.date === today)
-  return match ? match.steps : null
+  const hc = await loadModule()
+  if (!hc) return null
+  try {
+    await hc.initialize()
+    const now = new Date()
+    const result = await hc.aggregateRecord({
+      recordType: 'Steps',
+      timeRangeFilter: {
+        operator: 'between',
+        startTime: startOfLocalDay(now).toISOString(),
+        endTime: now.toISOString(),
+      },
+    })
+    const total = result.COUNT_TOTAL
+    return typeof total === 'number' && Number.isFinite(total) ? Math.round(total) : null
+  } catch {
+    const today = getDateString(new Date())
+    const days = await readSteps(2)
+    const match = days.find(d => d.date === today)
+    return match ? match.steps : null
+  }
 }
 
 /** The most recent record in a window, or null. Health Connect returns them unsorted. */
@@ -198,6 +372,86 @@ export const readLatestWeightKg = async (): Promise<number | null> => {
     return kg >= 30 && kg <= 300 ? Math.round(kg * 10) / 10 : null
   } catch {
     return null
+  }
+}
+
+/**
+ * The stable identity of a MacroFit weigh-in inside Health Connect.
+ *
+ * One record per calendar day, keyed by the date the user logged it for. This is what makes
+ * the write an upsert instead of an append: Health Connect replaces a record whose
+ * `clientRecordId` it has already seen, and appends anything else.
+ *
+ * Without it, editing today's weight three times leaves three Weight records at the same
+ * instant. Google Fit then shows whichever one it likes, and `readWeightHistory` re-imports
+ * the pile on the next sync — the sync feature corrupting the data it was added to share.
+ */
+const weightRecordId = (date: string): string => `macrofit-weight-${date}`
+
+/**
+ * Noon local, so a weigh-in sits unambiguously inside the day it belongs to.
+ *
+ * Health Connect stores an instant, the app stores a calendar date, and the conversion has to
+ * survive both timezones and edits. Midnight would put a weigh-in on the previous day for
+ * anyone east of UTC once it is read back; "now" would move the record every time the user
+ * corrected a typo, which defeats the point of a stable id.
+ */
+const noonOn = (date: string): Date => {
+  const [year, month, day] = date.split('-').map(Number)
+  return new Date(year, (month ?? 1) - 1, day ?? 1, 12, 0, 0, 0)
+}
+
+/**
+ * Writes a weigh-in to Health Connect. Returns false rather than throwing.
+ *
+ * The caller treats this as an enhancement: the local log is already saved by the time this
+ * runs, and a failure here must never fail the thing the user actually asked for. It does have
+ * to be *reported*, though — a sync that silently does nothing is worse than one that says it
+ * could not, because the user goes looking for the number in Google Fit and concludes the app
+ * is broken.
+ */
+export const writeWeightKg = async (kg: number, date: string): Promise<boolean> => {
+  const hc = await loadModule()
+  if (!hc) return false
+  if (!Number.isFinite(kg) || kg <= 0) return false
+  try {
+    await hc.initialize()
+    await hc.insertRecords([
+      {
+        recordType: 'Weight',
+        time: noonOn(date).toISOString(),
+        weight: { unit: 'kilograms', value: kg },
+        metadata: {
+          clientRecordId: weightRecordId(date),
+          // Health Connect keeps the highest version it has seen for an id, so a later edit
+          // has to claim a larger number or it is discarded as stale.
+          clientRecordVersion: Date.now(),
+        },
+      },
+    ])
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Removes a weigh-in this app wrote.
+ *
+ * Deleting locally without this leaves the record in Health Connect, and therefore in every
+ * other app reading from it — the user deletes a mistyped 172 kg and it stays visible in Fit
+ * forever. Records written by other apps are untouched: the id namespace is ours alone, so a
+ * scale's own reading for the same day cannot be caught by this.
+ */
+export const deleteWeightForDate = async (date: string): Promise<void> => {
+  const hc = await loadModule()
+  if (!hc) return
+  try {
+    await hc.initialize()
+    await hc.deleteRecordsByUuids('Weight', [], [weightRecordId(date)])
+  } catch {
+    // Already gone, never written, or no permission. None of those need reporting: the local
+    // entry is deleted either way, which is what the user asked for.
   }
 }
 

@@ -23,6 +23,7 @@ import { Figtree_600SemiBold } from '@expo-google-fonts/figtree/600SemiBold'
 import { useTheme } from '@/theme/useTheme'
 import { useStore, useStoreHydrated } from '@/store/useStore'
 import { AuthProvider, useAuth } from '@/lib/AuthProvider'
+import { HealthProvider } from '@/hooks/useHealthSync'
 import { LaunchScreen } from '@/components/LaunchScreen'
 import { BrandMark } from '@/components/BrandMark'
 import { Button } from '@/components/Button'
@@ -294,7 +295,7 @@ const UnclaimedDataScreen: React.FC = () => {
 }
 
 /** Routes registered with `presentation: 'modal'` in the Stack below. */
-const MODAL_ROUTES = new Set(['food-search', 'lift-picker', 'chat'])
+const MODAL_ROUTES = new Set(['food-search', 'lift-picker', 'chat', 'weigh-in'])
 
 const RootNavigator: React.FC = () => {
   const theme = useTheme()
@@ -432,6 +433,10 @@ const RootNavigator: React.FC = () => {
               options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
             />
             <Stack.Screen name="goals" />
+            <Stack.Screen
+              name="weigh-in"
+              options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+            />
             <Stack.Screen name="chat" options={{ presentation: 'modal' }} />
           </Stack>
           </SnackbarProvider>
@@ -487,7 +492,12 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AuthProvider>
-          <LaunchGate localReady={localReady} />
+          {/* One Health Connect probe for the whole app. Three screens read it, and when each
+              held its own copy, connecting from Profile left the dashboard card still saying
+              "Not connected" until something happened to remount it. */}
+          <HealthProvider>
+            <LaunchGate localReady={localReady} />
+          </HealthProvider>
         </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

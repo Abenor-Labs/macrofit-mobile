@@ -13,6 +13,7 @@ import {
   Dumbbell,
   Home,
   Plus,
+  Scale,
   Sparkles,
   TrendingUp,
   User,
@@ -250,6 +251,24 @@ const QuickLogButton: React.FC = () => {
           onPress: () => addWater(date, -QUICK_WATER_ML),
         })
       },
+    },
+    {
+      /*
+        Weight belongs here rather than on a dashboard card.
+
+        "Where is the weight logging in the app?" was a real report: it existed, but only
+        inside a card two tabs deep that renders nothing at all when no goal weight is set —
+        which is optional in setup, so for most users there was nowhere to do it from home.
+
+        A seventh dashboard card was the obvious fix and the wrong one. That screen already
+        carries findings for printing the same number twice and for burying the one line that
+        asks the user to act. Food, water and weight are the three things this app records;
+        they belong in one place.
+      */
+      key: 'weight',
+      label: 'Log weight',
+      icon: <Scale size={18} color={theme.brandText} strokeWidth={2} />,
+      run: () => router.push('/weigh-in'),
     },
     {
       key: 'food',
