@@ -33,6 +33,7 @@ import { useTheme, type Theme } from '@/theme/useTheme'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
 import { Surface } from '@/components/Glass'
 import { Body, Label, StatValue } from '@/components/Text'
+import { RichText } from '@/components/RichText'
 import { Button, IconButton } from '@/components/Button'
 import { Field, Screen } from '@/components/Layout'
 
@@ -89,78 +90,6 @@ const actionIcon = (
 const Dot: React.FC<{ color: string }> = ({ color }) => (
   <View style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: color }} />
 )
-
-/**
- * Renders the small amount of Markdown a chat reply is allowed to contain.
- *
- * WHY THIS EXISTS RATHER THAN A MARKDOWN LIBRARY:
- * The model was writing `### Your Remaining Budget`, `**1034 kcal**` and three-column pipe
- * tables, and the bubble rendered every character of it literally, because nothing here ever
- * parsed Markdown. A table is the one construct that cannot degrade — `| Calories | 2234 |
- * 1200 |` is unreadable as text and barely better rendered, on a bubble about three hundred
- * points wide.
- *
- * So the answer is not a parser that can draw tables. It is a prompt that does not ask for
- * them (see api/chat.ts) plus this, which handles what is left: bold for the numbers that
- * matter, and bullets. Headings are stripped rather than styled — a four-line answer has
- * nothing to organise, and a heading in a chat bubble is the model padding.
- *
- * Anything unrecognised falls through as plain text, so a new construct degrades to something
- * readable instead of to punctuation.
- */
-const AssistantText: React.FC<{ text: string; color: string }> = ({ text, color }) => {
-  const lines = text.split('\n')
-  const blocks: React.ReactNode[] = []
-
-  lines.forEach((raw, index) => {
-    // Table rows and their separators. Belt and braces: the prompt forbids them, but a model
-    // is not a compiler and one slipping through must not print as pipes.
-    if (/^\s*\|/.test(raw) || /^\s*\|?[\s:-]*-{3,}[\s:|-]*$/.test(raw)) return
-
-    const line = raw.replace(/^\s*#{1,6}\s*/, '').trimEnd()
-    if (line.trim() === '') return
-
-    const bullet = /^\s*([-*•]|\d+\.)\s+/.exec(line)
-    const content = bullet ? line.slice(bullet[0].length) : line
-
-    // Split on the bold delimiter, keeping the delimited runs. Odd indices are the bold parts.
-    const parts = content.split(/\*\*(.+?)\*\*/g)
-
-    blocks.push(
-      <View
-        key={index}
-        style={{ flexDirection: 'row', gap: bullet ? spacing.xs : 0, alignItems: 'flex-start' }}
-      >
-        {bullet ? (
-          <Body size={14} style={{ color, opacity: 0.7 }}>
-            {'•'}
-          </Body>
-        ) : null}
-        <Body size={14} style={{ flex: 1, color }}>
-          {parts.map((part, i) =>
-            i % 2 === 1 ? (
-              <Body key={i} size={14} weight="semibold" style={{ color }}>
-                {part}
-              </Body>
-            ) : (
-              part.replace(/[*_`]/g, '')
-            ),
-          )}
-        </Body>
-      </View>,
-    )
-  })
-
-  if (blocks.length === 0) {
-    return (
-      <Body size={14} style={{ color }}>
-        {text}
-      </Body>
-    )
-  }
-
-  return <View style={{ gap: spacing.xs }}>{blocks}</View>
-}
 
 /** Macro identity is carried by the written name as well as the color. */
 const MacroChip: React.FC<{ name: string; grams: number; color: string; theme: Theme }> = ({
@@ -518,7 +447,7 @@ export default function ChatScreen() {
                         </Body>
                       </View>
                     ) : (
-                      <AssistantText
+                      <RichText
                         text={message.text}
                         color={mine ? theme.brandOn : theme.text}
                       />
