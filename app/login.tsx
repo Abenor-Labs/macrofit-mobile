@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -13,6 +13,16 @@ import { Body, Label } from '@/components/Text'
 import { Button } from '@/components/Button'
 import { Field } from '@/components/Layout'
 import { fonts, jade, spacing } from '@/theme/tokens'
+
+/**
+ * How long the resend button stays disabled after a send.
+ *
+ * Long enough that a second tap is a decision rather than impatience, short enough that
+ * someone whose email genuinely did not arrive is not stuck waiting on the app instead of
+ * on the mail. The server's own limit is the real one; this only stops the button being
+ * treated as a "hurry up" control.
+ */
+const RESEND_COOLDOWN_SECONDS = 60
 
 /** An inline result line. Errors read critical, confirmations positive, context neutral. */
 const Message: React.FC<{ text: string; kind: 'error' | 'notice' | 'info' }> = ({
@@ -93,7 +103,32 @@ export default function LoginScreen() {
     if (mode === 'up' && result.notice) setMode('in')
   }
 
-  const resend = () => run(() => resendConfirmation(email), true)
+  /*
+    Every send burns quota that belongs to the whole project, not to this user.
+
+    Supabase's outbound auth email is rate-limited per PROJECT — two an hour on the built-in
+    sender, and still a finite number on custom SMTP. So one impatient person tapping "Resend"
+    four times does not slow themselves down, they lock out the next three people who try to
+    sign up. Nothing on screen said so, and the button gave no feedback between taps, which is
+    exactly the shape that invites hammering.
+
+    The countdown is client-side and therefore not a security control — it is the honest
+    affordance for a limit that is real but invisible. The server enforces the actual cap and
+    `over_email_send_rate_limit` reports it.
+  */
+  const [resendCooldown, setResendCooldown] = useState(0)
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return
+    const timer = setTimeout(() => setResendCooldown(seconds => seconds - 1), 1000)
+    return () => clearTimeout(timer)
+  }, [resendCooldown])
+
+  const resend = () => {
+    if (resendCooldown > 0) return
+    setResendCooldown(RESEND_COOLDOWN_SECONDS)
+    void run(() => resendConfirmation(email), true)
+  }
 
   /*
     A successful sign-in does not end here: AuthProvider then fetches the account's saved
@@ -229,10 +264,14 @@ export default function LoginScreen() {
 
             {canResend ? (
               <Button
-                label="Resend confirmation email"
+                label={
+                  resendCooldown > 0
+                    ? `Resend in ${resendCooldown}s`
+                    : 'Resend confirmation email'
+                }
                 variant="ghost"
                 onPress={resend}
-                disabled={working}
+                disabled={working || resendCooldown > 0}
                 full
               />
             ) : null}
