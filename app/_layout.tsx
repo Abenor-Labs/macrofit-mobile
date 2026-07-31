@@ -6,6 +6,7 @@ import { Stack, useRouter, useSegments } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import * as SplashScreen from 'expo-splash-screen'
 import * as Application from 'expo-application'
+import * as SystemUI from 'expo-system-ui'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import {
   SafeAreaInsetsContext,
@@ -300,6 +301,21 @@ const MODAL_ROUTES = new Set(['food-search', 'lift-picker', 'chat', 'weigh-in'])
 const RootNavigator: React.FC = () => {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
+
+  /*
+    Paint the native root the same colour as the canvas.
+
+    Everything above the React tree — the window behind a modal's rounded corners, the
+    overscroll area, the frame between the splash screen tearing down and the first render —
+    is drawn by the platform, using a colour React Native never sets. It defaults to white, so
+    a dark-mode cold start flashed white for a frame and a bounced scroll showed a white band
+    under a near-black page.
+
+    `expo-system-ui` was already a dependency and nothing called it.
+  */
+  useEffect(() => {
+    void SystemUI.setBackgroundColorAsync(theme.canvas)
+  }, [theme.canvas])
   const { user, loading, hydrating, syncBlocked, syncUnavailable, isNewAccount, unclaimedConflict } =
     useAuth()
   const onboardedAt = useStore(s => s.onboardedAt)
