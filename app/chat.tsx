@@ -18,6 +18,7 @@ import {
   Check,
   Droplets,
   Lightbulb,
+  RotateCcw,
   Scale,
   Send,
   User,
@@ -77,6 +78,8 @@ interface ChatEntry {
   discarded?: number
   /** True when this turn failed outright; rendered with the critical status treatment. */
   failed?: boolean
+  /** The user text that triggered this failed turn, so a retry can re-send it. */
+  retryText?: string
 }
 
 const formatValue = (value: number): string =>
@@ -204,6 +207,11 @@ export default function ChatScreen() {
     }
 
     setUndone(prev => ({ ...prev, [message.id]: true }))
+  }
+
+  const retry = (failedMessageId: string, retryText: string) => {
+    setMessages(prev => prev.filter(m => m.id !== failedMessageId))
+    setInput(retryText)
   }
 
   const send = async () => {
@@ -365,7 +373,7 @@ export default function ChatScreen() {
       const message = err instanceof Error ? err.message : 'Something went wrong.'
       setMessages(prev => [
         ...prev,
-        { id: uuidv4(), role: 'assistant', text: message, failed: true },
+        { id: uuidv4(), role: 'assistant', text: message, failed: true, retryText: text },
       ])
     } finally {
       setLoading(false)
@@ -438,13 +446,38 @@ export default function ChatScreen() {
                     }}
                   >
                     {message.failed ? (
-                      <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
-                        <View style={{ marginTop: 2 }}>
-                          <AlertTriangle size={16} color={theme.status.critical} strokeWidth={2.2} />
+                      <View style={{ gap: spacing.sm }}>
+                        <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
+                          <View style={{ marginTop: 2 }}>
+                            <AlertTriangle size={16} color={theme.status.critical} strokeWidth={2.2} />
+                          </View>
+                          <Body size={14} style={{ flex: 1, color: theme.status.critical }}>
+                            {`Failed: ${message.text}`}
+                          </Body>
                         </View>
-                        <Body size={14} style={{ flex: 1, color: theme.status.critical }}>
-                          {`Failed: ${message.text}`}
-                        </Body>
+                        {message.retryText ? (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Retry this message"
+                            onPress={() => retry(message.id, message.retryText!)}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              alignSelf: 'flex-start',
+                              gap: 4,
+                              paddingVertical: 4,
+                              paddingHorizontal: 8,
+                              borderRadius: radius.pill,
+                              borderWidth: StyleSheet.hairlineWidth * 2,
+                              borderColor: theme.border,
+                            }}
+                          >
+                            <RotateCcw size={12} color={theme.textSecondary} strokeWidth={2.2} />
+                            <Body size={12} weight="medium" style={{ color: theme.textSecondary }}>
+                              Retry
+                            </Body>
+                          </Pressable>
+                        ) : null}
                       </View>
                     ) : (
                       <RichText

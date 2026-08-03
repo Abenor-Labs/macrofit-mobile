@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react'
-import { Pressable, StyleSheet, View } from 'react-native'
+import React, { useMemo, useState } from 'react'
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native'
 /*
   `useRouter` rather than `<Link asChild>` for every tappable card on this screen, and it has
   to stay that way. `asChild` renders through Radix's Slot, whose prop merge does
@@ -398,31 +398,29 @@ const CoachCard: React.FC<{
   const weightLog = useStore(s => s.weightLog)
   const bodyMeasurements = useStore(s => s.bodyMeasurements)
   const setRecommendation = useStore(s => s.setRecommendation)
+  const [building, setBuilding] = useState(false)
 
   const buildPlan = () => {
-    const measurement = latestUsableMeasurement(bodyMeasurements ?? [], profile, currentWeightKg)
-    const bodyComp = measurement
-      ? estimateBodyComposition(profile, currentWeightKg, measurement)
-      : null
-    const tdee = buildTdeeEstimate(profile, currentWeightKg, bodyComp, diary, weightLog ?? [])
-
-    /*
-      Prefer what the body actually did over what a formula predicted, but only once enough
-      paired days sit behind it. Same gate useCoach applies, so the plan this card builds and
-      the plan /goals builds are anchored to the same number rather than quietly disagreeing.
-    */
-    const trustMeasured =
-      tdee.measured !== null &&
-      tdee.measured > 0 &&
-      (tdee.confidence === 'medium' || tdee.confidence === 'high')
-
-    setRecommendation(
-      buildLocalRecommendation({
-        goal: profile.goal,
-        weightKg: currentWeightKg,
-        anchorTdee: trustMeasured && tdee.measured !== null ? tdee.measured : tdee.predicted,
-      })
-    )
+    setBuilding(true)
+    requestAnimationFrame(() => {
+      const measurement = latestUsableMeasurement(bodyMeasurements ?? [], profile, currentWeightKg)
+      const bodyComp = measurement
+        ? estimateBodyComposition(profile, currentWeightKg, measurement)
+        : null
+      const tdee = buildTdeeEstimate(profile, currentWeightKg, bodyComp, diary, weightLog ?? [])
+      const trustMeasured =
+        tdee.measured !== null &&
+        tdee.measured > 0 &&
+        (tdee.confidence === 'medium' || tdee.confidence === 'high')
+      setRecommendation(
+        buildLocalRecommendation({
+          goal: profile.goal,
+          weightKg: currentWeightKg,
+          anchorTdee: trustMeasured && tdee.measured !== null ? tdee.measured : tdee.predicted,
+        })
+      )
+      setBuilding(false)
+    })
   }
 
   const label = recommendation
@@ -435,7 +433,10 @@ const CoachCard: React.FC<{
     <Pressable
       accessibilityRole={recommendation ? 'link' : 'button'}
       accessibilityLabel={label}
-      onPress={() => (recommendation ? router.push('/goals') : buildPlan())}
+      onPress={() => {
+        if (building) return
+        recommendation ? router.push('/goals') : buildPlan()
+      }}
       // The card is clipped and fully covered by the wash, so a background change would
       // never show through — opacity is the press feedback that survives the gradient.
       style={({ pressed }) => ({
@@ -464,7 +465,11 @@ const CoachCard: React.FC<{
               backgroundColor: theme.border,
             }}
           >
-            <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
+            {building ? (
+              <ActivityIndicator size="small" color={theme.brandText} />
+            ) : (
+              <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
+            )}
           </View>
 
           <View style={{ flex: 1, gap: 4 }}>
@@ -483,7 +488,7 @@ const CoachCard: React.FC<{
               </View>
             ) : (
               <Body size={13} tone="secondary">
-                No plan yet — tap to build one from what you have logged.
+                {building ? 'Building…' : 'No plan yet — tap to build one from what you have logged.'}
               </Body>
             )}
           </View>

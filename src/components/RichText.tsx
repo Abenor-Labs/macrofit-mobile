@@ -40,7 +40,11 @@ export const RichText: React.FC<{
 }> = ({ text, color, size = 14 }) => {
   const lines: React.ReactNode[] = []
 
-  text.split('\n').forEach((raw, index) => {
+  // Strip leaked tool-call markup the server failed to parse.
+  const cleaned = text.replace(/<toolcall>[\s\S]*?<\/toolcall>/g, '').trim()
+  if (cleaned === '') return null
+
+  cleaned.split('\n').forEach((raw, index) => {
     // Table rows and the dashed separator beneath them.
     if (/^\s*\|/.test(raw) || /^\s*\|?[\s:-]*-{3,}[\s:|-]*$/.test(raw)) return
 

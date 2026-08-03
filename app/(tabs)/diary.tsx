@@ -18,6 +18,7 @@ import { Button, IconButton } from '@/components/Button'
 import { Field, Pill, Screen } from '@/components/Layout'
 import { ProgressTrack } from '@/components/MacroRing'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
+import { useSnackbar } from '@/components/Snackbar'
 import { useStore } from '@/store/useStore'
 import { DateNavigator } from '@/components/DateNavigator'
 import { useTheme } from '@/theme/useTheme'
@@ -226,6 +227,8 @@ const EntryRow: React.FC<{ entry: FoodEntry; date: string }> = ({ entry, date })
   const theme = useTheme()
   const removeFoodEntry = useStore(s => s.removeFoodEntry)
   const updateFoodEntry = useStore(s => s.updateFoodEntry)
+  const addFoodEntry = useStore(s => s.addFoodEntry)
+  const snackbar = useSnackbar()
 
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(() => formatAmount(entry.servings))
@@ -338,7 +341,19 @@ const EntryRow: React.FC<{ entry: FoodEntry; date: string }> = ({ entry, date })
             <Button
               label="Remove"
               variant="ghost"
-              onPress={() => removeFoodEntry(date, entry.id)}
+              onPress={() => {
+                removeFoodEntry(date, entry.id)
+                setEditing(false)
+                snackbar.show(`${entry.food.name} removed`, {
+                  label: 'Undo',
+                  onPress: () => addFoodEntry(date, {
+                    foodId: entry.food.id,
+                    food: entry.food,
+                    servings: entry.servings,
+                    mealType: entry.mealType,
+                  }),
+                })
+              }}
               icon={<Trash2 size={15} color={theme.status.critical} strokeWidth={2} />}
             />
           </View>
