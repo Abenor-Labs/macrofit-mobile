@@ -365,11 +365,12 @@ const EntryRow: React.FC<{ entry: FoodEntry; date: string }> = ({ entry, date })
 
 // --- One meal ---------------------------------------------------------------
 
-const MealCard: React.FC<{ meal: MealType; date: string; entries: FoodEntry[] }> = ({
-  meal,
-  date,
-  entries,
-}) => {
+const MealCard: React.FC<{
+  meal: MealType
+  date: string
+  entries: FoodEntry[]
+  teach?: boolean
+}> = ({ meal, date, entries, teach }) => {
   const theme = useTheme()
   const saveMealTemplate = useStore(s => s.saveMealTemplate)
 
@@ -433,7 +434,9 @@ const MealCard: React.FC<{ meal: MealType; date: string; entries: FoodEntry[] }>
 
       {entries.length === 0 ? (
         <Body size={13} tone="muted">
-          {`Nothing logged for ${meal.toLowerCase()} yet.`}
+          {teach
+            ? `Nothing logged for ${meal.toLowerCase()} yet. Use Add food to search, or the assistant to just describe what you ate.`
+            : `Nothing logged for ${meal.toLowerCase()} yet.`}
         </Body>
       ) : (
         entries.map((entry, index) => (
@@ -630,6 +633,7 @@ export default function DiaryScreen() {
     router.setParams({ date: undefined })
   }, [params.date, today])
 
+  const mealTemplates = useStore(s => s.mealTemplates)
   const storedDay = useStore(s => s.diary[date])
   const day = useMemo(() => storedDay ?? emptyDay(date), [storedDay, date])
 
@@ -655,11 +659,24 @@ export default function DiaryScreen() {
       <DateNavigator date={date} today={today} onChange={setDate} />
       <DayTotals day={day} />
 
-      {MEAL_TYPES.map(meal => (
-        <MealCard key={meal} meal={meal} date={date} entries={byMeal.get(meal) ?? []} />
+      {mealTemplates.length > 0 ? <SavedMeals date={date} /> : null}
+
+      {MEAL_TYPES.map((meal, index) => (
+        <MealCard
+          key={meal}
+          meal={meal}
+          date={date}
+          entries={byMeal.get(meal) ?? []}
+          /*
+            First card, and only on a day with nothing in it at all. Keyed on the whole day
+            rather than on this card being empty, so someone who logs lunch before breakfast
+            is not told how to log food they have plainly already worked out how to log.
+          */
+          teach={index === 0 && day.entries.length === 0}
+        />
       ))}
 
-      <SavedMeals date={date} />
+      {mealTemplates.length === 0 ? <SavedMeals date={date} /> : null}
     </Screen>
   )
 }

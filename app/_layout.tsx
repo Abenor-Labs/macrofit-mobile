@@ -449,6 +449,7 @@ const RootNavigator: React.FC = () => {
               options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
             />
             <Stack.Screen name="goals" />
+            <Stack.Screen name="help" />
             <Stack.Screen
               name="weigh-in"
               options={{ presentation: 'modal', animation: 'slide_from_bottom' }}

@@ -54,6 +54,12 @@ export const DateNavigator: React.FC<{
 }> = ({ date, today, onChange }) => {
   const theme = useTheme()
   const isToday = date === today
+  /*
+    The forward chevron stops at today. A day that has not happened cannot have been eaten,
+    so "Nothing logged for breakfast yet" reads as a failure rather than as the absence it is.
+    `>=` rather than `===` so a clock change that leaves the view ahead of today still clamps.
+  */
+  const atUpperBound = date >= today
   const relative = isToday
     ? 'Today'
     : date === shiftISODate(today, -1)
@@ -86,9 +92,14 @@ export const DateNavigator: React.FC<{
 
         <IconButton
           accessibilityLabel="Show the next day"
+          disabled={atUpperBound}
           onPress={() => onChange(shiftISODate(date, 1))}
         >
-          <ChevronRight size={22} color={theme.text} strokeWidth={2} />
+          <ChevronRight
+            size={22}
+            color={atUpperBound ? theme.textMuted : theme.text}
+            strokeWidth={2}
+          />
         </IconButton>
       </View>
 

@@ -231,6 +231,18 @@ const MacroCard: React.FC<{
 
   const over = nutrition.calories > goalCalories
 
+  /*
+    Every macro at or past its target, on a day that actually has food in it. The ring fills
+    and then says nothing, which leaves the one moment the whole screen is built around
+    unmarked. `calories > 0` guards the day that has not started: three zeroes are not three
+    targets met.
+  */
+  const allMacrosHit =
+    nutrition.calories > 0 &&
+    nutrition.protein >= proteinGoal &&
+    nutrition.carbs >= carbsGoal &&
+    nutrition.fat >= fatGoal
+
   return (
     /*
       Opens the diary on the day this ring is showing.
@@ -324,6 +336,26 @@ const MacroCard: React.FC<{
           </MacroRing>
         </View>
 
+        {allMacrosHit ? (
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              alignSelf: 'center',
+              gap: 6,
+              paddingHorizontal: spacing.md,
+              paddingVertical: 5,
+              borderRadius: radius.pill,
+              backgroundColor: theme.border,
+            }}
+          >
+            <Check size={13} color={theme.status.good} strokeWidth={2.6} />
+            <Body size={12} weight="semibold" style={{ color: theme.status.good }}>
+              All macros hit
+            </Body>
+          </View>
+        ) : null}
+
         <View style={{ flexDirection: 'row', gap: spacing.md }}>
           {legend.map(item => (
             <View key={item.key} style={{ flex: 1, gap: 4 }}>
@@ -364,6 +396,12 @@ const MacroCard: React.FC<{
             </View>
           ))}
         </View>
+
+        {nutrition.calories === 0 ? (
+          <Body size={12} tone="muted" style={{ textAlign: 'center' }}>
+            Three rings, outside in: protein, carbs, fat. Log anything and they start filling.
+          </Body>
+        ) : null}
       </Surface>
     </Pressable>
   )

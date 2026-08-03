@@ -4,6 +4,7 @@ import { router } from 'expo-router'
 import {
   Activity,
   Bookmark,
+  BookOpen,
   ChevronDown,
   ChevronRight,
   Cloud,
@@ -1107,6 +1108,29 @@ export default function ProfileScreen() {
       </SectionGroup>
 
       <SectionGroup label="App">
+      {/*
+        First in the group because it is the only entry here that answers a question rather
+        than changing a setting, and the questions it answers ("what is the middle number",
+        "why did my target move") are the ones a person has before they have any settings
+        worth changing.
+      */}
+      <Section
+        title="How it works"
+        icon={<BookOpen size={16} color={theme.brandText} strokeWidth={2} />}
+        subtitle="What the numbers mean, and where they come from"
+      >
+        <Body size={13} tone="secondary">
+          The ring, the targets, the weight line and the assistant, explained in the order you
+          are likely to meet them.
+        </Body>
+        <Button
+          label="Open"
+          variant="secondary"
+          onPress={() => router.push('/help')}
+          icon={<BookOpen size={15} color={theme.text} strokeWidth={2} />}
+        />
+      </Section>
+
       {/* Setup you do once. It used to open itself at the top of the screen on every visit,
           pushing everything the user actually came for below the fold. */}
       {health.availability === 'available' && (
