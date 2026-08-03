@@ -10,6 +10,7 @@ import {
   Cloud,
   CloudOff,
   Download,
+  Flame,
   LogOut,
   Moon,
   Repeat,
@@ -779,6 +780,31 @@ export default function ProfileScreen() {
         </Body>
       </Section>
 
+      {/*
+        The only entry point to the screen that edits the daily numbers.
+
+        /goals was previously reachable from exactly one place — the dashboard coach card, and
+        only once a plan existed, because with no plan the same tap builds one instead. So the
+        screen that sets calories and macros was unreachable for the people most likely to want
+        it: the ones who had not accepted a coach plan.
+      */}
+      <Section
+        title="Daily targets"
+        icon={<Flame size={16} color={theme.brandText} strokeWidth={2} />}
+        subtitle={`${goals.calories} kcal · ${goals.protein} g protein`}
+      >
+        <Body size={13} tone="secondary">
+          Set the calories and the protein, carb and fat split yourself, or accept what the
+          coach works out from your logged data.
+        </Body>
+        <Button
+          label="Edit daily targets"
+          variant="secondary"
+          onPress={() => router.push('/goals')}
+          icon={<Flame size={15} color={theme.text} strokeWidth={2} />}
+        />
+      </Section>
+
       <Section
         title="About you"
         icon={<UserIcon size={16} color={theme.brandText} strokeWidth={2} />}
@@ -1123,8 +1149,10 @@ export default function ProfileScreen() {
           The ring, the targets, the weight line and the assistant, explained in the order you
           are likely to meet them.
         </Body>
+        {/* Labelled with its destination, not with "Open": the Button forwards its label to
+            accessibilityLabel, so a screen reader swiping the page would land on "Open". */}
         <Button
-          label="Open"
+          label="Read how it works"
           variant="secondary"
           onPress={() => router.push('/help')}
           icon={<BookOpen size={15} color={theme.text} strokeWidth={2} />}

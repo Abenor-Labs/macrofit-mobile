@@ -85,7 +85,7 @@ const buildTopics = (theme: Theme): Topic[] => {
       body: [
         'Setup asked for age, height, weight, how active your days are and what you are trying to do. From those, the app estimates what your body burns in a day, then turns that into a calorie target and a protein, carb and fat split.',
         'That first estimate is a formula, and the app labels it Predicted because that is all it is. Once you have logged enough days of food alongside enough weigh-ins, it can work out what you actually burn by comparing the two — how much you ate against which way the weight moved. That figure is labelled Measured, and the coach prefers it as soon as there is enough behind it to trust.',
-        'You can override any of it. Open Goals and type the numbers you want; nothing the coach proposes reaches your daily targets until you accept it.',
+        'You can override any of it. Profile has a Daily targets section that opens the screen where you type the numbers you want; nothing the coach proposes reaches your daily targets until you accept it.',
       ],
     },
     {
@@ -147,13 +147,20 @@ const TopicRow: React.FC<{ topic: Topic; open: boolean; onToggle: () => void }> 
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
-        accessibilityLabel={`${topic.title}. ${open ? 'Collapse' : 'Expand'}`}
+        // No "Expand"/"Collapse" verb in the label: accessibilityState already carries it, and
+        // saying both makes the announcement read "Collapse, expanded, button".
+        accessibilityLabel={topic.title}
         onPress={onToggle}
         style={({ pressed }) => ({
           flexDirection: 'row',
           alignItems: 'center',
           gap: spacing.md,
-          minHeight: HIT_SIZE - spacing.lg,
+          /*
+            The Surface's padding belongs to the Surface, not to this Pressable — the tap box is
+            this box only. Subtracting the padding from HIT_SIZE assumed otherwise and produced
+            a 34dp target, set by the icon rather than by the minimum.
+          */
+          minHeight: HIT_SIZE,
           opacity: pressed ? 0.6 : 1,
         })}
       >

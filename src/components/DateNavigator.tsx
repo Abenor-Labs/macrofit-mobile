@@ -55,9 +55,15 @@ export const DateNavigator: React.FC<{
   const theme = useTheme()
   const isToday = date === today
   /*
-    The forward chevron stops at today. A day that has not happened cannot have been eaten,
-    so "Nothing logged for breakfast yet" reads as a failure rather than as the absence it is.
-    `>=` rather than `===` so a clock change that leaves the view ahead of today still clamps.
+    The forward chevron clamps rather than disables.
+
+    A day that has not happened cannot have been eaten, so walking the diary into next week
+    only produces "Nothing logged for breakfast yet" for days that were never going to have
+    anything. But `today` is a prop, recomputed only when a consumer re-renders — leave this
+    screen open across midnight and it still says yesterday. Disabling the control on that
+    stale value pinned the user to yesterday with "Jump to today" also hidden, and every
+    subsequent log landing on the wrong date. Clamping keeps the tap live, and the tap is what
+    forces the re-render that corrects `today`.
   */
   const atUpperBound = date >= today
   const relative = isToday
@@ -91,9 +97,18 @@ export const DateNavigator: React.FC<{
         </View>
 
         <IconButton
-          accessibilityLabel="Show the next day"
-          disabled={atUpperBound}
-          onPress={() => onChange(shiftISODate(date, 1))}
+          accessibilityLabel={
+            atUpperBound
+              ? 'Show the next day. Already on the latest day.'
+              : 'Show the next day'
+          }
+          onPress={() => {
+            const next = shiftISODate(date, 1)
+            // Recomputed at press time, not read from the prop, so a screen left open across
+            // midnight resolves to the real today rather than to the value it rendered with.
+            const limit = getDateString(new Date())
+            onChange(next > limit ? limit : next)
+          }}
         >
           <ChevronRight
             size={22}

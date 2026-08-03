@@ -173,6 +173,7 @@ export default function DashboardScreen() {
         carbsGoal={goals.carbs}
         fatGoal={goals.fat}
         date={today}
+        hasEntries={day.entries.length > 0}
       />
 
       {/* Second, not first. It is the only line on this screen that asks for a change, and
@@ -220,7 +221,17 @@ const MacroCard: React.FC<{
   fatGoal: number
   /** The day these figures describe, so the diary opens on it rather than on today. */
   date: string
-}> = ({ theme, nutrition, goalCalories, proteinGoal, carbsGoal, fatGoal, date }) => {
+  hasEntries: boolean
+}> = ({
+  theme,
+  nutrition,
+  goalCalories,
+  proteinGoal,
+  carbsGoal,
+  fatGoal,
+  date,
+  hasEntries,
+}) => {
   const router = useRouter()
 
   const legend = [
@@ -242,6 +253,9 @@ const MacroCard: React.FC<{
     nutrition.protein >= proteinGoal &&
     nutrition.carbs >= carbsGoal &&
     nutrition.fat >= fatGoal
+
+  const overBy = Math.max(0, Math.round(nutrition.calories - goalCalories))
+  const badgeTone = overBy > 0 ? theme.status.warning : theme.status.good
 
   return (
     /*
@@ -265,7 +279,13 @@ const MacroCard: React.FC<{
       accessibilityRole="link"
       accessibilityLabel={`${formatNumber(nutrition.calories)} of ${formatNumber(
         goalCalories
-      )} kilocalories. Open the diary for this day.`}
+      )} kilocalories.${
+        allMacrosHit
+          ? overBy > 0
+            ? ` All macros hit, ${overBy} kilocalories over.`
+            : ' All macros hit.'
+          : ''
+      } Open the diary for this day.`}
       onPress={() => router.push({ pathname: '/diary', params: { date } })}
       style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
     >
@@ -346,12 +366,13 @@ const MacroCard: React.FC<{
               paddingHorizontal: spacing.md,
               paddingVertical: 5,
               borderRadius: radius.pill,
-              backgroundColor: theme.border,
+              borderWidth: StyleSheet.hairlineWidth * 2,
+              borderColor: theme.border,
             }}
           >
-            <Check size={13} color={theme.status.good} strokeWidth={2.6} />
-            <Body size={12} weight="semibold" style={{ color: theme.status.good }}>
-              All macros hit
+            <Check size={13} color={badgeTone} strokeWidth={2.6} />
+            <Body size={12} weight="semibold" style={{ color: badgeTone }}>
+              {overBy > 0 ? `All macros hit · ${formatNumber(overBy)} over` : 'All macros hit'}
             </Body>
           </View>
         ) : null}
@@ -397,9 +418,9 @@ const MacroCard: React.FC<{
           ))}
         </View>
 
-        {nutrition.calories === 0 ? (
+        {!hasEntries ? (
           <Body size={12} tone="muted" style={{ textAlign: 'center' }}>
-            Three rings, outside in: protein, carbs, fat. Log anything and they start filling.
+            Three arcs, outside in: protein, carbs, fat. Log anything and they start filling.
           </Body>
         ) : null}
       </Surface>

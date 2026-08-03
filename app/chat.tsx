@@ -209,9 +209,24 @@ export default function ChatScreen() {
     setUndone(prev => ({ ...prev, [message.id]: true }))
   }
 
+  /*
+    Puts a failed turn back the way it was before it was sent.
+
+    Both messages go, not just the failed reply: the user's bubble is still in `messages`, and
+    `send` rebuilds history from whatever survives, so leaving it would send the same user turn
+    to the model twice and show it twice in the transcript.
+  */
   const retry = (failedMessageId: string, retryText: string) => {
-    setMessages(prev => prev.filter(m => m.id !== failedMessageId))
+    if (loading) return
+    setMessages(prev => {
+      const index = prev.findIndex(m => m.id === failedMessageId)
+      if (index === -1) return prev
+      const previous = prev[index - 1]
+      const from = previous?.role === 'user' ? index - 1 : index
+      return [...prev.slice(0, from), ...prev.slice(index + 1)]
+    })
     setInput(retryText)
+    scrollToEnd()
   }
 
   const send = async () => {
@@ -219,7 +234,9 @@ export default function ChatScreen() {
     if (text.length === 0 || loading) return
 
     const history: ChatMessageParam[] = messages
-      .filter(m => m.id !== WELCOME_ID)
+      // A failed turn is this client's error string, not something the assistant said. Sending
+      // it back would tell the model it had replied "Network request failed".
+      .filter(m => m.id !== WELCOME_ID && !m.failed)
       .map(m => ({ role: m.role, content: m.text }))
     history.push({ role: 'user', content: text })
 
@@ -431,8 +448,12 @@ export default function ChatScreen() {
                   {/* Role is carried by side, by surface and by the avatar icon — three
                       signals, so it survives without color. */}
                   <View
-                    accessible
-                    accessibilityLabel={`${mine ? 'You said' : 'Assistant said'}: ${message.text}`}
+                    accessible={!message.failed}
+                    accessibilityLabel={
+                      message.failed
+                        ? undefined
+                        : `${mine ? 'You said' : 'Assistant said'}: ${message.text}`
+                    }
                     style={{
                       maxWidth: '92%',
                       paddingHorizontal: 14,
@@ -447,7 +468,11 @@ export default function ChatScreen() {
                   >
                     {message.failed ? (
                       <View style={{ gap: spacing.sm }}>
-                        <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
+                        <View
+                          accessible
+                          accessibilityLabel={`Assistant failed: ${message.text}`}
+                          style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}
+                        >
                           <View style={{ marginTop: 2 }}>
                             <AlertTriangle size={16} color={theme.status.critical} strokeWidth={2.2} />
                           </View>
@@ -465,6 +490,7 @@ export default function ChatScreen() {
                               alignItems: 'center',
                               alignSelf: 'flex-start',
                               gap: 4,
+                              minHeight: HIT_SIZE,
                               paddingVertical: 4,
                               paddingHorizontal: 8,
                               borderRadius: radius.pill,

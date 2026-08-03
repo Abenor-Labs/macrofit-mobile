@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native'
+import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { router, useGlobalSearchParams } from 'expo-router'
 import * as Haptics from 'expo-haptics'
 import {
@@ -517,6 +517,7 @@ const SavedMeals: React.FC<{ date: string }> = ({ date }) => {
   const templates = useStore(s => s.mealTemplates)
   const applyMealTemplate = useStore(s => s.applyMealTemplate)
   const deleteMealTemplate = useStore(s => s.deleteMealTemplate)
+  const snackbar = useSnackbar()
 
   return (
     <Surface style={{ padding: spacing.lg, gap: spacing.md }}>
@@ -567,6 +568,9 @@ const SavedMeals: React.FC<{ date: string }> = ({ date }) => {
                   onPress={() => {
                     applyMealTemplate(template.id, date)
                     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+                    // No undo offered: applyMealTemplate mints the new entry ids inside the
+                    // store and returns nothing, so there is no handle to remove them again.
+                    snackbar.show(`${template.name} added · ${plural(items, 'item')}`)
                   }}
                   style={({ pressed }) => ({
                     minHeight: HIT_SIZE,
@@ -592,7 +596,20 @@ const SavedMeals: React.FC<{ date: string }> = ({ date }) => {
 
                 <IconButton
                   accessibilityLabel={`Delete saved meal ${template.name}`}
-                  onPress={() => deleteMealTemplate(template.id)}
+                  onPress={() =>
+                    Alert.alert(
+                      'Delete saved meal',
+                      `"${template.name}" will be removed. The food already logged from it stays where it is.`,
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Delete',
+                          style: 'destructive',
+                          onPress: () => deleteMealTemplate(template.id),
+                        },
+                      ],
+                    )
+                  }
                 >
                   <Trash2 size={16} color={theme.textMuted} strokeWidth={2} />
                 </IconButton>
@@ -633,7 +650,13 @@ export default function DiaryScreen() {
     router.setParams({ date: undefined })
   }, [params.date, today])
 
-  const mealTemplates = useStore(s => s.mealTemplates)
+  /*
+    Only for someone who actually is new. Every day starts empty, so keying the hint on an
+    empty day alone taught a two-year user how to log food every morning.
+  */
+  const onboardedAt = useStore(s => s.onboardedAt)
+  const isNewUser = onboardedAt !== null && Date.now() - onboardedAt < 7 * 24 * 60 * 60 * 1000
+
   const storedDay = useStore(s => s.diary[date])
   const day = useMemo(() => storedDay ?? emptyDay(date), [storedDay, date])
 
@@ -659,7 +682,12 @@ export default function DiaryScreen() {
       <DateNavigator date={date} today={today} onChange={setDate} />
       <DayTotals day={day} />
 
-      {mealTemplates.length > 0 ? <SavedMeals date={date} /> : null}
+      {/*
+        One instance, always above the cards. It used to sit at the bottom when empty and jump
+        to the top on the first save — which fires from inside a meal card, so the page moved
+        under the finger that had just tapped it.
+      */}
+      <SavedMeals date={date} />
 
       {MEAL_TYPES.map((meal, index) => (
         <MealCard
@@ -672,11 +700,9 @@ export default function DiaryScreen() {
             rather than on this card being empty, so someone who logs lunch before breakfast
             is not told how to log food they have plainly already worked out how to log.
           */
-          teach={index === 0 && day.entries.length === 0}
+          teach={index === 0 && day.entries.length === 0 && isNewUser}
         />
       ))}
-
-      {mealTemplates.length === 0 ? <SavedMeals date={date} /> : null}
     </Screen>
   )
 }

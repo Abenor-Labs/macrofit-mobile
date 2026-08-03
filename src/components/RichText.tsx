@@ -40,8 +40,16 @@ export const RichText: React.FC<{
 }> = ({ text, color, size = 14 }) => {
   const lines: React.ReactNode[] = []
 
-  // Strip leaked tool-call markup the server failed to parse.
-  const cleaned = text.replace(/<toolcall>[\s\S]*?<\/toolcall>/g, '').trim()
+  /*
+    Strip tool-call markup the server failed to parse out of its own reply.
+
+    The closing tag is optional on purpose. Markup reaches this component precisely when the
+    server's parse went wrong or a response was truncated, which is the same situation that
+    loses the closing tag — requiring it would make the pattern miss the case it exists for.
+    Attributes are allowed and the match is case-insensitive for the same reason: this is
+    salvage, not a grammar.
+  */
+  const cleaned = text.replace(/<toolcall\b[^>]*>[\s\S]*?(?:<\/toolcall>|$)/gi, '').trim()
   if (cleaned === '') return null
 
   cleaned.split('\n').forEach((raw, index) => {
@@ -53,13 +61,19 @@ export const RichText: React.FC<{
 
     const bullet = /^\s*([-*•]|\d+\.)\s+/.exec(line)
     const content = bullet ? line.slice(bullet[0].length) : line
+    /*
+      A numbered list keeps its numbers. Rewriting '1.' '2.' '3.' to three identical dots
+      destroys the one thing an ordered list carries that an unordered one does not, and the
+      assistant uses them for steps the user is meant to follow in order.
+    */
+    const marker = bullet ? (bullet[1].endsWith('.') ? `${bullet[1]} ` : '• ') : ''
 
     // Splitting on the bold delimiter keeps the delimited runs, at the odd indices.
     const parts = content.split(/\*\*(.+?)\*\*/g)
 
     lines.push(
       <Body key={index} size={size} style={{ color }}>
-        {bullet ? '• ' : ''}
+        {marker}
         {parts.map((part, i) =>
           i % 2 === 1 ? (
             <Body key={i} size={size} weight="semibold" style={{ color }}>
@@ -74,11 +88,16 @@ export const RichText: React.FC<{
     )
   })
 
-  // Every line was a table row or blank. Show the original rather than nothing at all.
+  /*
+    Every line was a table row or blank. Show what is left rather than nothing at all — but
+    show the *cleaned* string, not the original. Falling back to `text` handed the raw
+    `<toolcall>` JSON straight to the screen for any reply that was markup plus a table,
+    which is exactly the reply this strip exists to catch.
+  */
   if (lines.length === 0) {
     return (
       <Body size={size} style={{ color }}>
-        {text}
+        {cleaned}
       </Body>
     )
   }
