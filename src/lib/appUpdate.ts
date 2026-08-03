@@ -22,7 +22,7 @@ import { getContentUriAsync } from 'expo-file-system/legacy'
  * way out is uninstalling, which takes the user's local data with it.
  */
 
-const RELEASES_URL = 'https://api.github.com/repos/warpirate/macrofit-mobile/releases/latest'
+const RELEASES_URL = 'https://api.github.com/repos/Abenor-Labs/macrofit-mobile/releases/latest'
 
 const FETCH_TIMEOUT_MS = 10_000
 
