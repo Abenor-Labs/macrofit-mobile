@@ -9,12 +9,11 @@ import {
   type ViewStyle,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { BlurTargetArea, ChromeBlur } from './BlurTarget'
+import { BlurTargetArea } from './BlurTarget'
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, fonts, radius, spacing } from '@/theme/tokens'
 import { Body, Label, SectionTitle } from './Text'
-import { Aurora } from './Aurora'
-import { LiquidGlassPane, LiquidGlassScene } from './LiquidGlass'
+import { Glass, Island } from './Material'
 
 /** Height the floating tab bar occupies, so scroll content can clear it. */
 export const TAB_BAR_SPACE = 76
@@ -52,32 +51,28 @@ export const Screen: React.FC<ScreenProps> = ({
 
   return (
     /*
-      The scene, not a plain View, and `Aurora` rather than the static `Backdrop`.
+      Flat ground. No ambient field, no scene.
 
-      Every surface in this app now refracts (see Glass.tsx), and a refracting pane needs two
-      things from its ancestor: a declared backdrop it is allowed to sample, and a coloured
-      field with enough structure to be worth bending. `Backdrop` supplied the second badly —
-      it is still, so a lens over it displaces nothing visible — and the first not at all.
+      This used to mount an `Aurora` behind every routed screen, because the material above
+      it refracted and needed something with structure to bend. Nothing refracts any more
+      (see Material.tsx), so the field went back to being decoration — and decoration behind
+      a table of figures is noise. MOBILE-DESIGN §8 keeps it on Welcome, Login, Onboarding
+      and Chat, which are the screens where the field IS the content.
 
-      One consequence worth stating: this makes the ambient wash a hard dependency of the
-      material rather than decoration behind it. A screen that renders panes outside a
-      `LiquidGlassScene` still works, but it falls back to frost and stops being glass.
+      It is also the single biggest perf win available here: every pane on a screen used to
+      mount its own copy of that field.
     */
-    <LiquidGlassScene backdrop={<Aurora />} style={{ backgroundColor: theme.canvas }}>
+    <View style={{ flex: 1, backgroundColor: theme.canvas }}>
       {title !== undefined && (
-        <View
+        <Glass
+          radius={0}
           style={{
             paddingTop: insets.top,
             borderBottomWidth: StyleSheet.hairlineWidth * 2,
             borderBottomColor: theme.glass.border,
-            overflow: 'hidden',
             zIndex: 10,
           }}
         >
-          <ChromeBlur tint={theme.glass.tint} intensity={theme.glass.intensity + 20} />
-          <View
-            style={[StyleSheet.absoluteFill, { backgroundColor: theme.glass.chromeOverlay }]}
-          />
           <View
             style={{
               flexDirection: 'row',
@@ -98,7 +93,7 @@ export const Screen: React.FC<ScreenProps> = ({
             </View>
             {right}
           </View>
-        </View>
+        </Glass>
       )}
 
       {/* This is what the header and the tab bar blur. Both float above it, so it has to be the
@@ -120,7 +115,7 @@ export const Screen: React.FC<ScreenProps> = ({
           body
         )}
       </BlurTargetArea>
-    </LiquidGlassScene>
+    </View>
   )
 }
 
@@ -132,15 +127,14 @@ export const Pill: React.FC<{
   const theme = useTheme()
   return (
     /*
-      Tinted glass. The colour a pill carries is load-bearing — it is how a macro or a status
-      says which one it is — so it survives as the pane's tint rather than as a flat fill.
-      `1A` is the same alpha the solid version used, now sitting over a lens instead of over
-      the canvas.
+      A flat tinted fill, not a pane.
+
+      The colour a pill carries is load-bearing — it is how a macro or a status says which
+      one it is — and a translucent material sitting on an unpredictable background is
+      exactly how that colour stops being reliable. `1A` on the fill and `40` on the edge are
+      the values this had before it was briefly made glass.
     */
-    <LiquidGlassPane
-      radius={radius.pill}
-      variant="clear"
-      tint={color ? `${color}1A` : undefined}
+    <View
       style={[
         {
           flexDirection: 'row',
@@ -148,6 +142,10 @@ export const Pill: React.FC<{
           gap: 6,
           paddingHorizontal: 12,
           paddingVertical: 5,
+          borderRadius: radius.pill,
+          backgroundColor: color ? `${color}1A` : theme.border,
+          borderWidth: StyleSheet.hairlineWidth * 2,
+          borderColor: color ? `${color}40` : theme.border,
         },
         style,
       ]}
@@ -159,7 +157,7 @@ export const Pill: React.FC<{
       ) : (
         children
       )}
-    </LiquidGlassPane>
+    </View>
   )
 }
 
@@ -175,12 +173,12 @@ export const Field: React.FC<FieldProps> = ({ label, numeric = false, style, ...
     <View style={{ gap: 6 }}>
       {label ? <Label>{label}</Label> : null}
       {/*
-        `regular`, never `clear`. An input is read while it is being typed into, so the pane
-        has to hold a floor under the text rather than letting the aurora decide what the
-        contrast is that second. The TextInput itself goes transparent and the pane supplies
-        the ground, the radius and the edge.
+        Solid, and this was always the right answer even when everything else was glass: an
+        input is read while it is being typed into, so it needs a fixed floor under the text
+        rather than whatever happens to be behind it that second. The TextInput goes
+        transparent and the island supplies the ground, the radius and the edge.
       */}
-      <LiquidGlassPane radius={radius.control} variant="regular">
+      <Island radius={radius.control}>
       <TextInput
         placeholderTextColor={theme.textMuted}
         style={[
@@ -209,7 +207,7 @@ export const Field: React.FC<FieldProps> = ({ label, numeric = false, style, ...
         ]}
         {...props}
       />
-      </LiquidGlassPane>
+      </Island>
     </View>
   )
 }
@@ -224,9 +222,9 @@ export const EmptyState: React.FC<{
   return (
     <View style={{ alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl }}>
       {icon ? (
-        <LiquidGlassPane
+        <Island
           radius={radius.control}
-          variant="clear"
+          elevated={false}
           style={{
             width: 56,
             height: 56,
@@ -235,7 +233,7 @@ export const EmptyState: React.FC<{
           }}
         >
           {icon}
-        </LiquidGlassPane>
+        </Island>
       ) : null}
       <SectionTitle style={{ textAlign: 'center' }}>{title}</SectionTitle>
       <Body tone="secondary" style={{ textAlign: 'center' }}>

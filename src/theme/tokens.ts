@@ -137,26 +137,93 @@ export interface Theme {
    * for lime — a jade bloom under a lime accent reads as a rendering fault.
    */
   bloom: { top: string; counterweight: string; bottom: string }
-  /** Blur tint + overlay colors for GlassSurface. */
+  /**
+   * The glass material — floating chrome ONLY. See MOBILE-DESIGN §1 and §2.
+   *
+   * HEAVY TINT, MODEST BLUR. This is the inversion that mattered. The previous values ran a
+   * 0.30 tint under a 40–50 intensity blur, which is the recipe for "washed out": at 0.30 the
+   * tint cannot hold a tab label's contrast, and the expensive blur underneath it is doing
+   * work nobody can see. Telegram's compact menu is `#FFFFFFBB` — 72.5% — over a 10px blur,
+   * and its reaction picker goes to 92%. Their glass is nearly opaque. It reads as glass
+   * because of the edge and the motion behind it, not because you can see through it.
+   *
+   * Nothing holding content uses any of this. Islands are solid.
+   */
   glass: {
+    /** BlurView's tint style, not a colour. */
     tint: 'light' | 'dark'
+    /** expo-blur intensity. Deliberately modest — the overlays below carry legibility. */
     intensity: number
-    /**
-     * Tint for surfaces that cannot blur what is behind them — the in-content cards in
-     * Glass.tsx, which sit inside the very view the chrome samples. Opaque enough to read as
-     * deliberate material on its own, because for those it is the only material there is.
-     */
+    /** Sheets, menus and the chat composer. Heavier, because they sit over live content. */
     overlay: string
-    /**
-     * Tint for the floating chrome — tab bar, screen headers — which does blur real content
-     * via ChromeBlur. Much lighter than `overlay`: at 0.55 the tint is doing the work and the
-     * blur is wasted underneath it. Kept at or above 0.28 so tab labels hold their contrast.
-     */
+    /** Tab bar and screen headers. */
     chromeOverlay: string
+    /**
+     * Laid over the blur before content, for glass sitting on imagery — meal photos,
+     * progress photos. `BlurBehindDrawable` draws `0x1a000000` unconditionally for the same
+     * reason: a bright photo otherwise eats white text.
+     */
+    scrim: string
     border: string
-    highlight: string
   }
 }
+
+/**
+ * Elevation for light mode. Dark mode sets NO shadow and steps up the ink ladder instead —
+ * a shadow is invisible at those lightnesses and only muddies the surface.
+ *
+ * Far softer than instinct suggests. Telegram's `--shadow-island` is `0 1px 4px 0 #0000000D`:
+ * five percent. Its Android code reaches for `setShadowLayer(dp(6), 0, dp(1), 15% black)`.
+ *
+ * Both halves ship together or the shadow exists on one platform only — iOS reads
+ * `shadowColor`/`shadowOffset`/`shadowOpacity`/`shadowRadius`, Android reads `elevation`.
+ */
+export const shadow = {
+  /** Cards and rows. */
+  island: {
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  /** The FAB, and anything lifted under the finger. */
+  floating: {
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  /** Tab bar, headers, sheets. */
+  chrome: {
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+} as const
+
+/**
+ * The only durations in the app.
+ *
+ * Curves are Telegram's, read from `_variables.scss`: `--slide-transition` is
+ * `300ms cubic-bezier(0.25, 1, 0.5, 1)`, `--select-transition` is `200ms ease-out`, and the
+ * iOS layer transition is `350ms cubic-bezier(0.16, 1, 0.3, 1)`. `field` is what
+ * `MotionBackgroundDrawable` advances its wallpaper on — `CubicBezierInterpolator(0.33, 0, 0, 1)`
+ * over 500ms. `fade` is `BlurBehindDrawable` stepping its blur alpha by 0.09 a frame.
+ *
+ * `bezier` tuples feed `Easing.bezier(...)` from Reanimated.
+ */
+export const motion = {
+  press: { duration: 120, bezier: [0.33, 0, 0.67, 1] },
+  select: { duration: 200, bezier: [0.33, 0, 0.67, 1] },
+  fade: { duration: 185, bezier: [0, 0, 1, 1] },
+  slide: { duration: 300, bezier: [0.25, 1, 0.5, 1] },
+  layer: { duration: 350, bezier: [0.16, 1, 0.3, 1] },
+  field: { duration: 500, bezier: [0.33, 0, 0, 1] },
+} as const
 
 export const lightTheme: Theme = {
   mode: 'light',
@@ -182,11 +249,11 @@ export const lightTheme: Theme = {
   },
   glass: {
     tint: 'light',
-    intensity: 40,
-    overlay: 'rgba(255,255,255,0.55)',
-    chromeOverlay: 'rgba(255,255,255,0.30)',
+    intensity: 30,
+    overlay: 'rgba(255,255,255,0.86)',
+    chromeOverlay: 'rgba(255,255,255,0.72)',
+    scrim: 'rgba(0,0,0,0.10)',
     border: 'rgba(28,25,23,0.10)',
-    highlight: 'rgba(255,255,255,0.85)',
   },
 }
 
@@ -247,19 +314,16 @@ export const darkTheme: Theme = {
   },
   glass: {
     tint: 'dark',
-    intensity: 50,
+    intensity: 30,
     /*
-      Keyed to the ladder above, not to the old stone-900.
-
-      This is the single biggest contributor to "everything looks the same". The overlay was
-      rgba(28,25,23,·) — the OLD surface — so an in-content card sat about 3% lighter than the
-      page behind it and the whole screen read as one flat field. Tinting with the new
-      surface, over the new darker canvas, is what makes a card look like a card.
+      Keyed to `ink.raised` and `ink.surface` respectively, so a sheet still reads as a step
+      above the card it opened from even while both are translucent. The old values tinted
+      chrome at 0.34 over the canvas, which is where the dark tab bar lost its labels.
     */
-    overlay: 'rgba(21,26,24,0.55)',
-    chromeOverlay: 'rgba(9,12,10,0.34)',
+    overlay: 'rgba(33,38,35,0.90)',
+    chromeOverlay: 'rgba(21,26,24,0.86)',
+    scrim: 'rgba(0,0,0,0.10)',
     border: 'rgba(238,241,239,0.12)',
-    highlight: 'rgba(238,241,239,0.14)',
   },
 }
 
@@ -305,16 +369,21 @@ export const workoutTheme: Theme = {
   },
   glass: {
     tint: 'dark',
-    intensity: 50,
-    overlay: 'rgba(8,9,10,0.62)',
-    chromeOverlay: 'rgba(8,9,10,0.36)',
+    intensity: 30,
+    overlay: 'rgba(27,31,35,0.90)',
+    chromeOverlay: 'rgba(19,22,25,0.86)',
+    scrim: 'rgba(0,0,0,0.10)',
     // A faint lime edge, so even the frosted chrome belongs to this mode.
     border: 'rgba(190,242,100,0.14)',
-    highlight: 'rgba(243,246,248,0.14)',
   },
 }
 
-export const radius = { pill: 999, card: 24, control: 16, tight: 12 } as const
+/**
+ * `sheet` and `tiny` are Telegram's `--border-radius-modal` (2rem) and
+ * `--border-radius-default-tiny` (0.375rem). `card` and `control` already matched their
+ * `--border-radius-island` (1.5rem) and `--border-radius-button` (1rem).
+ */
+export const radius = { pill: 999, sheet: 32, card: 24, control: 16, tight: 12, tiny: 6 } as const
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const
 

@@ -13,7 +13,7 @@ import {
   Trash2,
 } from 'lucide-react-native'
 
-import { Surface } from '@/components/Glass'
+import { Island } from '@/components/Material'
 import { Button, IconButton } from '@/components/Button'
 import { Field, Pill, Screen } from '@/components/Layout'
 import { ProgressTrack } from '@/components/MacroRing'
@@ -124,7 +124,7 @@ const DayTotals: React.FC<{ day: DiaryDay }> = ({ day }) => {
   const over = remaining < 0
 
   return (
-    <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
+    <Island style={{ padding: spacing.lg, gap: spacing.lg }}>
       <View style={{ gap: spacing.sm }}>
         <Label>Calories</Label>
         <View
@@ -217,7 +217,7 @@ const DayTotals: React.FC<{ day: DiaryDay }> = ({ day }) => {
           </View>
         </View>
       </View>
-    </Surface>
+    </Island>
   )
 }
 
@@ -398,7 +398,7 @@ const MealCard: React.FC<{
   }
 
   return (
-    <Surface style={{ padding: spacing.lg, gap: spacing.md }}>
+    <Island style={{ padding: spacing.lg, gap: spacing.md }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
         <SectionTitle style={{ flex: 1 }}>{meal}</SectionTitle>
 
@@ -506,7 +506,7 @@ const MealCard: React.FC<{
         icon={<Plus size={16} color={theme.text} strokeWidth={2.2} />}
         onPress={() => router.push({ pathname: '/food-search', params: { meal, date } })}
       />
-    </Surface>
+    </Island>
   )
 }
 
@@ -520,7 +520,7 @@ const SavedMeals: React.FC<{ date: string }> = ({ date }) => {
   const snackbar = useSnackbar()
 
   return (
-    <Surface style={{ padding: spacing.lg, gap: spacing.md }}>
+    <Island style={{ padding: spacing.lg, gap: spacing.md }}>
       <View style={{ gap: 4 }}>
         <SectionTitle>Saved meals</SectionTitle>
         <Body size={12} tone="muted">
@@ -618,7 +618,7 @@ const SavedMeals: React.FC<{ date: string }> = ({ date }) => {
           })}
         </ScrollView>
       )}
-    </Surface>
+    </Island>
   )
 }
 

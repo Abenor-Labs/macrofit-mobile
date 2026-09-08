@@ -8,7 +8,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { Tabs, useRouter, useSegments } from 'expo-router'
-import { ChromeBlur } from '@/components/BlurTarget'
+import { Glass } from '@/components/Material'
 import { useSnackbar } from '@/components/Snackbar'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
@@ -37,7 +37,7 @@ type TabBarProps = Parameters<NonNullable<React.ComponentProps<typeof Tabs>['tab
 
 import { useTheme } from '@/theme/useTheme'
 import { Body } from '@/components/Text'
-import { HIT_SIZE, radius, spacing, workoutTheme } from '@/theme/tokens'
+import { HIT_SIZE, radius, shadow, spacing, workoutTheme } from '@/theme/tokens'
 
 const ICONS: Record<string, React.ComponentType<{ size: number; color: string; strokeWidth: number }>> = {
   index: Home,
@@ -110,7 +110,17 @@ const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
   }))
 
   return (
-    <View
+    /*
+      The tab bar is one of the four things in this app allowed to be glass, and it is the
+      canonical one — Telegram attaches its own glass drawable to exactly this surface
+      (`MainTabsActivity`, `tabsViewBackground`) and to sheets, and to nothing else.
+
+      `Glass` owns the blur, the tint and the edge now. The tint it applies is far heavier
+      than the 0.30 that used to be here, which is what makes these five labels legible
+      against whatever is scrolling underneath them.
+    */
+    <Glass
+      radius={0}
       style={{
         position: 'absolute',
         left: 0,
@@ -120,11 +130,8 @@ const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
         paddingBottom: Math.max(insets.bottom, 8),
         borderTopWidth: StyleSheet.hairlineWidth * 2,
         borderTopColor: theme.glass.border,
-        overflow: 'hidden',
       }}
     >
-      <ChromeBlur tint={theme.glass.tint} intensity={theme.glass.intensity + 20} />
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.glass.chromeOverlay }]} />
       {/*
         A lit bevel used to sit here, drawn by a Skia runtime shader, giving the bar's edge the
         thickness of real glass.
@@ -209,7 +216,7 @@ const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
           )
         })}
       </View>
-    </View>
+    </Glass>
   )
 }
 
@@ -442,19 +449,21 @@ const QuickLogButton: React.FC = () => {
             function form works again, but the array plus android_ripple is the simpler shape
             and there is no reason to go back.
           */
+          /*
+            Solid brand, no blur.
+
+            This used to run a full ChromeBlur underneath a `brand + 'E6'` wash — a 90% opaque
+            fill over a blur nobody could see any part of. A button is a control, not a
+            window; it gets its separation from the shadow and from being the only saturated
+            circle on the screen.
+          */
           style={[
             styles.fab,
-            {
-              borderColor: theme.glass.border,
-              // A soft lift so it reads as floating above the content it blurs.
-              shadowOpacity: theme.mode === 'light' ? 0.18 : 0.4,
-            },
+            { backgroundColor: theme.brand, borderColor: theme.glass.border },
+            theme.mode === 'light' && shadow.floating,
           ]}
           android_ripple={{ color: theme.glass.border, borderless: false, radius: 28 }}
         >
-          <ChromeBlur tint={theme.glass.tint} intensity={theme.glass.intensity + 30} />
-          {/* Brand wash rather than a flat fill, so the blur still shows through. */}
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.brand + 'E6' }]} />
           {/* brandOn, not a hardcoded white: white on a light brand is unreadable. */}
           <Animated.View style={iconSpin}>
             <Plus size={26} color={theme.brandOn} strokeWidth={2.4} />
@@ -500,16 +509,16 @@ const styles = StyleSheet.create({
     Static, and via StyleSheet.create rather than inline, because this is the layout that kept
     going missing. Only the press-dependent parts stay inline above.
   */
+  /*
+    No `overflow: 'hidden'` and no shadow of its own any more. The clip existed to contain a
+    BlurView that is gone, and on iOS it also clipped the button's own shadow; the shadow
+    keys were a one-off pair that `shadow.floating` now supplies from the token table.
+  */
   fab: {
     flex: 1,
     borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth * 2,
-    shadowColor: '#1C1917',
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
   },
 })
