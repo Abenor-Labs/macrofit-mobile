@@ -25,6 +25,8 @@ import { getFoodById, searchFoods } from '@core/data/foodDatabase'
 import { searchUSDA } from '@core/utils/usdaApi'
 import { searchOpenFoodFacts } from '@core/utils/openFoodFacts'
 import { formatDate, getTodayString } from '@core/utils/calculations'
+import { Aurora } from '@/components/Aurora'
+import { LiquidGlassScene } from '@/components/LiquidGlass'
 
 const MEAL_TYPES: readonly MealType[] = [
   'Breakfast',
@@ -643,7 +645,7 @@ export default function FoodSearchScreen() {
     const unitLabel = unitMode === 'serving' ? 'servings' : selected.servingUnit
 
     return (
-      <View style={{ flex: 1, backgroundColor: theme.canvas }}>
+      <LiquidGlassScene backdrop={<Aurora />} style={{ backgroundColor: theme.canvas }}>
         {header}
         <ScrollView
           keyboardShouldPersistTaps="handled"
@@ -781,12 +783,12 @@ export default function FoodSearchScreen() {
             icon={<Plus size={16} color={theme.brandOn} strokeWidth={2.4} />}
           />
         </ScrollView>
-      </View>
+      </LiquidGlassScene>
     )
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.canvas }}>
+    <LiquidGlassScene backdrop={<Aurora />} style={{ backgroundColor: theme.canvas }}>
       {header}
       <FlatList
         data={rows}
@@ -814,6 +816,6 @@ export default function FoodSearchScreen() {
           )
         }
       />
-    </View>
+    </LiquidGlassScene>
   )
 }

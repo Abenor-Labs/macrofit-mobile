@@ -1,8 +1,6 @@
 import React from 'react'
-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
-import { BlurView } from 'expo-blur'
-import { LinearGradient } from 'expo-linear-gradient'
-import { useTheme } from '@/theme/useTheme'
+import { type StyleProp, type ViewStyle } from 'react-native'
+import { LiquidGlassPane } from './LiquidGlass'
 import { radius as R } from '@/theme/tokens'
 
 export interface GlassSurfaceProps {
@@ -21,98 +19,55 @@ export interface GlassSurfaceProps {
 }
 
 /**
- * A frosted surface.
+ * A glass surface.
  *
- * Use ONLY where something floats above content — tab bar, headers, sheets, the hero and
- * coach cards. See docs/MOBILE-DESIGN.md §1. Never nest one inside another: two blur
- * passes composite into mud and cost a second offscreen render.
+ * WHAT CHANGED, AND WHY IT IS NOW A THIN WRAPPER:
+ * This used to compose the material itself — a BlurView, an overlay tuned per mode, a
+ * hairline and a 1.5px top highlight — and it carried a long note explaining that in-content
+ * cards cannot blur what is behind them, because a BlurView cannot be part of its own target.
+ * That constraint is gone. `LiquidGlassPane` does not sample a target at all on the fallback
+ * path; it re-draws the scene's backdrop magnified about the pane's own centre, which works
+ * for a card sitting inside scroll content exactly as well as for floating chrome.
  *
- * Android note: BlurView is genuinely more expensive there and, on older devices, can
- * fall back to a flat scrim. The overlay color below is therefore opaque enough to look
- * deliberate even when the blur does nothing, so the design degrades rather than breaks.
+ * So the two surfaces below are no longer "real glass" and "the cheap stand-in" — they are
+ * one material at two weights, and every call site in the app gets refraction for free.
+ *
+ * THE ONE THING CALLERS STILL OWE IT: a `LiquidGlassScene` somewhere above. `Screen` in
+ * Layout.tsx provides one for every routed screen. A pane outside a scene degrades to frost.
  */
 export const GlassSurface: React.FC<GlassSurfaceProps> = ({
   children,
   style,
   radius = R.card,
-  intensity,
-  highlight = true,
+  // `intensity` and `highlight` are accepted and ignored. The material owns both now, and
+  // keeping the props means 29 call sites did not have to change in the same commit as the
+  // material. They are deprecated; drop them when the sites are next touched.
   bordered = true,
-}) => {
-  const theme = useTheme()
-  const g = theme.glass
-
-  return (
-    <View
-      style={[
-        { borderRadius: radius, overflow: 'hidden' },
-        bordered && { borderWidth: StyleSheet.hairlineWidth * 2, borderColor: g.border },
-        style,
-      ]}
-    >
-      {/*
-        No blurMethod, so Android draws the flat scrim the overlay below is already tuned for.
-        This used to ask for `dimezisBlurView`, which needs a `blurTarget` it was never given —
-        the library warned on every render and fell back to exactly this scrim anyway.
-
-        A real blur here would need these cards to sample the scroll content they sit inside, and
-        a BlurView cannot be part of its own target. The chrome that floats *above* content — tab
-        bar, headers — gets the real thing via ChromeBlur in ./BlurTarget.
-      */}
-      <BlurView
-        tint={g.tint}
-        intensity={intensity ?? g.intensity}
-        style={StyleSheet.absoluteFill}
-      />
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: g.overlay }]} />
-
-      {highlight && (
-        <LinearGradient
-          colors={[g.highlight, 'transparent']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
-          style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 1.5 }}
-          pointerEvents="none"
-        />
-      )}
-
-      {children}
-    </View>
-  )
-}
+}) => (
+  <LiquidGlassPane radius={radius} variant="regular" bordered={bordered} style={style}>
+    {children}
+  </LiquidGlassPane>
+)
 
 /**
- * The default card: solid, cheap, legible. Reach for this first and only use
- * GlassSurface when the element genuinely floats.
+ * The everyday card.
+ *
+ * Was a solid stone rectangle with a border and, on light mode, a soft shadow. It is now the
+ * same glass as above at a quieter weight — `clear` rather than `regular`, so more of the
+ * field comes through and a screen of them does not read as a stack of identical frosted
+ * slabs.
+ *
+ * This is the call that carries the most risk in the rollout: `Surface` wraps diary rows,
+ * stat tables and list items, which is precisely what MOBILE-DESIGN §1 used to forbid glass
+ * on. §1 has been rewritten to match. If dense screens turn out to cost frames, this
+ * component — not the call sites — is where it gets turned back down.
  */
 export const Surface: React.FC<{
   children?: React.ReactNode
   style?: StyleProp<ViewStyle>
   radius?: number
-}> = ({ children, style, radius = R.card }) => {
-  const theme = useTheme()
-  return (
-    <View
-      style={[
-        {
-          backgroundColor: theme.surface,
-          borderRadius: radius,
-          borderWidth: StyleSheet.hairlineWidth * 2,
-          borderColor: theme.border,
-        },
-        // Shadows are invisible against a near-black canvas; on dark the border and the
-        // lighter surface carry the separation instead.
-        theme.mode === 'light' && {
-          shadowColor: '#1C1917',
-          shadowOpacity: 0.05,
-          shadowRadius: 12,
-          shadowOffset: { width: 0, height: 4 },
-          elevation: 2,
-        },
-        style,
-      ]}
-    >
-      {children}
-    </View>
-  )
-}
+}> = ({ children, style, radius = R.card }) => (
+  <LiquidGlassPane radius={radius} variant="clear" style={style}>
+    {children}
+  </LiquidGlassPane>
+)

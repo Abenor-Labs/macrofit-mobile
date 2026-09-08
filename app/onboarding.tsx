@@ -24,7 +24,6 @@ import {
   type HealthGrants,
 } from '@/lib/healthConnect'
 import { useTheme } from '@/theme/useTheme'
-import { Backdrop } from '@/components/Backdrop'
 import { GlassSurface } from '@/components/Glass'
 import { Body, Label, SectionTitle } from '@/components/Text'
 import { Button } from '@/components/Button'
@@ -48,6 +47,8 @@ import {
 } from '@/core/utils/onboarding'
 import { calculateBMR, calculateMacroGoals, calculateTDEE } from '@/core/utils/calculations'
 import type { ActivityLevel, UserProfile, WeightGoal } from '@/core/types'
+import { Aurora } from '@/components/Aurora'
+import { LiquidGlassScene } from '@/components/LiquidGlass'
 
 /**
  * The flow, by name rather than by index.
@@ -490,8 +491,7 @@ export default function OnboardingScreen() {
   ]
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.canvas }}>
-      <Backdrop />
+    <LiquidGlassScene backdrop={<Aurora />} style={{ backgroundColor: theme.canvas }}>
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -1033,6 +1033,6 @@ export default function OnboardingScreen() {
           </GlassSurface>
         </ScrollView>
       </KeyboardAvoidingView>
-    </View>
+    </LiquidGlassScene>
   )
 }

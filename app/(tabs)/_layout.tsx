@@ -1,6 +1,12 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated'
 import { Tabs, useRouter, useSegments } from 'expo-router'
 import { ChromeBlur } from '@/components/BlurTarget'
 import { useSnackbar } from '@/components/Snackbar'
@@ -41,6 +47,9 @@ const ICONS: Record<string, React.ComponentType<{ size: number; color: string; s
   profile: User,
 }
 
+/** Width of the sliding active indicator. */
+const INDICATOR_WIDTH = 26
+
 const LABELS: Record<string, string> = {
   index: 'Dashboard',
   diary: 'Diary',
@@ -69,6 +78,36 @@ const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
     sibling of the screens, outside any ThemeScope they set.
   */
   const theme = state.routes[state.index]?.name === 'workout' ? workoutTheme : appTheme
+
+  /*
+    The active indicator travels between tabs instead of being repainted under each one.
+
+    It used to be a per-tab View whose background flipped between `brandText` and
+    `transparent`, so the state changed with no motion at all — the one moment in the app
+    where the user's own finger causes a jump cut. A single indicator that slides is the
+    standard treatment and it is what makes the bar feel like one object rather than five.
+
+    Tab CONTENT still never slides (the screens are peers, and cross-fading them would claim
+    a hierarchy that is not there). This is the indicator only.
+  */
+  const [barWidth, setBarWidth] = useState(0)
+  const reduced = useReducedMotion()
+  const tabWidth = state.routes.length > 0 ? barWidth / state.routes.length : 0
+  const indicatorX = useSharedValue(0)
+
+  useEffect(() => {
+    if (tabWidth === 0) return
+    const target = state.index * tabWidth + (tabWidth - INDICATOR_WIDTH) / 2
+    indicatorX.value = reduced
+      ? target
+      : // Short and strongly decelerated: the finger has already arrived, so the indicator is
+        // catching up rather than leading. Anything slower reads as lag.
+        withTiming(target, { duration: 260, easing: Easing.bezier(0.23, 1, 0.32, 1) })
+  }, [state.index, tabWidth, indicatorX, reduced])
+
+  const indicatorStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: indicatorX.value }],
+  }))
 
   return (
     <View
@@ -99,7 +138,30 @@ const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
         always built to stand without it.
       */}
 
-      <View style={{ flexDirection: 'row' }}>
+      <View
+        style={{ flexDirection: 'row' }}
+        onLayout={event => setBarWidth(event.nativeEvent.layout.width)}
+      >
+        {/* One indicator for the whole bar, positioned by transform. Shape as well as hue, so
+            the active state still survives greyscale. */}
+        {tabWidth > 0 ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              {
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: INDICATOR_WIDTH,
+                height: 3,
+                borderRadius: 999,
+                backgroundColor: theme.brandText,
+                zIndex: 1,
+              },
+              indicatorStyle,
+            ]}
+          />
+        ) : null}
         {state.routes.map((route, index) => {
           const focused = state.index === index
           const Icon = ICONS[route.name] ?? Home
@@ -131,17 +193,6 @@ const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
                 gap: 3,
               }}
             >
-              {/* Active indicator: shape, not just hue, so the state survives greyscale. */}
-              <View
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  width: 26,
-                  height: 3,
-                  borderRadius: 999,
-                  backgroundColor: focused ? theme.brandText : 'transparent',
-                }}
-              />
               <Icon
                 size={22}
                 color={focused ? theme.brandText : theme.textMuted}

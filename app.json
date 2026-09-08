@@ -51,7 +51,16 @@
           "photosPermission": "MacroFit needs photo access so you can analyse a meal photo and attach progress photos."
         }
       ],
-      "expo-splash-screen",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#FAFAF9",
+          "dark": { "backgroundColor": "#090C0A" }
+        }
+      ],
       "react-native-health-connect",
       "./plugins/with-health-connect-permissions",
       "./plugins/with-health-connect-delegate",

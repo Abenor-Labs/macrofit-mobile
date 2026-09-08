@@ -22,6 +22,8 @@ import { GlassSurface, Surface } from '@/components/Glass'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
 import { Button } from '@/components/Button'
 import { EmptyState, Field } from '@/components/Layout'
+import { Aurora } from '@/components/Aurora'
+import { LiquidGlassScene } from '@/components/LiquidGlass'
 
 const MUSCLE_GROUPS: MuscleGroup[] = [
   'Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps',
@@ -219,7 +221,7 @@ export default function LiftPickerScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.canvas }}>
+    <LiquidGlassScene backdrop={<Aurora />} style={{ backgroundColor: theme.canvas }}>
       {/* A picker is a sheet: this is one of the places glass belongs. */}
       <GlassSurface
         radius={0}
@@ -518,6 +520,6 @@ export default function LiftPickerScreen() {
           }
         />
       )}
-    </View>
+    </LiquidGlassScene>
   )
 }

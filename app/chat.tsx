@@ -21,6 +21,7 @@ import {
   RotateCcw,
   Scale,
   Send,
+  Sparkles,
   User,
   Utensils,
   X,
@@ -30,13 +31,14 @@ import type { Food } from '@core/types'
 import { getDayNutrition, getTodayString, kgToLbs, lbsToKg } from '@core/utils/calculations'
 import { postChat, type ChatMessageParam } from '@/lib/api'
 import { useStore } from '@/store/useStore'
+import { useAuth } from '@/lib/AuthProvider'
 import { useTheme, type Theme } from '@/theme/useTheme'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
 import { Surface } from '@/components/Glass'
 import { Body, Label, StatValue } from '@/components/Text'
 import { RichText } from '@/components/RichText'
 import { Button, IconButton } from '@/components/Button'
-import { Field, Screen } from '@/components/Layout'
+import { EmptyState, Field, Screen } from '@/components/Layout'
 
 /**
  * The nutrition assistant, ported from the web `ChatInterface`.
@@ -147,6 +149,7 @@ const Avatar: React.FC<{ role: ChatEntry['role']; theme: Theme }> = ({ role, the
 )
 
 export default function ChatScreen() {
+  const { user } = useAuth()
   const theme = useTheme()
   const router = useRouter()
   const insets = useSafeAreaInsets()
@@ -396,6 +399,48 @@ export default function ChatScreen() {
       setLoading(false)
       scrollToEnd()
     }
+  }
+
+  /*
+    THE ONE FEATURE THAT GENUINELY NEEDS AN ACCOUNT.
+
+    Everything else in this app runs on the phone, so asking for a password anywhere else
+    would be a toll gate with nothing behind it. This is different: every message here is a
+    model call billed to whoever owns the deployment, and an app that lets anonymous users
+    spend that without limit is a bill waiting to happen.
+
+    Two things this is NOT:
+
+      - It is not security. `src/lib/api.ts` sends no credential, so the endpoints remain
+        callable by anyone who knows the URL, with or without this screen. The real fix is a
+        token check on the server and it lives in the API repo, not here.
+      - It is not an argument for gating anything else. Diary, workouts, weigh-ins, targets
+        and charts cost nothing to run and stay open.
+
+    What it does do is stop the app's own users running up a bill anonymously, which is worth
+    having on its own and is exactly the rule this app is meant to follow: ask for an account
+    at the moment one is genuinely required, and not a screen earlier.
+  */
+  if (user === null) {
+    return (
+      <Screen
+        title="Assistant"
+        right={
+          <IconButton accessibilityLabel="Close assistant" onPress={() => router.back()}>
+            <X size={20} color={theme.text} strokeWidth={2} />
+          </IconButton>
+        }
+      >
+        <EmptyState
+          icon={<Sparkles size={24} color={theme.brandText} strokeWidth={2} />}
+          title="The coach needs an account"
+          message="It reads your diary and weight history to answer, and every reply is generated for you specifically. Everything else in the app keeps working without one."
+          action={
+            <Button label="Sign in or create an account" onPress={() => router.push('/login')} />
+          }
+        />
+      </Screen>
+    )
   }
 
   return (

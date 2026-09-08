@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react'
 import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native'
-import { LinearGradient } from 'expo-linear-gradient'
+import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { AlertTriangle, Clock, MailCheck } from 'lucide-react-native'
 
 import { useAuth } from '@/lib/AuthProvider'
+import { enterGuestMode } from '@/lib/welcomeSeen'
+import { useStore } from '@/store/useStore'
 import type { AuthResult } from '@core/utils/authErrors'
 import { useTheme } from '@/theme/useTheme'
 import { GlassSurface } from '@/components/Glass'
@@ -12,7 +14,10 @@ import { BrandMark } from '@/components/BrandMark'
 import { Body, Label } from '@/components/Text'
 import { Button } from '@/components/Button'
 import { Field } from '@/components/Layout'
-import { fonts, jade, spacing } from '@/theme/tokens'
+import { fonts, spacing } from '@/theme/tokens'
+import { Aurora } from '@/components/Aurora'
+import { LiquidGlassScene } from '@/components/LiquidGlass'
+import { Segmented } from '@/components/Segmented'
 
 /**
  * How long the resend button stays disabled after a send.
@@ -23,6 +28,12 @@ import { fonts, jade, spacing } from '@/theme/tokens'
  * treated as a "hurry up" control.
  */
 const RESEND_COOLDOWN_SECONDS = 60
+
+/** The two things this screen can be. Order is the order they appear in the control. */
+const MODES = [
+  { value: 'in' as const, label: 'Sign in' },
+  { value: 'up' as const, label: 'Create account' },
+]
 
 /** An inline result line. Errors read critical, confirmations positive, context neutral. */
 const Message: React.FC<{ text: string; kind: 'error' | 'notice' | 'info' }> = ({
@@ -50,6 +61,8 @@ const Message: React.FC<{ text: string; kind: 'error' | 'notice' | 'info' }> = (
 export default function LoginScreen() {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
+  const router = useRouter()
+  const onboardedAt = useStore(s => s.onboardedAt)
   const {
     signIn,
     signUp,
@@ -60,6 +73,7 @@ export default function LoginScreen() {
     confirming,
     confirmationError,
     clearConfirmationError,
+    requestPasswordReset,
   } = useAuth()
 
   const [mode, setMode] = useState<'in' | 'up'>('in')
@@ -149,18 +163,17 @@ export default function LoginScreen() {
   const canResend = (awaiting || confirmationError !== null) && email.trim().length > 3
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.canvas }}>
-      {/* Layered jade wash so the glass card has something worth refracting. A flat
-          background makes blur invisible and the material read as a grey box. */}
-      <LinearGradient
-        colors={
-          theme.mode === 'dark'
-            ? [jade[900], theme.canvas, theme.canvas]
-            : [jade[100], jade[50], theme.canvas]
-        }
-        style={{ position: 'absolute', left: 0, right: 0, top: 0, height: '70%' }}
-      />
+    /*
+      The jade wash that used to live here is now `Aurora`, and it is the scene's declared
+      backdrop rather than a sibling gradient.
 
+      The old comment was right about why it existed — "so the glass card has something worth
+      refracting" — but a static top-to-bottom ramp is the one shape a lens cannot show,
+      because magnifying a linear gradient about any point returns the same linear gradient.
+      Aurora has orbs with edges, and edges are the thing that visibly fails to line up
+      across a pane border.
+    */
+    <LiquidGlassScene backdrop={<Aurora />} style={{ backgroundColor: theme.canvas }}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -178,7 +191,10 @@ export default function LoginScreen() {
         >
           <View style={{ alignItems: 'center', marginBottom: spacing.xl, gap: spacing.md }}>
             <BrandMark />
-            <Body style={{ fontFamily: fonts.displayBold, fontSize: 34, color: theme.text }}>
+            {/* `size`, not a fontSize override — Body derives lineHeight from the prop, so
+                styling only fontSize crams a 34pt glyph into the 21.75pt box the default
+                implies and Android shears the caps. Same fix as welcome.tsx. */}
+            <Body size={34} style={{ fontFamily: fonts.displayBold, color: theme.text }}>
               MacroFit
             </Body>
             <Body tone="secondary" style={{ textAlign: 'center' }}>
@@ -210,24 +226,20 @@ export default function LoginScreen() {
             */}
             {confirmationError ? <Message text={confirmationError} kind="error" /> : null}
 
-            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-              {(['in', 'up'] as const).map(m => {
-                const active = mode === m
-                return (
-                  <Button
-                    key={m}
-                    label={m === 'in' ? 'Sign in' : 'Create account'}
-                    variant={active ? 'primary' : 'ghost'}
-                    onPress={() => {
-                      setMode(m)
-                      setError(null)
-                      setNotice(null)
-                    }}
-                    style={{ flex: 1 }}
-                  />
-                )
-              })}
-            </View>
+            {/*
+              One control, not two buttons. The selection is a pane that travels between the
+              options rather than being repainted in place — see Segmented.tsx for why that
+              distinction is the whole effect.
+            */}
+            <Segmented
+              options={MODES}
+              value={mode}
+              onChange={next => {
+                setMode(next)
+                setError(null)
+                setNotice(null)
+              }}
+            />
 
             <Field
               label="Email"
@@ -262,6 +274,32 @@ export default function LoginScreen() {
               haptic
             />
 
+            {/*
+              Only on the sign-in tab. On "Create account" there is no password to have
+              forgotten, and offering a reset there invites people to request a link for an
+              address that has no account behind it.
+
+              Same cooldown as the resend button, and for the same reason: every one of these
+              spends the project's shared email quota, not the sender's.
+            */}
+            {mode === 'in' ? (
+              <Button
+                label={
+                  resendCooldown > 0
+                    ? `Email a sign-in link in ${resendCooldown}s`
+                    : 'Forgot password? Email me a sign-in link'
+                }
+                variant="ghost"
+                onPress={() => {
+                  if (resendCooldown > 0) return
+                  setResendCooldown(RESEND_COOLDOWN_SECONDS)
+                  void run(() => requestPasswordReset(email), true)
+                }}
+                disabled={working || resendCooldown > 0 || email.trim().length < 4}
+                full
+              />
+            ) : null}
+
             {canResend ? (
               <Button
                 label={
@@ -277,11 +315,38 @@ export default function LoginScreen() {
             ) : null}
           </GlassSurface>
 
+          {/*
+            THE WAY OUT. Without it this screen is still a wall.
+
+            Every other route into the app now allows carrying on without an account, but a
+            person can land here in states that have nothing to do with choosing to sign in —
+            a device that was shown the introduction under an older build, a guest who tapped
+            "Back up and sync" and changed their mind, a session that expired. Each of those
+            would otherwise be stuck at a password field with no way past, which is exactly
+            the friction the local-first change exists to remove.
+
+            It routes by what the store already knows: someone who has never been through
+            setup needs it, and someone who has goes straight to their diary. Both are local,
+            so neither needs a session.
+          */}
+          <Button
+            label="Continue without an account"
+            variant="ghost"
+            onPress={() => {
+              // Synchronous, so the navigation below cannot race the flag and be undone by
+              // the routing effect on the next render.
+              enterGuestMode()
+              router.replace(onboardedAt === null ? '/onboarding' : '/(tabs)')
+            }}
+            full
+            style={{ marginTop: spacing.md }}
+          />
+
           <Label style={{ textAlign: 'center', marginTop: spacing.lg }}>
             Your data syncs privately across your devices
           </Label>
         </ScrollView>
       </KeyboardAvoidingView>
-    </View>
+    </LiquidGlassScene>
   )
 }

@@ -4,6 +4,16 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { useTheme } from '@/theme/useTheme'
 
 /**
+ * UNUSED as of the 2026-09-06 glass rollout. Kept, not deleted, on purpose.
+ *
+ * Every screen now mounts `Aurora` inside a `LiquidGlassScene` instead — a lens needs a
+ * backdrop with edges, and this one is a pair of smooth two-stop ramps that magnify to
+ * themselves. But the rollout has an open performance question (MOBILE-DESIGN §1), and if it
+ * has to be turned back down this is the cheap ambient wash to return to. Deleting it would
+ * make that a rewrite rather than an import change.
+ *
+ * ---
+ *
  * Ambient colour behind the whole screen.
  *
  * Blur only reads as glass when there is something underneath worth refracting. Over a

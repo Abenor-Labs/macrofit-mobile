@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native'
-import { router } from 'expo-router'
+import { router, useRouter } from 'expo-router'
 import {
   Activity,
   Bookmark,
@@ -317,6 +317,7 @@ const heightRangeMessage = (unit: UserProfile['heightUnit']): string => {
 export default function ProfileScreen() {
   const theme = useTheme()
   const { user, signOut, syncStatus, syncBlocked, hasUnsyncedChanges } = useAuth()
+  const router = useRouter()
 
   const profile = useStore(s => s.profile)
   const updateProfile = useStore(s => s.updateProfile)
@@ -678,8 +679,17 @@ export default function ProfileScreen() {
   // `syncBlocked` outranks `syncStatus`: while the account is unreachable no save is even
   // attempted, so syncStatus sits at its 'idle' default — which used to render as
   // "Synced", directly contradicting the not-synced banner at the top of the screen.
-  const syncFailed = syncBlocked || syncStatus === 'error'
-  const syncLabel = syncBlocked
+  /*
+    A guest is not failing to sync. They chose not to have an account, so every sync state
+    below is meaningless for them and the red "not synced" treatment would be a permanent
+    error badge for a decision they made on purpose. That is the trap this whole section has
+    to avoid — an app that nags is worse than one that asked up front.
+  */
+  const guest = user === null
+  const syncFailed = !guest && (syncBlocked || syncStatus === 'error')
+  const syncLabel = guest
+    ? 'On this device only'
+    : syncBlocked
     ? 'Not synced — saved on this device only'
     : syncStatus === 'saving'
       ? 'Saving…'
@@ -1451,15 +1461,36 @@ export default function ProfileScreen() {
         }
         subtitle={syncLabel}
       >
-        <Body size={13} tone="secondary">
-          {user?.email ?? 'Not signed in'}
-        </Body>
-        <Button
-          label="Sign out"
-          variant="secondary"
-          onPress={confirmSignOut}
-          icon={<LogOut size={15} color={theme.text} strokeWidth={2} />}
-        />
+        {guest ? (
+          <>
+            {/*
+              The one place in the app that asks for an account, and it asks by describing
+              what an account is FOR rather than by demanding one. Everything else works
+              without it, so there is nothing to withhold and no reason to pressure.
+            */}
+            <Body size={13} tone="secondary">
+              Everything you log is saved on this phone. Add an account to back it up and
+              pick up where you left off on another device.
+            </Body>
+            <Button
+              label="Back up and sync"
+              onPress={() => router.push('/login')}
+              icon={<Cloud size={15} color={theme.brandOn} strokeWidth={2} />}
+            />
+          </>
+        ) : (
+          <>
+            <Body size={13} tone="secondary">
+              {user?.email}
+            </Body>
+            <Button
+              label="Sign out"
+              variant="secondary"
+              onPress={confirmSignOut}
+              icon={<LogOut size={15} color={theme.text} strokeWidth={2} />}
+            />
+          </>
+        )}
       </Section>
       </SectionGroup>
     </Screen>

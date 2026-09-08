@@ -13,7 +13,8 @@ import { BlurTargetArea, ChromeBlur } from './BlurTarget'
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, fonts, radius, spacing } from '@/theme/tokens'
 import { Body, Label, SectionTitle } from './Text'
-import { Backdrop } from './Backdrop'
+import { Aurora } from './Aurora'
+import { LiquidGlassPane, LiquidGlassScene } from './LiquidGlass'
 
 /** Height the floating tab bar occupies, so scroll content can clear it. */
 export const TAB_BAR_SPACE = 76
@@ -50,11 +51,19 @@ export const Screen: React.FC<ScreenProps> = ({
   )
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.canvas }}>
-      {/* Gives every frosted surface on the screen something to refract. Without it a
-          BlurView over the flat canvas just reads as a grey rectangle. */}
-      <Backdrop />
+    /*
+      The scene, not a plain View, and `Aurora` rather than the static `Backdrop`.
 
+      Every surface in this app now refracts (see Glass.tsx), and a refracting pane needs two
+      things from its ancestor: a declared backdrop it is allowed to sample, and a coloured
+      field with enough structure to be worth bending. `Backdrop` supplied the second badly —
+      it is still, so a lens over it displaces nothing visible — and the first not at all.
+
+      One consequence worth stating: this makes the ambient wash a hard dependency of the
+      material rather than decoration behind it. A screen that renders panes outside a
+      `LiquidGlassScene` still works, but it falls back to frost and stops being glass.
+    */
+    <LiquidGlassScene backdrop={<Aurora />} style={{ backgroundColor: theme.canvas }}>
       {title !== undefined && (
         <View
           style={{
@@ -111,7 +120,7 @@ export const Screen: React.FC<ScreenProps> = ({
           body
         )}
       </BlurTargetArea>
-    </View>
+    </LiquidGlassScene>
   )
 }
 
@@ -122,7 +131,16 @@ export const Pill: React.FC<{
 }> = ({ children, color, style }) => {
   const theme = useTheme()
   return (
-    <View
+    /*
+      Tinted glass. The colour a pill carries is load-bearing — it is how a macro or a status
+      says which one it is — so it survives as the pane's tint rather than as a flat fill.
+      `1A` is the same alpha the solid version used, now sitting over a lens instead of over
+      the canvas.
+    */
+    <LiquidGlassPane
+      radius={radius.pill}
+      variant="clear"
+      tint={color ? `${color}1A` : undefined}
       style={[
         {
           flexDirection: 'row',
@@ -130,10 +148,6 @@ export const Pill: React.FC<{
           gap: 6,
           paddingHorizontal: 12,
           paddingVertical: 5,
-          borderRadius: radius.pill,
-          backgroundColor: color ? `${color}1A` : theme.border,
-          borderWidth: StyleSheet.hairlineWidth * 2,
-          borderColor: color ? `${color}40` : theme.border,
         },
         style,
       ]}
@@ -145,7 +159,7 @@ export const Pill: React.FC<{
       ) : (
         children
       )}
-    </View>
+    </LiquidGlassPane>
   )
 }
 
@@ -160,15 +174,19 @@ export const Field: React.FC<FieldProps> = ({ label, numeric = false, style, ...
   return (
     <View style={{ gap: 6 }}>
       {label ? <Label>{label}</Label> : null}
+      {/*
+        `regular`, never `clear`. An input is read while it is being typed into, so the pane
+        has to hold a floor under the text rather than letting the aurora decide what the
+        contrast is that second. The TextInput itself goes transparent and the pane supplies
+        the ground, the radius and the edge.
+      */}
+      <LiquidGlassPane radius={radius.control} variant="regular">
       <TextInput
         placeholderTextColor={theme.textMuted}
         style={[
           {
             minHeight: HIT_SIZE,
-            borderRadius: radius.control,
-            borderWidth: StyleSheet.hairlineWidth * 2,
-            borderColor: theme.border,
-            backgroundColor: theme.surface,
+            backgroundColor: 'transparent',
             color: theme.text,
             paddingHorizontal: 14,
             fontFamily: numeric ? fonts.display : fonts.body,
@@ -191,6 +209,7 @@ export const Field: React.FC<FieldProps> = ({ label, numeric = false, style, ...
         ]}
         {...props}
       />
+      </LiquidGlassPane>
     </View>
   )
 }
@@ -205,18 +224,18 @@ export const EmptyState: React.FC<{
   return (
     <View style={{ alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl }}>
       {icon ? (
-        <View
+        <LiquidGlassPane
+          radius={radius.control}
+          variant="clear"
           style={{
             width: 56,
             height: 56,
-            borderRadius: radius.control,
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: theme.border,
           }}
         >
           {icon}
-        </View>
+        </LiquidGlassPane>
       ) : null}
       <SectionTitle style={{ textAlign: 'center' }}>{title}</SectionTitle>
       <Body tone="secondary" style={{ textAlign: 'center' }}>

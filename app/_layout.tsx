@@ -24,12 +24,19 @@ import { Figtree_600SemiBold } from '@expo-google-fonts/figtree/600SemiBold'
 import { useTheme } from '@/theme/useTheme'
 import { useStore, useStoreHydrated } from '@/store/useStore'
 import { AuthProvider, useAuth } from '@/lib/AuthProvider'
+import {
+  leaveGuestMode,
+  loadDeviceFlags,
+  useGuestMode,
+  useWelcomeSeen,
+} from '@/lib/welcomeSeen'
 import { HealthProvider } from '@/hooks/useHealthSync'
-import { LaunchScreen } from '@/components/LaunchScreen'
+import { LAUNCH_SEQUENCE_MS, LaunchScreen } from '@/components/LaunchScreen'
 import { BrandMark } from '@/components/BrandMark'
 import { Button } from '@/components/Button'
 import { Body, SectionTitle } from '@/components/Text'
 import { BlurTargetProvider } from '@/components/BlurTarget'
+import { AuroraDriftProvider } from '@/components/Aurora'
 import { SnackbarProvider } from '@/components/Snackbar'
 import { HIT_SIZE, spacing } from '@/theme/tokens'
 import { configureFoodApis } from '@core/utils/foodApiConfig'
@@ -39,6 +46,16 @@ import { USDA_API_KEY } from '@/lib/env'
 // gate, the first frame renders default goals and an empty diary before AsyncStorage
 // rehydrates — the user sees their data "reset" for a moment on every cold start.
 void SplashScreen.preventAutoHideAsync()
+
+/*
+  Start reading the "has this device seen the welcome screen" flag at import time, so it
+  resolves alongside the fonts and the store rather than after them.
+
+  They gate the same splash it does, and for the same reason: routing before they land would
+  send a first-time user to the login form and then yank them to the welcome screen a frame
+  later, or send a guest to login and then bounce them into the app. Neither read rejects.
+*/
+void loadDeviceFlags()
 
 /*
   Hand the shared food-search code its platform values, at import time so nothing can
@@ -330,8 +347,11 @@ const RootNavigator: React.FC = () => {
     only thing watching `user` continuously.
   */
   const onLoginScreen = segments[0] === 'login'
+  const onWelcome = segments[0] === 'welcome'
   const onOnboarding = segments[0] === 'onboarding'
   const needsSetup = onboardedAt === null
+  const welcomeSeen = useWelcomeSeen()
+  const guest = useGuestMode()
 
   useEffect(() => {
     // `hydrating` is the fetch that follows a fresh sign-in. Routing before it lands would
@@ -342,14 +362,57 @@ const RootNavigator: React.FC = () => {
     if (user && unclaimedConflict) return
     if (user && syncUnavailable && needsSetup && !isNewAccount) return
     if (!user) {
-      if (!onLoginScreen) router.replace('/login')
+      /*
+        NO ACCOUNT IS NOT THE SAME AS NOT ALLOWED IN.
+
+        The store has never known that users exist — diary, workouts, weigh-ins, targets and
+        charts are all local state persisted to this phone, and Supabase is a sync layer over
+        the top. So someone without a session can run the entire app; the only things they
+        genuinely cannot have are backup and their data on a second device.
+
+        Guest mode is therefore just this branch declining to redirect. There is no guest
+        account and no parallel code path.
+      */
+      if (guest) {
+        // Setup still has to happen — it is what produces the targets every screen reads —
+        // but it writes only to the local store, so it needs no session.
+        if (needsSetup) {
+          if (!onOnboarding) router.replace('/onboarding')
+          return
+        }
+        // Login stays reachable: a guest tapping "sign in" from Profile must not be bounced
+        // straight back out of it.
+        if (onWelcome) router.replace('/(tabs)')
+        return
+      }
+
+      /*
+        Not a guest and no session: this is someone who has not chosen yet. A device that has
+        never been introduced gets the welcome screen rather than a password field.
+        `welcomeSeen` is null only before the flag is read, which cannot happen here —
+        LaunchGate holds the splash until it lands — and null is treated as "seen" anyway, so
+        the failure mode is a missed introduction rather than nowhere to go.
+      */
+      const destination = welcomeSeen === false ? '/welcome' : '/login'
+      if (!onLoginScreen && !onWelcome) router.replace(destination)
       return
     }
+    /*
+      A session exists, so this device is not a guest any more — whatever it was a moment ago.
+
+      Clearing the flag here rather than in the login screen catches every route in: the form,
+      a confirmation deep link, and a session restored on cold start. Leaving it set would mean
+      a later sign-out dropped the person back into the local-only app still holding the
+      account's data, which is precisely the "whose data is this?" state the store epochs and
+      the unclaimed-data screen exist to prevent.
+    */
+    if (guest) leaveGuestMode()
+
     if (needsSetup) {
       if (!onOnboarding) router.replace('/onboarding')
       return
     }
-    if (onLoginScreen || onOnboarding) router.replace('/(tabs)')
+    if (onLoginScreen || onOnboarding || onWelcome) router.replace('/(tabs)')
   }, [
     user,
     loading,
@@ -359,7 +422,10 @@ const RootNavigator: React.FC = () => {
     unclaimedConflict,
     needsSetup,
     onLoginScreen,
+    onWelcome,
     onOnboarding,
+    welcomeSeen,
+    guest,
     router,
   ])
 
@@ -435,6 +501,14 @@ const RootNavigator: React.FC = () => {
             }}
           >
             <Stack.Screen name="(tabs)" />
+            {/* Fade, like login and onboarding: these three replace each other rather than
+                stacking, and a horizontal push would claim a hierarchy that is not there.
+                No gesture — leaving is the "Get started" button's job, and an edge swipe off
+                a one-way door has nowhere to go. */}
+            <Stack.Screen
+              name="welcome"
+              options={{ animation: 'fade', gestureEnabled: false }}
+            />
             <Stack.Screen name="login" options={{ animation: 'fade' }} />
             <Stack.Screen
               name="onboarding"
@@ -482,11 +556,34 @@ const LaunchGate: React.FC<{ localReady: boolean }> = ({ localReady }) => {
     if (localReady) void SplashScreen.hideAsync()
   }, [localReady])
 
+  /*
+    A floor on how long the launch animation is allowed to be on screen.
+
+    The rings take `LAUNCH_SEQUENCE_MS` to turn into alignment, and a warm start where the
+    session is already cached resolves in a couple of hundred milliseconds — which would cut
+    the animation off part-way and swap to the dashboard mid-rotation. A launch sequence that
+    gets truncated does not read as "fast", it reads as a glitch, and it is the single most
+    common way a branded launch is ruined.
+
+    So this is a deliberate delay: on a fast start the user waits for branding. That is a real
+    cost, paid on every cold launch, and it is only defensible because it is bounded and
+    because the alternative looks broken. It is NOT a minimum on slow starts — those already
+    exceed it and are gated by `loading` alone — and it starts ticking at mount, so the time
+    auth spends working counts toward it rather than being added to it.
+  */
+  const [sequenceDone, setSequenceDone] = useState(false)
+
+  useEffect(() => {
+    if (!localReady) return
+    const timer = setTimeout(() => setSequenceDone(true), LAUNCH_SEQUENCE_MS)
+    return () => clearTimeout(timer)
+  }, [localReady])
+
   if (!localReady) return null
 
   return (
     <View style={{ flex: 1 }} onLayout={onLayout}>
-      {loading ? <LaunchScreen /> : <RootNavigator />}
+      {loading || !sequenceDone ? <LaunchScreen /> : <RootNavigator />}
     </View>
   )
 }
@@ -500,14 +597,26 @@ export default function RootLayout() {
     Figtree_600SemiBold,
   })
   const hydrated = useStoreHydrated()
+  // Null until the read lands. Gated with the rest of local state so the first frame knows
+  // whether this device has been introduced to the app, rather than guessing and correcting.
+  // Both device flags, not just one. Routing reads guest mode on the very first pass, so
+  // letting the app render before it resolves would send a guest to the login screen and
+  // then bounce them into the tabs a frame later.
+  const welcomeSeen = useWelcomeSeen()
+  const guest = useGuestMode()
 
   // A font that fails to download must not deadlock the splash forever — fall through
   // and let the platform fall back rather than showing an infinite launch screen.
-  const localReady = (fontsLoaded || !!fontError) && hydrated
+  const localReady =
+    (fontsLoaded || !!fontError) && hydrated && welcomeSeen !== null && guest !== null
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
+        {/* Above everything, including the pane-local copies of the backdrop. One set of
+            drift clocks for the whole app rather than three per Aurora instance — see the
+            note in Aurora.tsx. */}
+        <AuroraDriftProvider>
         <AuthProvider>
           {/* One Health Connect probe for the whole app. Three screens read it, and when each
               held its own copy, connecting from Profile left the dashboard card still saying
@@ -516,6 +625,7 @@ export default function RootLayout() {
             <LaunchGate localReady={localReady} />
           </HealthProvider>
         </AuthProvider>
+        </AuroraDriftProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   )

@@ -11,22 +11,68 @@ something floats above content, never on flat body copy.
 
 ---
 
-## 1. Where glass is allowed
+## 1. Glass is the material, not the exception
 
-Native blur is expensive and illegible when overused. Use `GlassSurface` **only** for:
+**This section was reversed on 2026-09-06.** It used to say glass was for floating surfaces
+only and *never* for lists, stat tables or body copy. The app now renders every surface in
+glass, by explicit decision. The old rule and its reasoning are kept at the end of this
+section, because the constraints that produced it were real and are the first things to
+re-read if this turns out to be wrong.
 
-- the tab bar and any floating action button
-- headers that content scrolls beneath
-- modals, sheets, and the lift/food pickers
-- the hero card on Dashboard and the Coach plan card
-- badges that sit on top of imagery
+Direction: **warm editorial athletic, rendered in glass** — now literally.
 
-**Never** use glass for: long lists, dense stat tables, body paragraphs, or nested inside
-another glass surface (double blur turns to mud). A plain `Surface` (solid stone card) is
-the default; reach for glass deliberately.
+### What the material is
 
-Every glass surface needs a **hairline border** and a subtle **top highlight** — without
-an edge, blur reads as a rendering bug rather than a material.
+`LiquidGlassPane` (`src/components/LiquidGlass.tsx`) is the one surface primitive. Three
+paths, chosen per device:
+
+| Path | When | What it does |
+|---|---|---|
+| Apple Liquid Glass | iOS 26+ | True per-pixel refraction; `LiquidGlassGroup` merges neighbouring panes |
+| Lens | everywhere else | Re-draws the scene's backdrop magnified about the pane's own centre, plus a bright top edge and a shadowed bottom one |
+| Opaque | Reduce Transparency on | A solid raised surface. No blur, no lens |
+
+`useGlassMaterial()` reports which one a device got.
+
+The lens is the load-bearing idea. A blur cannot produce displacement — blurring a smooth
+gradient returns the same smooth gradient, which is why the first version of the welcome
+screen rendered as three flat white cards. What reads as glass is **content failing to line
+up across the pane's edge**, so the pane draws the backdrop again, magnified, and the
+mismatch at the boundary is real rather than suggested.
+
+### The two rules that replaced the old ones
+
+1. **Every pane needs a `LiquidGlassScene` above it.** The scene declares the backdrop and
+   publishes its own frame so panes can register a copy against it. `Screen` in `Layout.tsx`
+   provides one for every routed screen; `welcome`, `login`, `onboarding`, `food-search`,
+   `lift-picker` and `weigh-in` mount their own because they roll their own root. A pane
+   outside a scene silently degrades to frost — legible, but not glass.
+2. **The backdrop must have edges.** `Aurora` is orbs with a solid core and a defined falloff
+   for exactly this reason. A linear ramp is the one shape a lens cannot show, because
+   magnifying it about any point returns the same ramp. This is why `Backdrop` — still, and a
+   plain two-stop gradient — is no longer used anywhere.
+
+`Surface` is `clear` glass, `GlassSurface` is `regular`. That is now the only difference
+between them; both refract.
+
+### The old rule, and what to check if this was a mistake
+
+> Native blur is expensive and illegible when overused. Use `GlassSurface` **only** for the
+> tab bar and floating action button, headers content scrolls beneath, modals and sheets, the
+> Dashboard hero and Coach plan cards, and badges over imagery. **Never** for long lists,
+> dense stat tables, body paragraphs, or nested inside another glass surface.
+
+Two of those concerns are unresolved rather than disproven:
+
+- **Cost.** Each pane renders its own copy of the backdrop. The animation cost is shared —
+  `AuroraDriftProvider` in `app/_layout.tsx` gives the whole app three clocks rather than
+  three per instance — but the gradient layers still multiply with the number of panes.
+  Diary and Progress are the screens to measure, on a release build.
+- **Legibility over dense data.** Glass under a table of figures was forbidden for a reason.
+  If numbers get hard to read, `Surface` is the single place to turn it back down; the 79
+  call sites do not need to change.
+
+Nesting is still wrong, and is still the one thing that produces mud.
 
 ## 2. Color
 
@@ -94,6 +140,9 @@ Build against these; do not re-implement:
 
 `GlassSurface` · `Surface` · `StatValue` · `Label` · `Button` · `IconButton` · `Field` ·
 `Pill` · `ProgressTrack` · `MacroRing` · `Sheet` · `EmptyState` · `SectionTitle`
+
+Plus the glass material itself (§1), which every surface above now goes through:
+`LiquidGlassScene` · `LiquidGlassGroup` · `LiquidGlassPane` · `Aurora`
 
 If a pattern appears three times, it belongs here.
 
