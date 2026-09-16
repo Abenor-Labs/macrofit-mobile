@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native'
+import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { router, useGlobalSearchParams } from 'expo-router'
 import * as Haptics from 'expo-haptics'
 import {
@@ -13,11 +13,12 @@ import {
   Trash2,
 } from 'lucide-react-native'
 
-import { Surface } from '@/components/Glass'
+import { Island } from '@/components/Material'
 import { Button, IconButton } from '@/components/Button'
 import { Field, Pill, Screen } from '@/components/Layout'
 import { ProgressTrack } from '@/components/MacroRing'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
+import { useSnackbar } from '@/components/Snackbar'
 import { useStore } from '@/store/useStore'
 import { DateNavigator } from '@/components/DateNavigator'
 import { useTheme } from '@/theme/useTheme'
@@ -123,7 +124,7 @@ const DayTotals: React.FC<{ day: DiaryDay }> = ({ day }) => {
   const over = remaining < 0
 
   return (
-    <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
+    <Island style={{ padding: spacing.lg, gap: spacing.lg }}>
       <View style={{ gap: spacing.sm }}>
         <Label>Calories</Label>
         <View
@@ -216,7 +217,7 @@ const DayTotals: React.FC<{ day: DiaryDay }> = ({ day }) => {
           </View>
         </View>
       </View>
-    </Surface>
+    </Island>
   )
 }
 
@@ -226,6 +227,8 @@ const EntryRow: React.FC<{ entry: FoodEntry; date: string }> = ({ entry, date })
   const theme = useTheme()
   const removeFoodEntry = useStore(s => s.removeFoodEntry)
   const updateFoodEntry = useStore(s => s.updateFoodEntry)
+  const addFoodEntry = useStore(s => s.addFoodEntry)
+  const snackbar = useSnackbar()
 
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(() => formatAmount(entry.servings))
@@ -338,7 +341,19 @@ const EntryRow: React.FC<{ entry: FoodEntry; date: string }> = ({ entry, date })
             <Button
               label="Remove"
               variant="ghost"
-              onPress={() => removeFoodEntry(date, entry.id)}
+              onPress={() => {
+                removeFoodEntry(date, entry.id)
+                setEditing(false)
+                snackbar.show(`${entry.food.name} removed`, {
+                  label: 'Undo',
+                  onPress: () => addFoodEntry(date, {
+                    foodId: entry.food.id,
+                    food: entry.food,
+                    servings: entry.servings,
+                    mealType: entry.mealType,
+                  }),
+                })
+              }}
               icon={<Trash2 size={15} color={theme.status.critical} strokeWidth={2} />}
             />
           </View>
@@ -350,11 +365,12 @@ const EntryRow: React.FC<{ entry: FoodEntry; date: string }> = ({ entry, date })
 
 // --- One meal ---------------------------------------------------------------
 
-const MealCard: React.FC<{ meal: MealType; date: string; entries: FoodEntry[] }> = ({
-  meal,
-  date,
-  entries,
-}) => {
+const MealCard: React.FC<{
+  meal: MealType
+  date: string
+  entries: FoodEntry[]
+  teach?: boolean
+}> = ({ meal, date, entries, teach }) => {
   const theme = useTheme()
   const saveMealTemplate = useStore(s => s.saveMealTemplate)
 
@@ -382,7 +398,7 @@ const MealCard: React.FC<{ meal: MealType; date: string; entries: FoodEntry[] }>
   }
 
   return (
-    <Surface style={{ padding: spacing.lg, gap: spacing.md }}>
+    <Island style={{ padding: spacing.lg, gap: spacing.md }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
         <SectionTitle style={{ flex: 1 }}>{meal}</SectionTitle>
 
@@ -418,7 +434,9 @@ const MealCard: React.FC<{ meal: MealType; date: string; entries: FoodEntry[] }>
 
       {entries.length === 0 ? (
         <Body size={13} tone="muted">
-          {`Nothing logged for ${meal.toLowerCase()} yet.`}
+          {teach
+            ? `Nothing logged for ${meal.toLowerCase()} yet. Use Add food to search, or the assistant to just describe what you ate.`
+            : `Nothing logged for ${meal.toLowerCase()} yet.`}
         </Body>
       ) : (
         entries.map((entry, index) => (
@@ -488,7 +506,7 @@ const MealCard: React.FC<{ meal: MealType; date: string; entries: FoodEntry[] }>
         icon={<Plus size={16} color={theme.text} strokeWidth={2.2} />}
         onPress={() => router.push({ pathname: '/food-search', params: { meal, date } })}
       />
-    </Surface>
+    </Island>
   )
 }
 
@@ -499,9 +517,10 @@ const SavedMeals: React.FC<{ date: string }> = ({ date }) => {
   const templates = useStore(s => s.mealTemplates)
   const applyMealTemplate = useStore(s => s.applyMealTemplate)
   const deleteMealTemplate = useStore(s => s.deleteMealTemplate)
+  const snackbar = useSnackbar()
 
   return (
-    <Surface style={{ padding: spacing.lg, gap: spacing.md }}>
+    <Island style={{ padding: spacing.lg, gap: spacing.md }}>
       <View style={{ gap: 4 }}>
         <SectionTitle>Saved meals</SectionTitle>
         <Body size={12} tone="muted">
@@ -549,6 +568,9 @@ const SavedMeals: React.FC<{ date: string }> = ({ date }) => {
                   onPress={() => {
                     applyMealTemplate(template.id, date)
                     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+                    // No undo offered: applyMealTemplate mints the new entry ids inside the
+                    // store and returns nothing, so there is no handle to remove them again.
+                    snackbar.show(`${template.name} added · ${plural(items, 'item')}`)
                   }}
                   style={({ pressed }) => ({
                     minHeight: HIT_SIZE,
@@ -574,7 +596,20 @@ const SavedMeals: React.FC<{ date: string }> = ({ date }) => {
 
                 <IconButton
                   accessibilityLabel={`Delete saved meal ${template.name}`}
-                  onPress={() => deleteMealTemplate(template.id)}
+                  onPress={() =>
+                    Alert.alert(
+                      'Delete saved meal',
+                      `"${template.name}" will be removed. The food already logged from it stays where it is.`,
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Delete',
+                          style: 'destructive',
+                          onPress: () => deleteMealTemplate(template.id),
+                        },
+                      ],
+                    )
+                  }
                 >
                   <Trash2 size={16} color={theme.textMuted} strokeWidth={2} />
                 </IconButton>
@@ -583,7 +618,7 @@ const SavedMeals: React.FC<{ date: string }> = ({ date }) => {
           })}
         </ScrollView>
       )}
-    </Surface>
+    </Island>
   )
 }
 
@@ -615,6 +650,13 @@ export default function DiaryScreen() {
     router.setParams({ date: undefined })
   }, [params.date, today])
 
+  /*
+    Only for someone who actually is new. Every day starts empty, so keying the hint on an
+    empty day alone taught a two-year user how to log food every morning.
+  */
+  const onboardedAt = useStore(s => s.onboardedAt)
+  const isNewUser = onboardedAt !== null && Date.now() - onboardedAt < 7 * 24 * 60 * 60 * 1000
+
   const storedDay = useStore(s => s.diary[date])
   const day = useMemo(() => storedDay ?? emptyDay(date), [storedDay, date])
 
@@ -640,11 +682,27 @@ export default function DiaryScreen() {
       <DateNavigator date={date} today={today} onChange={setDate} />
       <DayTotals day={day} />
 
-      {MEAL_TYPES.map(meal => (
-        <MealCard key={meal} meal={meal} date={date} entries={byMeal.get(meal) ?? []} />
-      ))}
-
+      {/*
+        One instance, always above the cards. It used to sit at the bottom when empty and jump
+        to the top on the first save — which fires from inside a meal card, so the page moved
+        under the finger that had just tapped it.
+      */}
       <SavedMeals date={date} />
+
+      {MEAL_TYPES.map((meal, index) => (
+        <MealCard
+          key={meal}
+          meal={meal}
+          date={date}
+          entries={byMeal.get(meal) ?? []}
+          /*
+            First card, and only on a day with nothing in it at all. Keyed on the whole day
+            rather than on this card being empty, so someone who logs lunch before breakfast
+            is not told how to log food they have plainly already worked out how to log.
+          */
+          teach={index === 0 && day.entries.length === 0 && isNewUser}
+        />
+      ))}
     </Screen>
   )
 }

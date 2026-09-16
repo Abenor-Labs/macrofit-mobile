@@ -38,6 +38,19 @@ interface AuthContextValue {
   /** Re-sends the sign-up confirmation email for an address that never got one. */
   resendConfirmation: (email: string) => Promise<AuthResult>
   /**
+   * Email a sign-in link to someone who has forgotten their password.
+   *
+   * The link carries a PKCE code, which `exchangeConfirmation` already trades for a session —
+   * so tapping it signs them in directly rather than dropping them at a form. That is why
+   * this needed no new deep-link handling: recovery and confirmation arrive identically.
+   *
+   * Being signed in is the point. Their data comes back the moment the session exists; the
+   * password itself can be replaced afterwards, from Profile, and does not block anything.
+   */
+  requestPasswordReset: (email: string) => Promise<AuthResult>
+  /** Replace the password of the currently signed-in user. */
+  updatePassword: (password: string) => Promise<AuthResult>
+  /**
    * Ends the session and wipes this device. Reports failure rather than throwing — a
    * sign-out that could not reach the server leaves the user signed in, and the caller has
    * to say so instead of pretending it worked.
@@ -935,6 +948,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { error: null, notice: `Confirmation email sent again to ${email}.` }
   }, [])
 
+  const requestPasswordReset: AuthContextValue['requestPasswordReset'] = useCallback(
+    async rawEmail => {
+      const email = normalizeEmail(rawEmail)
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        // The same allow-listed redirect the confirmation flow uses. Anything else lands the
+        // user on the website holding a token the app never sees.
+        redirectTo: CONFIRM_REDIRECT,
+      })
+      if (error) return { error: describeAuthError(error, email), notice: null }
+      /*
+        Deliberately worded as "if an account exists". GoTrue does not reveal whether an
+        address is registered, and neither should this — a message that distinguishes the two
+        turns the form into a way to enumerate who has an account here.
+      */
+      return {
+        error: null,
+        notice: `If an account exists for ${email}, a sign-in link is on its way. Open it on this phone.`,
+      }
+    },
+    []
+  )
+
+  const updatePassword: AuthContextValue['updatePassword'] = useCallback(async password => {
+    const { error } = await supabase.auth.updateUser({ password })
+    // `describeAuthError` phrases some messages around the address, so it gets the signed-in
+    // one rather than an empty string wherever there is one to give.
+    if (error) return { error: describeAuthError(error, userRef.current?.email ?? ''), notice: null }
+    return { error: null, notice: 'Password updated.' }
+  }, [])
+
   /**
    * Sign out, in the one order that neither loses the outgoing user's last edits nor
    * leaves their data on the device.
@@ -1112,6 +1155,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       signIn,
       signUp,
       resendConfirmation,
+      requestPasswordReset,
+      updatePassword,
       signOut,
       syncStatus,
       hydrating,
@@ -1138,6 +1183,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       signIn,
       signUp,
       resendConfirmation,
+      requestPasswordReset,
+      updatePassword,
       signOut,
       syncStatus,
       hydrating,

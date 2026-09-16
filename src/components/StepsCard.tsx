@@ -14,6 +14,9 @@ import { ProgressTrack } from './MacroRing'
 
 const DEFAULT_STEP_GOAL = 8000
 
+const formatNumber = (value: number): string =>
+  Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+
 /**
  * Steps read from Android Health Connect.
  *
@@ -94,9 +97,9 @@ export const StepsCard: React.FC = () => {
       </View>
 
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm }}>
-        <StatValue size={36}>{steps.toLocaleString()}</StatValue>
+        <StatValue size={36}>{formatNumber(steps)}</StatValue>
         <Body tone="muted" style={{ marginBottom: 5 }}>
-          {`/ ${goal.toLocaleString()}`}
+          {`/ ${formatNumber(goal)}`}
         </Body>
       </View>
 
@@ -104,7 +107,7 @@ export const StepsCard: React.FC = () => {
 
       {weekAverage !== null && (
         <Body size={12} tone="muted">
-          {`7-day average ${weekAverage.toLocaleString()} steps`}
+          {`7-day average ${formatNumber(weekAverage)} steps`}
         </Body>
       )}
     </Surface>

@@ -3,6 +3,7 @@ import { Redirect } from 'expo-router'
 
 import { useAuth } from '@/lib/AuthProvider'
 import { useStore } from '@/store/useStore'
+import { useWelcomeSeen } from '@/lib/welcomeSeen'
 import { LaunchScreen } from '@/components/LaunchScreen'
 
 /**
@@ -22,9 +23,13 @@ import { LaunchScreen } from '@/components/LaunchScreen'
 export default function Index() {
   const { user, loading } = useAuth()
   const onboardedAt = useStore(s => s.onboardedAt)
+  const welcomeSeen = useWelcomeSeen()
 
   if (loading) return <LaunchScreen />
-  if (!user) return <Redirect href="/login" />
+  // A phone that has never run the app is introduced to it before it is asked for a
+  // password. `LaunchGate` holds the splash until this flag is read, so the null branch
+  // here is the same defensive fallback as the one in `RootNavigator`.
+  if (!user) return <Redirect href={welcomeSeen === false ? '/welcome' : '/login'} />
   // Setup has to clear before the tabs: the store's defaults describe a 30-year-old
   // 175 cm male, so an unconfigured account shows targets that look authoritative and
   // belong to nobody. `loading` above already covers the fetch of saved data, so a

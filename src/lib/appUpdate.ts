@@ -22,13 +22,21 @@ import { getContentUriAsync } from 'expo-file-system/legacy'
  * way out is uninstalling, which takes the user's local data with it.
  */
 
-const RELEASES_URL = 'https://api.github.com/repos/warpirate/macrofit-mobile/releases/latest'
+const RELEASES_URL = 'https://api.github.com/repos/Abenor-Labs/macrofit-mobile/releases/latest'
 
 const FETCH_TIMEOUT_MS = 10_000
 
 export interface AvailableRelease {
   version: string
   apkUrl: string
+  /**
+   * Exact size of the APK in bytes, as GitHub reports it.
+   *
+   * Carried so a download already on disk can be told apart from a half-finished one. Without
+   * a figure to check against, "the file exists" and "the file is complete" are the same
+   * observation, and the safe reading of that ambiguity costs the user the whole download.
+   */
+  sizeBytes: number | null
   notes?: string
 }
 
@@ -78,14 +86,15 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  * GitHub returns every asset attached to the release, so a mapping file or a checksum sitting
  * alongside the build must not be handed to the installer as though it were the app.
  */
-const findApk = (assets: unknown): string | null => {
+const findApk = (assets: unknown): { url: string; size: number | null } | null => {
   if (!Array.isArray(assets)) return null
   for (const asset of assets) {
     if (!isRecord(asset)) continue
     const name = typeof asset.name === 'string' ? asset.name : ''
     const url = asset.browser_download_url
     if (name.toLowerCase().endsWith('.apk') && typeof url === 'string' && url.startsWith('https://')) {
-      return url
+      const size = typeof asset.size === 'number' && asset.size > 0 ? asset.size : null
+      return { url, size }
     }
   }
   return null
@@ -136,8 +145,8 @@ export const checkForUpdate = async (): Promise<UpdateCheck> => {
     */
     if (!isNewer(payload.tag_name, currentVersion)) return current
 
-    const apkUrl = findApk(payload.assets)
-    if (apkUrl === null) {
+    const apk = findApk(payload.assets)
+    if (apk === null) {
       throw new Error(`Release ${payload.tag_name} has no APK attached to it.`)
     }
 
@@ -145,7 +154,8 @@ export const checkForUpdate = async (): Promise<UpdateCheck> => {
       currentVersion,
       available: {
         version: payload.tag_name.replace(/^v/, ''),
-        apkUrl,
+        apkUrl: apk.url,
+        sizeBytes: apk.size,
         notes: typeof payload.body === 'string' && payload.body.trim().length > 0
           ? payload.body.trim()
           : undefined,
@@ -161,11 +171,26 @@ export const checkForUpdate = async (): Promise<UpdateCheck> => {
   }
 }
 
+/** How far a download has got. `total` is null when the server sends no content length. */
+export interface DownloadProgressReport {
+  written: number
+  total: number | null
+  /** 0 to 1, or null when the total is unknown. */
+  fraction: number | null
+}
+
 /**
  * Downloads the APK and opens the installer. Resolves once Android has been handed the file —
  * not once it is installed, which happens outside this app and is the user's decision.
+ *
+ * Returns whether bytes were actually fetched, so the caller can avoid reporting a download
+ * that did not happen. `onProgress` is optional; without it the transfer still runs, just
+ * silently.
  */
-export const downloadAndInstall = async (release: AvailableRelease): Promise<void> => {
+export const downloadAndInstall = async (
+  release: AvailableRelease,
+  onProgress?: (report: DownloadProgressReport) => void,
+): Promise<{ downloaded: boolean }> => {
   if (Platform.OS !== 'android') throw new Error('Updates install on Android only.')
 
   /*
@@ -175,11 +200,73 @@ export const downloadAndInstall = async (release: AvailableRelease): Promise<voi
   const target = new Directory(Paths.cache, 'updates')
   if (!target.exists) target.create({ intermediates: true })
 
-  // A partial file left by an interrupted attempt would otherwise be handed over as if whole.
   const destination = new File(target, `macrofit-${release.version}.apk`)
-  if (destination.exists) destination.delete()
 
-  const file = await File.downloadFileAsync(release.apkUrl, destination)
+  /*
+    Reuse a copy that is already here and provably whole.
+
+    This used to delete any existing file before downloading, on the sound reasoning that a
+    truncated file must never reach the installer. The trouble is that "exists" and "is
+    complete" were the same observation, so the safe reading of that ambiguity threw away
+    finished downloads too — and dismissing Android's install prompt, or missing it, meant
+    fetching a hundred and fifty megabytes again to see the same prompt.
+
+    GitHub reports the asset's exact byte count, which is the thing that tells the two apart: a
+    partial download is short, and a complete one matches to the byte. With no size from GitHub
+    the old behaviour is the right one, because then there is genuinely no way to know.
+  */
+  const already =
+    destination.exists && release.sizeBytes !== null && destination.size === release.sizeBytes
+
+  if (!already && destination.exists) destination.delete()
+
+  /*
+    Sweep other versions before fetching a new one.
+
+    Each of these is roughly a hundred and fifty megabytes, and nothing else ever removes them,
+    so upgrading three times used to leave almost half a gigabyte of superseded installers in
+    the cache directory. Android reclaims cache under pressure, but only after the user has
+    spent the storage in the meantime.
+  */
+  if (!already) {
+    for (const entry of target.list()) {
+      if (entry instanceof File && entry.name !== destination.name) {
+        try {
+          entry.delete()
+        } catch {
+          // Best effort. Failing to tidy up is not a reason to fail the update.
+        }
+      }
+    }
+  }
+
+  /*
+    A task rather than downloadFileAsync, so the transfer can report itself.
+
+    A hundred and fifty megabytes on a slow connection is minutes of a spinner that never
+    changes, which is indistinguishable from a hang. The user's only move then is to kill the
+    app, which throws away the partial file and starts the whole thing again.
+  */
+  let file: File
+  if (already) {
+    file = destination
+  } else {
+    const task = File.createDownloadTask(release.apkUrl, destination, {
+      onProgress: ({ bytesWritten, totalBytes }) => {
+        const total = typeof totalBytes === 'number' && totalBytes > 0 ? totalBytes : null
+        onProgress?.({
+          written: bytesWritten,
+          total,
+          fraction: total === null ? null : Math.min(1, bytesWritten / total),
+        })
+      },
+    })
+    const result = await task.downloadAsync()
+    // Null means paused, which nothing here requests. Treat it as a failure rather than
+    // handing the installer a file that may be half written.
+    if (result === null) throw new Error('The download stopped before it finished.')
+    file = result
+  }
 
   /*
     The installer is a different app and cannot read a file:// path inside this app's sandbox.
@@ -194,4 +281,6 @@ export const downloadAndInstall = async (release: AvailableRelease): Promise<voi
     // fails with a parse error that says nothing about permissions.
     flags: 1,
   })
+
+  return { downloaded: !already }
 }

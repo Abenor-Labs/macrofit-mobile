@@ -15,6 +15,8 @@ import { useLogWeight } from '@/hooks/useLogWeight'
 import { useTheme } from '@/theme/useTheme'
 import { radius, spacing } from '@/theme/tokens'
 import { formatDate, getTodayString } from '@core/utils/calculations'
+import { Aurora } from '@/components/Aurora'
+import { LiquidGlassScene } from '@/components/LiquidGlass'
 
 const HAIRLINE = StyleSheet.hairlineWidth * 2
 
@@ -79,7 +81,7 @@ export default function WeighInScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.canvas }}>
+    <LiquidGlassScene backdrop={<Aurora />} style={{ backgroundColor: theme.canvas }}>
       <GlassSurface
         radius={0}
         bordered={false}
@@ -223,6 +225,6 @@ export default function WeighInScreen() {
           </Surface>
         )}
       </ScrollView>
-    </View>
+    </LiquidGlassScene>
   )
 }

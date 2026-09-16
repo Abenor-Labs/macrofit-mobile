@@ -2,7 +2,7 @@
   "expo": {
     "name": "MacroFit",
     "slug": "macrofit",
-    "version": "1.2.0",
+    "version": "1.2.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "macrofit",
@@ -28,7 +28,7 @@
         "android.permission.REQUEST_INSTALL_PACKAGES"
       ],
       "softwareKeyboardLayoutMode": "pan",
-      "versionCode": 3
+      "versionCode": 7
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -38,7 +38,8 @@
         "expo-build-properties",
         {
           "android": {
-            "minSdkVersion": 26
+            "minSdkVersion": 26,
+            "buildArchs": ["arm64-v8a"]
           }
         }
       ],
@@ -50,7 +51,16 @@
           "photosPermission": "MacroFit needs photo access so you can analyse a meal photo and attach progress photos."
         }
       ],
-      "expo-splash-screen",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#FAFAF9",
+          "dark": { "backgroundColor": "#090C0A" }
+        }
+      ],
       "react-native-health-connect",
       "./plugins/with-health-connect-permissions",
       "./plugins/with-health-connect-delegate",

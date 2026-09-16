@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native'
-import { router } from 'expo-router'
+import { router, useRouter } from 'expo-router'
 import {
   Activity,
   Bookmark,
+  BookOpen,
   ChevronDown,
   ChevronRight,
   Cloud,
   CloudOff,
   Download,
+  Flame,
   LogOut,
   Moon,
   Repeat,
@@ -315,6 +317,7 @@ const heightRangeMessage = (unit: UserProfile['heightUnit']): string => {
 export default function ProfileScreen() {
   const theme = useTheme()
   const { user, signOut, syncStatus, syncBlocked, hasUnsyncedChanges } = useAuth()
+  const router = useRouter()
 
   const profile = useStore(s => s.profile)
   const updateProfile = useStore(s => s.updateProfile)
@@ -676,8 +679,17 @@ export default function ProfileScreen() {
   // `syncBlocked` outranks `syncStatus`: while the account is unreachable no save is even
   // attempted, so syncStatus sits at its 'idle' default — which used to render as
   // "Synced", directly contradicting the not-synced banner at the top of the screen.
-  const syncFailed = syncBlocked || syncStatus === 'error'
-  const syncLabel = syncBlocked
+  /*
+    A guest is not failing to sync. They chose not to have an account, so every sync state
+    below is meaningless for them and the red "not synced" treatment would be a permanent
+    error badge for a decision they made on purpose. That is the trap this whole section has
+    to avoid — an app that nags is worse than one that asked up front.
+  */
+  const guest = user === null
+  const syncFailed = !guest && (syncBlocked || syncStatus === 'error')
+  const syncLabel = guest
+    ? 'On this device only'
+    : syncBlocked
     ? 'Not synced — saved on this device only'
     : syncStatus === 'saving'
       ? 'Saving…'
@@ -776,6 +788,31 @@ export default function ProfileScreen() {
           Leave it empty to track weight without a goal. Your pace is measured from your
           actual weigh-ins, not from this number.
         </Body>
+      </Section>
+
+      {/*
+        The only entry point to the screen that edits the daily numbers.
+
+        /goals was previously reachable from exactly one place — the dashboard coach card, and
+        only once a plan existed, because with no plan the same tap builds one instead. So the
+        screen that sets calories and macros was unreachable for the people most likely to want
+        it: the ones who had not accepted a coach plan.
+      */}
+      <Section
+        title="Daily targets"
+        icon={<Flame size={16} color={theme.brandText} strokeWidth={2} />}
+        subtitle={`${goals.calories} kcal · ${goals.protein} g protein`}
+      >
+        <Body size={13} tone="secondary">
+          Set the calories and the protein, carb and fat split yourself, or accept what the
+          coach works out from your logged data.
+        </Body>
+        <Button
+          label="Edit daily targets"
+          variant="secondary"
+          onPress={() => router.push('/goals')}
+          icon={<Flame size={15} color={theme.text} strokeWidth={2} />}
+        />
       </Section>
 
       <Section
@@ -1107,6 +1144,31 @@ export default function ProfileScreen() {
       </SectionGroup>
 
       <SectionGroup label="App">
+      {/*
+        First in the group because it is the only entry here that answers a question rather
+        than changing a setting, and the questions it answers ("what is the middle number",
+        "why did my target move") are the ones a person has before they have any settings
+        worth changing.
+      */}
+      <Section
+        title="How it works"
+        icon={<BookOpen size={16} color={theme.brandText} strokeWidth={2} />}
+        subtitle="What the numbers mean, and where they come from"
+      >
+        <Body size={13} tone="secondary">
+          The ring, the targets, the weight line and the assistant, explained in the order you
+          are likely to meet them.
+        </Body>
+        {/* Labelled with its destination, not with "Open": the Button forwards its label to
+            accessibilityLabel, so a screen reader swiping the page would land on "Open". */}
+        <Button
+          label="Read how it works"
+          variant="secondary"
+          onPress={() => router.push('/help')}
+          icon={<BookOpen size={15} color={theme.text} strokeWidth={2} />}
+        />
+      </Section>
+
       {/* Setup you do once. It used to open itself at the top of the screen on every visit,
           pushing everything the user actually came for below the fold. */}
       {health.availability === 'available' && (
@@ -1399,15 +1461,36 @@ export default function ProfileScreen() {
         }
         subtitle={syncLabel}
       >
-        <Body size={13} tone="secondary">
-          {user?.email ?? 'Not signed in'}
-        </Body>
-        <Button
-          label="Sign out"
-          variant="secondary"
-          onPress={confirmSignOut}
-          icon={<LogOut size={15} color={theme.text} strokeWidth={2} />}
-        />
+        {guest ? (
+          <>
+            {/*
+              The one place in the app that asks for an account, and it asks by describing
+              what an account is FOR rather than by demanding one. Everything else works
+              without it, so there is nothing to withhold and no reason to pressure.
+            */}
+            <Body size={13} tone="secondary">
+              Everything you log is saved on this phone. Add an account to back it up and
+              pick up where you left off on another device.
+            </Body>
+            <Button
+              label="Back up and sync"
+              onPress={() => router.push('/login')}
+              icon={<Cloud size={15} color={theme.brandOn} strokeWidth={2} />}
+            />
+          </>
+        ) : (
+          <>
+            <Body size={13} tone="secondary">
+              {user?.email}
+            </Body>
+            <Button
+              label="Sign out"
+              variant="secondary"
+              onPress={confirmSignOut}
+              icon={<LogOut size={15} color={theme.text} strokeWidth={2} />}
+            />
+          </>
+        )}
       </Section>
       </SectionGroup>
     </Screen>

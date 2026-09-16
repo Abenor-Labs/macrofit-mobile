@@ -1,9 +1,14 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated'
 import { Tabs, useRouter, useSegments } from 'expo-router'
-import { ChromeBlur } from '@/components/BlurTarget'
-import { LiquidGlass } from '@/components/LiquidGlass'
+import { Glass } from '@/components/Material'
 import { useSnackbar } from '@/components/Snackbar'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
@@ -32,7 +37,7 @@ type TabBarProps = Parameters<NonNullable<React.ComponentProps<typeof Tabs>['tab
 
 import { useTheme } from '@/theme/useTheme'
 import { Body } from '@/components/Text'
-import { HIT_SIZE, radius, spacing, workoutTheme } from '@/theme/tokens'
+import { HIT_SIZE, radius, shadow, spacing, workoutTheme } from '@/theme/tokens'
 
 const ICONS: Record<string, React.ComponentType<{ size: number; color: string; strokeWidth: number }>> = {
   index: Home,
@@ -41,6 +46,9 @@ const ICONS: Record<string, React.ComponentType<{ size: number; color: string; s
   progress: TrendingUp,
   profile: User,
 }
+
+/** Width of the sliding active indicator. */
+const INDICATOR_WIDTH = 26
 
 const LABELS: Record<string, string> = {
   index: 'Dashboard',
@@ -71,15 +79,48 @@ const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
   */
   const theme = state.routes[state.index]?.name === 'workout' ? workoutTheme : appTheme
 
-  // The specular shader is sized in pixels, so it cannot draw until the bar has been measured.
-  const [size, setSize] = useState({ width: 0, height: 0 })
+  /*
+    The active indicator travels between tabs instead of being repainted under each one.
+
+    It used to be a per-tab View whose background flipped between `brandText` and
+    `transparent`, so the state changed with no motion at all — the one moment in the app
+    where the user's own finger causes a jump cut. A single indicator that slides is the
+    standard treatment and it is what makes the bar feel like one object rather than five.
+
+    Tab CONTENT still never slides (the screens are peers, and cross-fading them would claim
+    a hierarchy that is not there). This is the indicator only.
+  */
+  const [barWidth, setBarWidth] = useState(0)
+  const reduced = useReducedMotion()
+  const tabWidth = state.routes.length > 0 ? barWidth / state.routes.length : 0
+  const indicatorX = useSharedValue(0)
+
+  useEffect(() => {
+    if (tabWidth === 0) return
+    const target = state.index * tabWidth + (tabWidth - INDICATOR_WIDTH) / 2
+    indicatorX.value = reduced
+      ? target
+      : // Short and strongly decelerated: the finger has already arrived, so the indicator is
+        // catching up rather than leading. Anything slower reads as lag.
+        withTiming(target, { duration: 260, easing: Easing.bezier(0.23, 1, 0.32, 1) })
+  }, [state.index, tabWidth, indicatorX, reduced])
+
+  const indicatorStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: indicatorX.value }],
+  }))
 
   return (
-    <View
-      onLayout={event => {
-        const { width, height } = event.nativeEvent.layout
-        setSize(prev => (prev.width === width && prev.height === height ? prev : { width, height }))
-      }}
+    /*
+      The tab bar is one of the four things in this app allowed to be glass, and it is the
+      canonical one — Telegram attaches its own glass drawable to exactly this surface
+      (`MainTabsActivity`, `tabsViewBackground`) and to sheets, and to nothing else.
+
+      `Glass` owns the blur, the tint and the edge now. The tint it applies is far heavier
+      than the 0.30 that used to be here, which is what makes these five labels legible
+      against whatever is scrolling underneath them.
+    */
+    <Glass
+      radius={0}
       style={{
         position: 'absolute',
         left: 0,
@@ -89,16 +130,45 @@ const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
         paddingBottom: Math.max(insets.bottom, 8),
         borderTopWidth: StyleSheet.hairlineWidth * 2,
         borderTopColor: theme.glass.border,
-        overflow: 'hidden',
       }}
     >
-      <ChromeBlur tint={theme.glass.tint} intensity={theme.glass.intensity + 20} />
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.glass.chromeOverlay }]} />
-      {/* Above the tint so the highlight sits on the glass rather than under its colour, and
-          below the labels so it never washes them out. */}
-      <LiquidGlass width={size.width} height={size.height} band={22} />
+      {/*
+        A lit bevel used to sit here, drawn by a Skia runtime shader, giving the bar's edge the
+        thickness of real glass.
 
-      <View style={{ flexDirection: 'row' }}>
+        It cost 10.8 MB of native library per architecture — 43 MB across the four the app
+        shipped, on a download users fetch in full every release because this app sideloads
+        rather than going through a store. One highlight on one bar is not worth a third of the
+        APK, and the blur and tint above carry the material on their own.
+
+        LiquidGlass already returned null whenever its shader failed to compile, so the bar was
+        always built to stand without it.
+      */}
+
+      <View
+        style={{ flexDirection: 'row' }}
+        onLayout={event => setBarWidth(event.nativeEvent.layout.width)}
+      >
+        {/* One indicator for the whole bar, positioned by transform. Shape as well as hue, so
+            the active state still survives greyscale. */}
+        {tabWidth > 0 ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              {
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: INDICATOR_WIDTH,
+                height: 3,
+                borderRadius: 999,
+                backgroundColor: theme.brandText,
+                zIndex: 1,
+              },
+              indicatorStyle,
+            ]}
+          />
+        ) : null}
         {state.routes.map((route, index) => {
           const focused = state.index === index
           const Icon = ICONS[route.name] ?? Home
@@ -130,17 +200,6 @@ const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
                 gap: 3,
               }}
             >
-              {/* Active indicator: shape, not just hue, so the state survives greyscale. */}
-              <View
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  width: 26,
-                  height: 3,
-                  borderRadius: 999,
-                  backgroundColor: focused ? theme.brandText : 'transparent',
-                }}
-              />
               <Icon
                 size={22}
                 color={focused ? theme.brandText : theme.textMuted}
@@ -157,7 +216,7 @@ const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
           )
         })}
       </View>
-    </View>
+    </Glass>
   )
 }
 
@@ -390,19 +449,21 @@ const QuickLogButton: React.FC = () => {
             function form works again, but the array plus android_ripple is the simpler shape
             and there is no reason to go back.
           */
+          /*
+            Solid brand, no blur.
+
+            This used to run a full ChromeBlur underneath a `brand + 'E6'` wash — a 90% opaque
+            fill over a blur nobody could see any part of. A button is a control, not a
+            window; it gets its separation from the shadow and from being the only saturated
+            circle on the screen.
+          */
           style={[
             styles.fab,
-            {
-              borderColor: theme.glass.border,
-              // A soft lift so it reads as floating above the content it blurs.
-              shadowOpacity: theme.mode === 'light' ? 0.18 : 0.4,
-            },
+            { backgroundColor: theme.brand, borderColor: theme.glass.border },
+            theme.mode === 'light' && shadow.floating,
           ]}
           android_ripple={{ color: theme.glass.border, borderless: false, radius: 28 }}
         >
-          <ChromeBlur tint={theme.glass.tint} intensity={theme.glass.intensity + 30} />
-          {/* Brand wash rather than a flat fill, so the blur still shows through. */}
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.brand + 'E6' }]} />
           {/* brandOn, not a hardcoded white: white on a light brand is unreadable. */}
           <Animated.View style={iconSpin}>
             <Plus size={26} color={theme.brandOn} strokeWidth={2.4} />
@@ -448,16 +509,16 @@ const styles = StyleSheet.create({
     Static, and via StyleSheet.create rather than inline, because this is the layout that kept
     going missing. Only the press-dependent parts stay inline above.
   */
+  /*
+    No `overflow: 'hidden'` and no shadow of its own any more. The clip existed to contain a
+    BlurView that is gone, and on iOS it also clipped the button's own shadow; the shadow
+    keys were a one-off pair that `shadow.floating` now supplies from the token table.
+  */
   fab: {
     flex: 1,
     borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth * 2,
-    shadowColor: '#1C1917',
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
   },
 })

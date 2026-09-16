@@ -18,23 +18,27 @@ import {
   Check,
   Droplets,
   Lightbulb,
+  RotateCcw,
   Scale,
   Send,
+  Sparkles,
   User,
   Utensils,
   X,
 } from 'lucide-react-native'
 
 import type { Food } from '@core/types'
-import { getTodayString, kgToLbs, lbsToKg } from '@core/utils/calculations'
+import { getDayNutrition, getTodayString, kgToLbs, lbsToKg } from '@core/utils/calculations'
 import { postChat, type ChatMessageParam } from '@/lib/api'
 import { useStore } from '@/store/useStore'
+import { useAuth } from '@/lib/AuthProvider'
 import { useTheme, type Theme } from '@/theme/useTheme'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
 import { Surface } from '@/components/Glass'
 import { Body, Label, StatValue } from '@/components/Text'
+import { RichText } from '@/components/RichText'
 import { Button, IconButton } from '@/components/Button'
-import { Field, Screen } from '@/components/Layout'
+import { EmptyState, Field, Screen } from '@/components/Layout'
 
 /**
  * The nutrition assistant, ported from the web `ChatInterface`.
@@ -76,6 +80,8 @@ interface ChatEntry {
   discarded?: number
   /** True when this turn failed outright; rendered with the critical status treatment. */
   failed?: boolean
+  /** The user text that triggered this failed turn, so a retry can re-send it. */
+  retryText?: string
 }
 
 const formatValue = (value: number): string =>
@@ -143,6 +149,7 @@ const Avatar: React.FC<{ role: ChatEntry['role']; theme: Theme }> = ({ role, the
 )
 
 export default function ChatScreen() {
+  const { user } = useAuth()
   const theme = useTheme()
   const router = useRouter()
   const insets = useSafeAreaInsets()
@@ -205,12 +212,34 @@ export default function ChatScreen() {
     setUndone(prev => ({ ...prev, [message.id]: true }))
   }
 
+  /*
+    Puts a failed turn back the way it was before it was sent.
+
+    Both messages go, not just the failed reply: the user's bubble is still in `messages`, and
+    `send` rebuilds history from whatever survives, so leaving it would send the same user turn
+    to the model twice and show it twice in the transcript.
+  */
+  const retry = (failedMessageId: string, retryText: string) => {
+    if (loading) return
+    setMessages(prev => {
+      const index = prev.findIndex(m => m.id === failedMessageId)
+      if (index === -1) return prev
+      const previous = prev[index - 1]
+      const from = previous?.role === 'user' ? index - 1 : index
+      return [...prev.slice(0, from), ...prev.slice(index + 1)]
+    })
+    setInput(retryText)
+    scrollToEnd()
+  }
+
   const send = async () => {
     const text = input.trim()
     if (text.length === 0 || loading) return
 
     const history: ChatMessageParam[] = messages
-      .filter(m => m.id !== WELCOME_ID)
+      // A failed turn is this client's error string, not something the assistant said. Sending
+      // it back would tell the model it had replied "Network request failed".
+      .filter(m => m.id !== WELCOME_ID && !m.failed)
       .map(m => ({ role: m.role, content: m.text }))
     history.push({ role: 'user', content: text })
 
@@ -223,15 +252,28 @@ export default function ChatScreen() {
 
     try {
       const day = diary[today]
+      /*
+        Macros travel with every entry, and the day's totals travel alongside them.
+
+        This used to send `{id, name, meal, calories}` and nothing else, so the assistant was
+        answering "how much protein have I got left" from food names alone. It estimated, said
+        so, and was wrong — while `e.food.protein` sat one property away, already exact, already
+        rendered on the dashboard. The model was never the problem; it was never told.
+      */
       const todayEntries = day
         ? day.entries.map(e => ({
             id: e.id,
             name: e.food.name,
             meal: e.mealType,
-            calories: e.food.calories * e.servings,
+            calories: Math.round(e.food.calories * e.servings),
+            protein: Math.round(e.food.protein * e.servings),
+            carbs: Math.round(e.food.carbs * e.servings),
+            fat: Math.round(e.food.fat * e.servings),
           }))
         : []
-      const todayCalories = todayEntries.reduce((sum, e) => sum + e.calories, 0)
+      // The same function the diary and dashboard total with, so all three agree.
+      const totals = getDayNutrition(day ?? { date: today, entries: [], waterIntake: 0, exercises: [] })
+      const todayCalories = totals.calories
       const displayWeight =
         profile.weightUnit === 'lbs' ? kgToLbs(currentWeightKg) : currentWeightKg
 
@@ -243,6 +285,13 @@ export default function ChatScreen() {
           fat: goals.fat,
         },
         todayCalories: Math.round(todayCalories),
+        consumed: {
+          calories: Math.round(totals.calories),
+          protein: Math.round(totals.protein),
+          carbs: Math.round(totals.carbs),
+          fat: Math.round(totals.fat),
+          fiber: Math.round(totals.fiber),
+        },
         todayEntries,
         currentWeight: `${displayWeight.toFixed(1)} ${profile.weightUnit}`,
         weightUnit: profile.weightUnit,
@@ -344,12 +393,54 @@ export default function ChatScreen() {
       const message = err instanceof Error ? err.message : 'Something went wrong.'
       setMessages(prev => [
         ...prev,
-        { id: uuidv4(), role: 'assistant', text: message, failed: true },
+        { id: uuidv4(), role: 'assistant', text: message, failed: true, retryText: text },
       ])
     } finally {
       setLoading(false)
       scrollToEnd()
     }
+  }
+
+  /*
+    THE ONE FEATURE THAT GENUINELY NEEDS AN ACCOUNT.
+
+    Everything else in this app runs on the phone, so asking for a password anywhere else
+    would be a toll gate with nothing behind it. This is different: every message here is a
+    model call billed to whoever owns the deployment, and an app that lets anonymous users
+    spend that without limit is a bill waiting to happen.
+
+    Two things this is NOT:
+
+      - It is not security. `src/lib/api.ts` sends no credential, so the endpoints remain
+        callable by anyone who knows the URL, with or without this screen. The real fix is a
+        token check on the server and it lives in the API repo, not here.
+      - It is not an argument for gating anything else. Diary, workouts, weigh-ins, targets
+        and charts cost nothing to run and stay open.
+
+    What it does do is stop the app's own users running up a bill anonymously, which is worth
+    having on its own and is exactly the rule this app is meant to follow: ask for an account
+    at the moment one is genuinely required, and not a screen earlier.
+  */
+  if (user === null) {
+    return (
+      <Screen
+        title="Assistant"
+        right={
+          <IconButton accessibilityLabel="Close assistant" onPress={() => router.back()}>
+            <X size={20} color={theme.text} strokeWidth={2} />
+          </IconButton>
+        }
+      >
+        <EmptyState
+          icon={<Sparkles size={24} color={theme.brandText} strokeWidth={2} />}
+          title="The coach needs an account"
+          message="It reads your diary and weight history to answer, and every reply is generated for you specifically. Everything else in the app keeps working without one."
+          action={
+            <Button label="Sign in or create an account" onPress={() => router.push('/login')} />
+          }
+        />
+      </Screen>
+    )
   }
 
   return (
@@ -402,8 +493,12 @@ export default function ChatScreen() {
                   {/* Role is carried by side, by surface and by the avatar icon — three
                       signals, so it survives without color. */}
                   <View
-                    accessible
-                    accessibilityLabel={`${mine ? 'You said' : 'Assistant said'}: ${message.text}`}
+                    accessible={!message.failed}
+                    accessibilityLabel={
+                      message.failed
+                        ? undefined
+                        : `${mine ? 'You said' : 'Assistant said'}: ${message.text}`
+                    }
                     style={{
                       maxWidth: '92%',
                       paddingHorizontal: 14,
@@ -417,18 +512,49 @@ export default function ChatScreen() {
                     }}
                   >
                     {message.failed ? (
-                      <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
-                        <View style={{ marginTop: 2 }}>
-                          <AlertTriangle size={16} color={theme.status.critical} strokeWidth={2.2} />
+                      <View style={{ gap: spacing.sm }}>
+                        <View
+                          accessible
+                          accessibilityLabel={`Assistant failed: ${message.text}`}
+                          style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}
+                        >
+                          <View style={{ marginTop: 2 }}>
+                            <AlertTriangle size={16} color={theme.status.critical} strokeWidth={2.2} />
+                          </View>
+                          <Body size={14} style={{ flex: 1, color: theme.status.critical }}>
+                            {`Failed: ${message.text}`}
+                          </Body>
                         </View>
-                        <Body size={14} style={{ flex: 1, color: theme.status.critical }}>
-                          {`Failed: ${message.text}`}
-                        </Body>
+                        {message.retryText ? (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Retry this message"
+                            onPress={() => retry(message.id, message.retryText!)}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              alignSelf: 'flex-start',
+                              gap: 4,
+                              minHeight: HIT_SIZE,
+                              paddingVertical: 4,
+                              paddingHorizontal: 8,
+                              borderRadius: radius.pill,
+                              borderWidth: StyleSheet.hairlineWidth * 2,
+                              borderColor: theme.border,
+                            }}
+                          >
+                            <RotateCcw size={12} color={theme.textSecondary} strokeWidth={2.2} />
+                            <Body size={12} weight="medium" style={{ color: theme.textSecondary }}>
+                              Retry
+                            </Body>
+                          </Pressable>
+                        ) : null}
                       </View>
                     ) : (
-                      <Body size={14} style={{ color: mine ? theme.brandOn : theme.text }}>
-                        {message.text}
-                      </Body>
+                      <RichText
+                        text={message.text}
+                        color={mine ? theme.brandOn : theme.text}
+                      />
                     )}
                   </View>
 

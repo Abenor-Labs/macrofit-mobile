@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react'
-import { Pressable, StyleSheet, View } from 'react-native'
+import React, { useMemo, useState } from 'react'
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native'
 /*
   `useRouter` rather than `<Link asChild>` for every tappable card on this screen, and it has
   to stay that way. `asChild` renders through Radix's Slot, whose prop merge does
@@ -173,6 +173,7 @@ export default function DashboardScreen() {
         carbsGoal={goals.carbs}
         fatGoal={goals.fat}
         date={today}
+        hasEntries={day.entries.length > 0}
       />
 
       {/* Second, not first. It is the only line on this screen that asks for a change, and
@@ -220,7 +221,17 @@ const MacroCard: React.FC<{
   fatGoal: number
   /** The day these figures describe, so the diary opens on it rather than on today. */
   date: string
-}> = ({ theme, nutrition, goalCalories, proteinGoal, carbsGoal, fatGoal, date }) => {
+  hasEntries: boolean
+}> = ({
+  theme,
+  nutrition,
+  goalCalories,
+  proteinGoal,
+  carbsGoal,
+  fatGoal,
+  date,
+  hasEntries,
+}) => {
   const router = useRouter()
 
   const legend = [
@@ -230,6 +241,21 @@ const MacroCard: React.FC<{
   ]
 
   const over = nutrition.calories > goalCalories
+
+  /*
+    Every macro at or past its target, on a day that actually has food in it. The ring fills
+    and then says nothing, which leaves the one moment the whole screen is built around
+    unmarked. `calories > 0` guards the day that has not started: three zeroes are not three
+    targets met.
+  */
+  const allMacrosHit =
+    nutrition.calories > 0 &&
+    nutrition.protein >= proteinGoal &&
+    nutrition.carbs >= carbsGoal &&
+    nutrition.fat >= fatGoal
+
+  const overBy = Math.max(0, Math.round(nutrition.calories - goalCalories))
+  const badgeTone = overBy > 0 ? theme.status.warning : theme.status.good
 
   return (
     /*
@@ -253,7 +279,13 @@ const MacroCard: React.FC<{
       accessibilityRole="link"
       accessibilityLabel={`${formatNumber(nutrition.calories)} of ${formatNumber(
         goalCalories
-      )} kilocalories. Open the diary for this day.`}
+      )} kilocalories.${
+        allMacrosHit
+          ? overBy > 0
+            ? ` All macros hit, ${overBy} kilocalories over.`
+            : ' All macros hit.'
+          : ''
+      } Open the diary for this day.`}
       onPress={() => router.push({ pathname: '/diary', params: { date } })}
       style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
     >
@@ -324,6 +356,27 @@ const MacroCard: React.FC<{
           </MacroRing>
         </View>
 
+        {allMacrosHit ? (
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              alignSelf: 'center',
+              gap: 6,
+              paddingHorizontal: spacing.md,
+              paddingVertical: 5,
+              borderRadius: radius.pill,
+              borderWidth: StyleSheet.hairlineWidth * 2,
+              borderColor: theme.border,
+            }}
+          >
+            <Check size={13} color={badgeTone} strokeWidth={2.6} />
+            <Body size={12} weight="semibold" style={{ color: badgeTone }}>
+              {overBy > 0 ? `All macros hit · ${formatNumber(overBy)} over` : 'All macros hit'}
+            </Body>
+          </View>
+        ) : null}
+
         <View style={{ flexDirection: 'row', gap: spacing.md }}>
           {legend.map(item => (
             <View key={item.key} style={{ flex: 1, gap: 4 }}>
@@ -364,6 +417,12 @@ const MacroCard: React.FC<{
             </View>
           ))}
         </View>
+
+        {!hasEntries ? (
+          <Body size={12} tone="muted" style={{ textAlign: 'center' }}>
+            Three arcs, outside in: protein, carbs, fat. Log anything and they start filling.
+          </Body>
+        ) : null}
       </Surface>
     </Pressable>
   )
@@ -398,31 +457,29 @@ const CoachCard: React.FC<{
   const weightLog = useStore(s => s.weightLog)
   const bodyMeasurements = useStore(s => s.bodyMeasurements)
   const setRecommendation = useStore(s => s.setRecommendation)
+  const [building, setBuilding] = useState(false)
 
   const buildPlan = () => {
-    const measurement = latestUsableMeasurement(bodyMeasurements ?? [], profile, currentWeightKg)
-    const bodyComp = measurement
-      ? estimateBodyComposition(profile, currentWeightKg, measurement)
-      : null
-    const tdee = buildTdeeEstimate(profile, currentWeightKg, bodyComp, diary, weightLog ?? [])
-
-    /*
-      Prefer what the body actually did over what a formula predicted, but only once enough
-      paired days sit behind it. Same gate useCoach applies, so the plan this card builds and
-      the plan /goals builds are anchored to the same number rather than quietly disagreeing.
-    */
-    const trustMeasured =
-      tdee.measured !== null &&
-      tdee.measured > 0 &&
-      (tdee.confidence === 'medium' || tdee.confidence === 'high')
-
-    setRecommendation(
-      buildLocalRecommendation({
-        goal: profile.goal,
-        weightKg: currentWeightKg,
-        anchorTdee: trustMeasured && tdee.measured !== null ? tdee.measured : tdee.predicted,
-      })
-    )
+    setBuilding(true)
+    requestAnimationFrame(() => {
+      const measurement = latestUsableMeasurement(bodyMeasurements ?? [], profile, currentWeightKg)
+      const bodyComp = measurement
+        ? estimateBodyComposition(profile, currentWeightKg, measurement)
+        : null
+      const tdee = buildTdeeEstimate(profile, currentWeightKg, bodyComp, diary, weightLog ?? [])
+      const trustMeasured =
+        tdee.measured !== null &&
+        tdee.measured > 0 &&
+        (tdee.confidence === 'medium' || tdee.confidence === 'high')
+      setRecommendation(
+        buildLocalRecommendation({
+          goal: profile.goal,
+          weightKg: currentWeightKg,
+          anchorTdee: trustMeasured && tdee.measured !== null ? tdee.measured : tdee.predicted,
+        })
+      )
+      setBuilding(false)
+    })
   }
 
   const label = recommendation
@@ -435,7 +492,10 @@ const CoachCard: React.FC<{
     <Pressable
       accessibilityRole={recommendation ? 'link' : 'button'}
       accessibilityLabel={label}
-      onPress={() => (recommendation ? router.push('/goals') : buildPlan())}
+      onPress={() => {
+        if (building) return
+        recommendation ? router.push('/goals') : buildPlan()
+      }}
       // The card is clipped and fully covered by the wash, so a background change would
       // never show through — opacity is the press feedback that survives the gradient.
       style={({ pressed }) => ({
@@ -464,7 +524,11 @@ const CoachCard: React.FC<{
               backgroundColor: theme.border,
             }}
           >
-            <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
+            {building ? (
+              <ActivityIndicator size="small" color={theme.brandText} />
+            ) : (
+              <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
+            )}
           </View>
 
           <View style={{ flex: 1, gap: 4 }}>
@@ -483,7 +547,7 @@ const CoachCard: React.FC<{
               </View>
             ) : (
               <Body size={13} tone="secondary">
-                No plan yet — tap to build one from what you have logged.
+                {building ? 'Building…' : 'No plan yet — tap to build one from what you have logged.'}
               </Body>
             )}
           </View>

@@ -2,15 +2,19 @@ import React from 'react'
 import {
   ActivityIndicator,
   Pressable,
-  StyleSheet,
   View,
   type StyleProp,
   type ViewStyle,
 } from 'react-native'
 import * as Haptics from 'expo-haptics'
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated'
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, fonts, radius } from '@/theme/tokens'
+import { LiquidGlassPane } from './LiquidGlass'
 import { Body } from './Text'
 
 type Variant = 'primary' | 'secondary' | 'ghost'
@@ -30,6 +34,20 @@ export interface ButtonProps {
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 
+/**
+ * All three variants are glass now.
+ *
+ * THE PRIMARY IS TINTED, NOT CLEAR, AND THAT IS NOT A STYLE CHOICE.
+ * A clear pane shows whatever the aurora is doing behind it, so the contrast under the label
+ * changes as the field drifts — there is no floor at all, and MOBILE-DESIGN §2 fixes that
+ * floor at 4.79:1 for `brandOn` text. The tint is the brand colour at 0.92, which leaves the
+ * label sitting on effectively the same ground it had when this was a solid rectangle while
+ * the rim and the edges of the lens still read as glass. Lowering that alpha is a contrast
+ * regression, not a design tweak.
+ *
+ * `secondary` is regular glass and `ghost` is clear and borderless, which is the one place
+ * a fully transparent pane is correct: a ghost button is meant to be barely there.
+ */
 export const Button: React.FC<ButtonProps> = ({
   label,
   onPress,
@@ -43,13 +61,26 @@ export const Button: React.FC<ButtonProps> = ({
 }) => {
   const theme = useTheme()
   const scale = useSharedValue(1)
+  /*
+    A second value for the press highlight, separate from the scale.
+
+    Glass responds to touch by brightening at the surface rather than by moving — that is
+    what Apple's `isInteractive` does on iOS 26, and the fallback should not feel different.
+    Scale alone reads as a plastic button being pushed; the two together read as a pane
+    catching more light under a finger.
+  */
+  const press = useSharedValue(0)
+
   const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }))
+  const sheenStyle = useAnimatedStyle(() => ({ opacity: press.value }))
 
   const inactive = disabled || loading
 
-  // jade-600 is the floor for white text (4.79:1). jade-500 fails AA at 3.29:1.
-  const background =
-    variant === 'primary' ? theme.brand : variant === 'secondary' ? theme.surface : 'transparent'
+  const tint =
+    variant === 'primary'
+      ? // 0.92, not 1: the last 8% is what keeps the lens visible at the pane's edges.
+        `${theme.brand}EB`
+      : undefined
   const textColor =
     variant === 'primary' ? theme.brandOn : variant === 'ghost' ? theme.textSecondary : theme.text
 
@@ -61,9 +92,13 @@ export const Button: React.FC<ButtonProps> = ({
       disabled={inactive}
       onPressIn={() => {
         scale.value = withTiming(0.97, { duration: 120 })
+        press.value = withTiming(1, { duration: 100 })
       }}
       onPressOut={() => {
         scale.value = withTiming(1, { duration: 120 })
+        // Slower out than in. The highlight fading is the pane settling, and a symmetric
+        // fade makes it read as a flicker.
+        press.value = withTiming(0, { duration: 220 })
       }}
       onPress={() => {
         if (haptic) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
@@ -72,34 +107,59 @@ export const Button: React.FC<ButtonProps> = ({
       style={[
         animatedStyle,
         {
-          minHeight: HIT_SIZE,
-          borderRadius: radius.control,
-          backgroundColor: background,
           opacity: inactive ? 0.5 : 1,
+          alignSelf: full ? 'stretch' : 'flex-start',
+        },
+        style,
+      ]}
+    >
+      <LiquidGlassPane
+        radius={radius.control}
+        variant={variant === 'ghost' ? 'clear' : 'regular'}
+        tint={tint}
+        bordered={variant !== 'ghost'}
+        interactive
+        style={{
+          minHeight: HIT_SIZE,
           paddingHorizontal: 18,
           alignItems: 'center',
           justifyContent: 'center',
           flexDirection: 'row',
           gap: 8,
-          alignSelf: full ? 'stretch' : 'flex-start',
-        },
-        variant === 'secondary' && {
-          borderWidth: StyleSheet.hairlineWidth * 2,
-          borderColor: theme.border,
-        },
-        style,
-      ]}
-    >
-      {loading ? (
-        <ActivityIndicator color={textColor} />
-      ) : (
-        <>
-          {icon}
-          <Body weight="semibold" style={{ color: textColor, fontFamily: fonts.semibold }}>
-            {label}
-          </Body>
-        </>
-      )}
+        }}
+      >
+        {/* The press highlight, inside the pane's clip so it takes the corner radius. */}
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            {
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: 0,
+              bottom: 0,
+              backgroundColor:
+                variant === 'primary'
+                  ? 'rgba(255,255,255,0.18)'
+                  : theme.mode === 'dark'
+                    ? 'rgba(238,241,239,0.10)'
+                    : 'rgba(28,25,23,0.06)',
+            },
+            sheenStyle,
+          ]}
+        />
+
+        {loading ? (
+          <ActivityIndicator color={textColor} />
+        ) : (
+          <>
+            {icon}
+            <Body weight="semibold" style={{ color: textColor, fontFamily: fonts.semibold }}>
+              {label}
+            </Body>
+          </>
+        )}
+      </LiquidGlassPane>
     </AnimatedPressable>
   )
 }
@@ -113,6 +173,13 @@ export interface IconButtonProps {
   style?: StyleProp<ViewStyle>
 }
 
+/**
+ * Clear glass, and only while pressed.
+ *
+ * An icon button sits in chrome — headers, rows — where a permanently visible pane would
+ * add a box around every icon in the app. It stays invisible at rest and materialises under
+ * the finger, which is the glass equivalent of the background highlight it used to draw.
+ */
 export const IconButton: React.FC<IconButtonProps> = ({
   children,
   onPress,
@@ -121,25 +188,45 @@ export const IconButton: React.FC<IconButtonProps> = ({
   style,
 }) => {
   const theme = useTheme()
+  const press = useSharedValue(0)
+  const paneStyle = useAnimatedStyle(() => ({ opacity: press.value }))
+
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [
+      onPressIn={() => {
+        press.value = withTiming(1, { duration: 100 })
+      }}
+      onPressOut={() => {
+        press.value = withTiming(0, { duration: 220 })
+      }}
+      style={[
         {
           width: HIT_SIZE,
           height: HIT_SIZE,
-          borderRadius: radius.control,
           alignItems: 'center',
           justifyContent: 'center',
           opacity: disabled ? 0.4 : 1,
-          backgroundColor: pressed ? theme.border : 'transparent',
         },
         style,
       ]}
     >
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 },
+          paneStyle,
+        ]}
+      >
+        <LiquidGlassPane
+          radius={radius.control}
+          variant="clear"
+          style={{ flex: 1 }}
+        />
+      </Animated.View>
       <View pointerEvents="none">{children}</View>
     </Pressable>
   )

@@ -52,18 +52,39 @@ export interface ChatContextGoals {
   fat: number
 }
 
-/** A diary entry already logged today, listed so the model can dedupe and correct. */
+/**
+ * A diary entry already logged today, listed so the model can dedupe and correct.
+ *
+ * Carries macros, not just calories. Without them the assistant was asked questions like "how
+ * much protein have I got left" holding nothing but food names and a calorie figure, so it did
+ * the only thing available and estimated protein from the words "lemon rice" — while the exact
+ * number sat in the store, on screen, one property away from being sent.
+ */
 export interface ChatContextEntry {
   id: string
   name: string
   meal: string
   calories: number
+  protein: number
+  carbs: number
+  fat: number
+}
+
+/** Everything eaten today, totalled. The figures the app shows on the dashboard. */
+export interface ChatContextConsumed {
+  calories: number
+  protein: number
+  carbs: number
+  fat: number
+  fiber: number
 }
 
 /** Ground truth the chat prompt is built from. Every field is optional server-side. */
 export interface ChatContext {
   goals?: ChatContextGoals
   todayCalories?: number
+  /** Totals for the day. Supersedes `todayCalories`, which is kept for older servers. */
+  consumed?: ChatContextConsumed
   todayEntries?: ChatContextEntry[]
   currentWeight?: string
   weightUnit?: 'lbs' | 'kg'

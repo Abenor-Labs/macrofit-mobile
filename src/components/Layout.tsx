@@ -9,11 +9,11 @@ import {
   type ViewStyle,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { BlurTargetArea, ChromeBlur } from './BlurTarget'
+import { BlurTargetArea } from './BlurTarget'
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, fonts, radius, spacing } from '@/theme/tokens'
 import { Body, Label, SectionTitle } from './Text'
-import { Backdrop } from './Backdrop'
+import { Glass, Island } from './Material'
 
 /** Height the floating tab bar occupies, so scroll content can clear it. */
 export const TAB_BAR_SPACE = 76
@@ -50,25 +50,29 @@ export const Screen: React.FC<ScreenProps> = ({
   )
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.canvas }}>
-      {/* Gives every frosted surface on the screen something to refract. Without it a
-          BlurView over the flat canvas just reads as a grey rectangle. */}
-      <Backdrop />
+    /*
+      Flat ground. No ambient field, no scene.
 
+      This used to mount an `Aurora` behind every routed screen, because the material above
+      it refracted and needed something with structure to bend. Nothing refracts any more
+      (see Material.tsx), so the field went back to being decoration — and decoration behind
+      a table of figures is noise. MOBILE-DESIGN §8 keeps it on Welcome, Login, Onboarding
+      and Chat, which are the screens where the field IS the content.
+
+      It is also the single biggest perf win available here: every pane on a screen used to
+      mount its own copy of that field.
+    */
+    <View style={{ flex: 1, backgroundColor: theme.canvas }}>
       {title !== undefined && (
-        <View
+        <Glass
+          radius={0}
           style={{
             paddingTop: insets.top,
             borderBottomWidth: StyleSheet.hairlineWidth * 2,
             borderBottomColor: theme.glass.border,
-            overflow: 'hidden',
             zIndex: 10,
           }}
         >
-          <ChromeBlur tint={theme.glass.tint} intensity={theme.glass.intensity + 20} />
-          <View
-            style={[StyleSheet.absoluteFill, { backgroundColor: theme.glass.chromeOverlay }]}
-          />
           <View
             style={{
               flexDirection: 'row',
@@ -89,7 +93,7 @@ export const Screen: React.FC<ScreenProps> = ({
             </View>
             {right}
           </View>
-        </View>
+        </Glass>
       )}
 
       {/* This is what the header and the tab bar blur. Both float above it, so it has to be the
@@ -122,6 +126,14 @@ export const Pill: React.FC<{
 }> = ({ children, color, style }) => {
   const theme = useTheme()
   return (
+    /*
+      A flat tinted fill, not a pane.
+
+      The colour a pill carries is load-bearing — it is how a macro or a status says which
+      one it is — and a translucent material sitting on an unpredictable background is
+      exactly how that colour stops being reliable. `1A` on the fill and `40` on the edge are
+      the values this had before it was briefly made glass.
+    */
     <View
       style={[
         {
@@ -160,15 +172,19 @@ export const Field: React.FC<FieldProps> = ({ label, numeric = false, style, ...
   return (
     <View style={{ gap: 6 }}>
       {label ? <Label>{label}</Label> : null}
+      {/*
+        Solid, and this was always the right answer even when everything else was glass: an
+        input is read while it is being typed into, so it needs a fixed floor under the text
+        rather than whatever happens to be behind it that second. The TextInput goes
+        transparent and the island supplies the ground, the radius and the edge.
+      */}
+      <Island radius={radius.control}>
       <TextInput
         placeholderTextColor={theme.textMuted}
         style={[
           {
             minHeight: HIT_SIZE,
-            borderRadius: radius.control,
-            borderWidth: StyleSheet.hairlineWidth * 2,
-            borderColor: theme.border,
-            backgroundColor: theme.surface,
+            backgroundColor: 'transparent',
             color: theme.text,
             paddingHorizontal: 14,
             fontFamily: numeric ? fonts.display : fonts.body,
@@ -191,6 +207,7 @@ export const Field: React.FC<FieldProps> = ({ label, numeric = false, style, ...
         ]}
         {...props}
       />
+      </Island>
     </View>
   )
 }
@@ -205,18 +222,18 @@ export const EmptyState: React.FC<{
   return (
     <View style={{ alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl }}>
       {icon ? (
-        <View
+        <Island
+          radius={radius.control}
+          elevated={false}
           style={{
             width: 56,
             height: 56,
-            borderRadius: radius.control,
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: theme.border,
           }}
         >
           {icon}
-        </View>
+        </Island>
       ) : null}
       <SectionTitle style={{ textAlign: 'center' }}>{title}</SectionTitle>
       <Body tone="secondary" style={{ textAlign: 'center' }}>
