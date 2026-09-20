@@ -13,6 +13,7 @@ import Constants from 'expo-constants'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { parseAuthFragment } from '@/lib/authLink'
 import { describeAuthError, normalizeEmail, type AuthResult } from '@core/utils/authErrors'
 import { getStoreEpoch, resetStore, useStore } from '@/store/useStore'
 
@@ -40,12 +41,17 @@ interface AuthContextValue {
   /**
    * Email a sign-in link to someone who has forgotten their password.
    *
-   * The link carries a PKCE code, which `exchangeConfirmation` already trades for a session —
-   * so tapping it signs them in directly rather than dropping them at a form. That is why
-   * this needed no new deep-link handling: recovery and confirmation arrive identically.
+   * THIS COMMENT USED TO SAY recovery and confirmation "arrive identically", so no extra
+   * deep-link handling was needed. That was wrong twice, and it is why reset links did
+   * nothing at all for a release:
    *
-   * Being signed in is the point. Their data comes back the moment the session exists; the
-   * password itself can be replaced afterwards, from Profile, and does not block anything.
+   *   - The PKCE `?code=` only comes back when THIS install made the request, because the
+   *     verifier lives in its AsyncStorage. A link sent from the Supabase dashboard, or
+   *     opened after a reinstall, arrives as `#access_token=…` in the fragment instead.
+   *     `readAuthParams` now reads both halves of the URL.
+   *   - Being signed in is not the point of a reset. A recovery link that silently signs
+   *     someone in and shows them the dashboard has not reset anything, so the session is
+   *     flagged `recoveryPending` and routing sends them to choose a password.
    */
   requestPasswordReset: (email: string) => Promise<AuthResult>
   /** Replace the password of the currently signed-in user. */
@@ -119,6 +125,15 @@ interface AuthContextValue {
   /** Why the confirmation link could not be used. Its own state, with its own copy. */
   confirmationError: string | null
   clearConfirmationError: () => void
+  /**
+   * A recovery link was just redeemed, so this session exists only to choose a new password.
+   *
+   * Routing watches this and sends the user to the password screen instead of into the app.
+   * Without it a reset link signs someone in and drops them on the dashboard, having asked
+   * them for nothing — which is how a password reset silently fails to reset a password.
+   */
+  recoveryPending: boolean
+  clearRecoveryPending: () => void
 }
 
 const AuthContext = createContext<AuthContextValue>(null!)
@@ -187,6 +202,28 @@ const licenceFor = (epoch: string, userId: string) => `${epoch}:${userId}`
  */
 const CONFIRM_REDIRECT = 'macrofit://auth/callback'
 
+/**
+ * Every parameter on an auth deep link, from the query string AND the fragment.
+ *
+ * Two readers because the two halves need different tools. `Linking.parse` is the blessed
+ * way to read the query string on native, and it structurally cannot see a fragment — its
+ * `ParsedURL` is `{ scheme, hostname, path, queryParams }`, with no field for one. The
+ * fragment half lives in ./authLink, which is pure and therefore testable; the note there
+ * explains what GoTrue puts in it and why missing it broke every reset link.
+ *
+ * The fragment is merged last. In practice GoTrue sends one or the other, never both.
+ */
+const readAuthParams = (url: string): Record<string, string> => {
+  const params: Record<string, string> = {}
+
+  const { queryParams } = Linking.parse(url)
+  for (const [key, value] of Object.entries(queryParams ?? {})) {
+    if (typeof value === 'string' && value.length > 0) params[key] = value
+  }
+
+  return { ...params, ...parseAuthFragment(url) }
+}
+
 if (__DEV__) {
   const configured = Constants.expoConfig?.scheme
   const schemes = Array.isArray(configured) ? configured : configured ? [configured] : []
@@ -254,6 +291,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [sessionEndedReason, setSessionEndedReason] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [confirmationError, setConfirmationError] = useState<string | null>(null)
+  const [recoveryPending, setRecoveryPending] = useState(false)
   const [hasUnsyncedChanges, setHasUnsyncedChanges] = useState(false)
   const [hasLoadedAccount, setHasLoadedAccount] = useState(false)
   const [isNewAccount, setIsNewAccount] = useState(false)
@@ -842,11 +880,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     which is the common case seconds after signing up.
   */
   const exchangeConfirmation = useCallback(async (url: string): Promise<void> => {
-    const { queryParams } = Linking.parse(url)
-    const readParam = (key: string): string | null => {
-      const value = queryParams?.[key]
-      return typeof value === 'string' && value.length > 0 ? value : null
-    }
+    const params = readAuthParams(url)
+    const readParam = (key: string): string | null => params[key] ?? null
 
     // GoTrue reports a refused or expired link by redirecting WITH the error rather than by
     // failing to redirect, so this has to be checked before looking for a code.
@@ -856,19 +891,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return
     }
 
+    /*
+      Two shapes, and the app has to accept both.
+
+      `?code=` is the PKCE exchange, and it only comes back when THIS install started the
+      flow — supabase-js keeps the matching verifier in AsyncStorage. A link sent from the
+      Supabase dashboard, or opened on a device that has since been reinstalled, has no
+      verifier anywhere, so GoTrue falls back to returning the session itself in the
+      fragment. Reading only one of the two is why every such link did nothing at all.
+    */
     const code = readParam('code')
-    if (code === null) return
+    const accessToken = readParam('access_token')
+    const refreshToken = readParam('refresh_token')
+    const hasTokens = accessToken !== null && refreshToken !== null
+    if (code === null && !hasTokens) return
+
+    // `type` rides along on both shapes. Recovery is the one that must not just sign in.
+    const isRecovery = readParam('type') === 'recovery'
 
     setConfirming(true)
     setConfirmationError(null)
     try {
-      const { error } = await supabase.auth.exchangeCodeForSession(code)
+      const { error } =
+        code !== null
+          ? await supabase.auth.exchangeCodeForSession(code)
+          : await supabase.auth.setSession({
+              access_token: accessToken as string,
+              refresh_token: refreshToken as string,
+            })
       if (error) {
         setConfirmationError(describeConfirmationError(error.code ?? null, error.message))
         return
       }
-      // Success needs no handling here: exchangeCodeForSession stores the session, which
-      // fires SIGNED_IN, which adopts the user and routes them exactly like a sign-in.
+      /*
+        Beyond this point the session is stored, which fires SIGNED_IN, which adopts the user
+        and routes them exactly like a sign-in. A recovery link needs one thing more: the
+        flag that sends them to the password screen rather than into the app.
+      */
+      if (isRecovery) setRecoveryPending(true)
     } catch {
       setConfirmationError(describeConfirmationError(null, null))
     } finally {
@@ -1094,6 +1154,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSession(null)
     setHydrationOutcome('pending')
     setSyncStatus('idle')
+    // An abandoned recovery must not outlive its session, or the next sign-in on this device
+    // opens straight onto a password form nobody asked for.
+    setRecoveryPending(false)
     return { error: null }
   }, [flushSave, setLoaded, setLocalEdits])
 
@@ -1142,6 +1205,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const clearSessionEndedReason = useCallback(() => setSessionEndedReason(null), [])
   const clearConfirmationError = useCallback(() => setConfirmationError(null), [])
 
+  /*
+    Cleared by the password screen once the new password is stored, which releases routing to
+    take the user into the app. Also cleared on sign-out, so a recovery that was abandoned
+    rather than finished cannot strand the next session on the password form.
+  */
+  const clearRecoveryPending = useCallback(() => setRecoveryPending(false), [])
+
   /**
    * Memoised because `syncStatus` cycles saving → saved → idle on every autosave, and
    * every consumer of this context (the root navigator, the entry gate, Profile) would
@@ -1175,6 +1245,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       confirming,
       confirmationError,
       clearConfirmationError,
+      recoveryPending,
+      clearRecoveryPending,
     }),
     [
       user,
@@ -1199,6 +1271,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       clearSessionEndedReason,
       confirming,
       confirmationError,
+      recoveryPending,
       clearConfirmationError,
     ]
   )

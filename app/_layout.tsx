@@ -333,8 +333,16 @@ const RootNavigator: React.FC = () => {
   useEffect(() => {
     void SystemUI.setBackgroundColorAsync(theme.canvas)
   }, [theme.canvas])
-  const { user, loading, hydrating, syncBlocked, syncUnavailable, isNewAccount, unclaimedConflict } =
-    useAuth()
+  const {
+    user,
+    loading,
+    hydrating,
+    syncBlocked,
+    syncUnavailable,
+    isNewAccount,
+    unclaimedConflict,
+    recoveryPending,
+  } = useAuth()
   const onboardedAt = useStore(s => s.onboardedAt)
   const segments = useSegments()
   const router = useRouter()
@@ -349,6 +357,7 @@ const RootNavigator: React.FC = () => {
   const onLoginScreen = segments[0] === 'login'
   const onWelcome = segments[0] === 'welcome'
   const onOnboarding = segments[0] === 'onboarding'
+  const onResetPassword = segments[0] === 'reset-password'
   const needsSetup = onboardedAt === null
   const welcomeSeen = useWelcomeSeen()
   const guest = useGuestMode()
@@ -408,11 +417,22 @@ const RootNavigator: React.FC = () => {
     */
     if (guest) leaveGuestMode()
 
+    /*
+      A recovery link was just redeemed, so this session exists to choose a password and
+      nothing else. Checked ahead of setup and of the tabs: a reset that let the user through
+      to the app first has not reset anything, which is precisely how "reset your password"
+      came to leave the old password working. Cleared by the screen once it saves.
+    */
+    if (recoveryPending) {
+      if (!onResetPassword) router.replace('/reset-password')
+      return
+    }
+
     if (needsSetup) {
       if (!onOnboarding) router.replace('/onboarding')
       return
     }
-    if (onLoginScreen || onOnboarding || onWelcome) router.replace('/(tabs)')
+    if (onLoginScreen || onOnboarding || onWelcome || onResetPassword) router.replace('/(tabs)')
   }, [
     user,
     loading,
@@ -424,6 +444,8 @@ const RootNavigator: React.FC = () => {
     onLoginScreen,
     onWelcome,
     onOnboarding,
+    onResetPassword,
+    recoveryPending,
     welcomeSeen,
     guest,
     router,
@@ -510,6 +532,13 @@ const RootNavigator: React.FC = () => {
               options={{ animation: 'fade', gestureEnabled: false }}
             />
             <Stack.Screen name="login" options={{ animation: 'fade' }} />
+            {/* Same family as login and welcome, and for the same reason: it replaces them
+                rather than stacking on them. No gesture — routing holds the user here until
+                the password is saved, so an edge swipe would fight the redirect and lose. */}
+            <Stack.Screen
+              name="reset-password"
+              options={{ animation: 'fade', gestureEnabled: false }}
+            />
             <Stack.Screen
               name="onboarding"
               options={{ animation: 'fade', gestureEnabled: false }}
