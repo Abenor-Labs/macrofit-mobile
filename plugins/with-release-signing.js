@@ -1,5 +1,5 @@
 const path = require('path')
-const { existsSync } = require('fs')
+const { existsSync, readFileSync } = require('fs')
 const { withAppBuildGradle } = require('@expo/config-plugins')
 
 /**
@@ -13,36 +13,81 @@ const { withAppBuildGradle } = require('@expo/config-plugins')
  * uninstalling, which takes the user's local data with it. We hit exactly that failure earlier
  * with an EAS-signed copy already on the device.
  *
- * So the key is kept at keys/macrofit-signing.keystore, outside anything generated, and this
- * points the release build at it. It is the same key the debug keystore already held, copied
- * rather than replaced on purpose: a brand new key would have been unable to install over the
- * build already on the phone.
+ * So the key is kept outside anything generated, and this points the release build at it.
+ *
+ * WHICH KEY, AND WHY IT IS NOT THE ONE THIS FILE ORIGINALLY NAMED:
+ * This first pinned keys/macrofit-signing.keystore, a copy of the template debug key
+ * (CN=Android Debug, fac61745…), which is what v1.2.3 and everything before it shipped with.
+ * v1.2.4 was then built and released signed with credentials/macrofit-release.keystore
+ * (CN=MacroFit, 1edcd8dd…) while this file still named the old one — so the released APK and
+ * the repo's idea of the signing key silently disagreed for a whole version.
+ *
+ * The real key wins, because it is the one already on people's phones: an APK signed with the
+ * debug key can no longer install over v1.2.4. Anyone still on v1.2.3 or earlier is on the
+ * other side of that break and has to reinstall once; there is no key that satisfies both.
+ *
+ * Do not point this back at keys/ to rescue those installs. It would trade a break that has
+ * already happened for a fresh one affecting everyone who is current.
  *
  * NOT FOR STORE DISTRIBUTION. This is a self-signed key for sideloading. Publishing to Play
  * would want its own key, generated once and never seen again by anything but the store.
  *
- * If the keystore is missing the plugin leaves the gradle file alone, so a fresh clone still
- * builds — it just builds something that cannot update an existing install.
+ * If the keystore or its properties file is missing the plugin leaves the gradle file alone,
+ * so a fresh clone still builds — it just builds something that cannot update an existing
+ * install. `credentials/` is git-ignored, so that is the normal state of a fresh clone.
  */
 
-const KEYSTORE = 'keys/macrofit-signing.keystore'
+const KEYSTORE = 'credentials/macrofit-release.keystore'
 
-/** The debug keystore's own well-known credentials; the file is the secret, not these. */
-const STORE_PASSWORD = 'android'
-const KEY_ALIAS = 'androiddebugkey'
-const KEY_PASSWORD = 'android'
+/*
+  Alias and passwords are read from the git-ignored properties file beside the keystore rather
+  than written here, because this file IS committed. The values land in the generated
+  android/app/build.gradle, which is git-ignored in turn.
+*/
+const PROPERTIES = 'credentials/keystore.properties'
+
+/** Reads `KEY=value` lines, ignoring comments and blanks. */
+const readProperties = file => {
+  const out = {}
+  for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (trimmed.length === 0 || trimmed.startsWith('#')) continue
+    const split = trimmed.indexOf('=')
+    if (split === -1) continue
+    out[trimmed.slice(0, split).trim()] = trimmed.slice(split + 1).trim()
+  }
+  return out
+}
 
 const withReleaseSigning = config =>
   withAppBuildGradle(config, mod => {
     const keystorePath = path.join(mod.modRequest.projectRoot, KEYSTORE)
+    const propertiesPath = path.join(mod.modRequest.projectRoot, PROPERTIES)
 
-    if (!existsSync(keystorePath)) {
+    if (!existsSync(keystorePath) || !existsSync(propertiesPath)) {
       console.warn(
-        `[with-release-signing] ${KEYSTORE} is missing, so the release build will fall back to ` +
-          'the generated debug keystore. That APK will not be able to update an install signed ' +
-          'with the pinned key.'
+        `[with-release-signing] ${KEYSTORE} or ${PROPERTIES} is missing, so the release build ` +
+          'will fall back to the generated debug keystore. That APK will not be able to update ' +
+          'an install signed with the pinned key.'
       )
       return mod
+    }
+
+    const properties = readProperties(propertiesPath)
+    const KEY_ALIAS = properties.MACROFIT_UPLOAD_KEY_ALIAS
+    const STORE_PASSWORD = properties.MACROFIT_UPLOAD_STORE_PASSWORD
+    const KEY_PASSWORD = properties.MACROFIT_UPLOAD_KEY_PASSWORD
+
+    /*
+      Failing loudly beats signing with whatever `undefined` stringifies to. A release built
+      against a half-filled properties file is not a build error — it is an APK that looks fine
+      and cannot install over anything.
+    */
+    if (!KEY_ALIAS || !STORE_PASSWORD || !KEY_PASSWORD) {
+      throw new Error(
+        `[with-release-signing] ${PROPERTIES} is missing MACROFIT_UPLOAD_KEY_ALIAS, ` +
+          'MACROFIT_UPLOAD_STORE_PASSWORD or MACROFIT_UPLOAD_KEY_PASSWORD.'
+      )
     }
 
     let contents = mod.modResults.contents
