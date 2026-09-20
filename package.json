@@ -53,6 +53,7 @@
     "web": "expo start --web",
     "typecheck": "node scripts/sync-core.mjs && tsc --noEmit",
     "test": "node scripts/check-auth-link.mjs",
+    "check:apk": "node scripts/check-release-apk.mjs",
     "build:android": "expo run:android",
     "sync:core": "node scripts/sync-core.mjs",
     "export": "node scripts/sync-core.mjs && expo export"
