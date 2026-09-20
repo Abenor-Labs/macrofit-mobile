@@ -39,9 +39,10 @@ import { Screen } from '@/components/Layout'
  * against each other (where targets come from, and why the verdict disagrees with the scale),
  * and a panel that closed its neighbour would make comparing them a memory exercise.
  *
- * WHAT IS DELIBERATELY NOT HERE:
- * Meal photo analysis. The API client can do it; no screen in the app offers it. Documenting a
- * capability the user cannot reach turns a help screen into a source of bug reports.
+ * Meal photo analysis used to be the one capability deliberately left undocumented here,
+ * because `src/lib/api.ts` could do it and no screen offered it. The assistant's camera
+ * button closes that gap, so the logging topic now covers it — including the part where the
+ * numbers are an estimate, which is the thing a help screen exists to say out loud.
  */
 
 interface Topic {
@@ -63,8 +64,9 @@ const buildTopics = (theme: Theme): Topic[] => {
       icon: icon(Search),
       title: 'Getting food into the diary',
       body: [
-        'Three ways, and they all end up in the same place. Add food searches a built-in list of Indian dishes and everyday foods, and looks up packaged products online when the name is not one it already holds.',
+        'Four ways, and they all end up in the same place. Add food searches a built-in list of Indian dishes and everyday foods, and looks up packaged products online when the name is not one it already holds.',
         'The assistant is usually faster for a real meal. Describe it the way you would say it out loud — "two chapatis and chicken curry, and four eggs for snacks" — and it works out the items and the amounts. Every reply that wrote something to your diary carries an Undo, because it acts on its own reading of what you meant.',
+        'The camera button in the assistant reads a photo of a plate. It lists what it can see with an estimate for each item, and nothing is written until you confirm it — uncheck anything that was never there, adjust the counts, then log. Estimating from a picture is genuinely approximate, so treat the numbers as a starting point rather than a measurement.',
         'Tap any entry in the Diary to change the serving count, or to remove it. Removing shows a snackbar with a way back for a few seconds.',
       ],
     },

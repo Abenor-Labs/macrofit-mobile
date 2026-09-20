@@ -2,7 +2,7 @@
   "expo": {
     "name": "MacroFit",
     "slug": "macrofit",
-    "version": "1.2.4",
+    "version": "1.3.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "macrofit",
@@ -28,7 +28,7 @@
         "android.permission.REQUEST_INSTALL_PACKAGES"
       ],
       "softwareKeyboardLayoutMode": "pan",
-      "versionCode": 7
+      "versionCode": 8
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -48,7 +48,9 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "MacroFit needs photo access so you can analyse a meal photo and attach progress photos."
+          "photosPermission": "MacroFit needs photo access so you can analyse a meal photo and attach progress photos.",
+          "cameraPermission": "MacroFit uses the camera to analyse meals and take progress photos.",
+          "microphonePermission": false
         }
       ],
       [

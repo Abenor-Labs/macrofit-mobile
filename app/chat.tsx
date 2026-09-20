@@ -1,6 +1,9 @@
 import React, { useCallback, useRef, useState } from 'react'
 import {
+  ActionSheetIOS,
   ActivityIndicator,
+  Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,6 +18,7 @@ import { v4 as uuidv4 } from 'uuid'
 import {
   AlertTriangle,
   Bot,
+  Camera,
   Check,
   Droplets,
   Lightbulb,
@@ -27,9 +31,17 @@ import {
   X,
 } from 'lucide-react-native'
 
-import type { Food } from '@core/types'
+import type { Food, MealType } from '@core/types'
 import { getDayNutrition, getTodayString, kgToLbs, lbsToKg } from '@core/utils/calculations'
-import { postChat, type ChatMessageParam } from '@/lib/api'
+import {
+  postAnalyzePhoto,
+  postChat,
+  type AnalyzedFood,
+  type ChatMessageParam,
+} from '@/lib/api'
+import { analyzedFoodToFood, mealForNow } from '@/lib/analyzedFood'
+import { capturePhoto, type PhotoSource } from '@/lib/mealPhoto'
+import { PhotoReview, type PhotoReviewSelection } from '@/components/PhotoReview'
 import { useStore } from '@/store/useStore'
 import { useAuth } from '@/lib/AuthProvider'
 import { useTheme, type Theme } from '@/theme/useTheme'
@@ -43,8 +55,13 @@ import { EmptyState, Field, Screen } from '@/components/Layout'
 /**
  * The nutrition assistant, ported from the web `ChatInterface`.
  *
- * Same context, same tools, same store mutations. Two things are handled more carefully
- * than on the web because they are silent data corruption otherwise:
+ * Same context, same tools, same store mutations. It also owns the meal-photo path, which
+ * the web app never shipped a screen for: the camera button in the composer sends an image
+ * to `/api/analyze-photo` — a vision model, not the tool-calling one behind the text — and
+ * renders the result as a card the user confirms before anything is written.
+ *
+ * Two things are handled more carefully than on the web because they are silent data
+ * corruption otherwise:
  *   - a weight the model reports in a unit the profile does not use is converted before
  *     it is written (see `weightInProfileUnit`);
  *   - `discardedActions` is surfaced, so a reply that says "logged it" while the payload
@@ -54,7 +71,7 @@ import { EmptyState, Field, Screen } from '@/components/Layout'
 const WELCOME_ID = 'welcome'
 
 const WELCOME_TEXT =
-  "Hi! I'm your nutrition assistant. Tell me what you ate, your weight, or your water and I'll log it. Try \"I had 1 cup of oatmeal and 2 eggs for breakfast\" or \"I weighed 84 kg this morning\"."
+  "Hi! I'm your nutrition assistant. Tell me what you ate, your weight, or your water and I'll log it. Try \"I had 1 cup of oatmeal and 2 eggs for breakfast\" or \"I weighed 84 kg this morning\". You can also photograph a meal with the camera button and I'll read the plate."
 
 /** A store mutation that actually landed, echoed back so the user can verify it. */
 interface LoggedAction {
@@ -82,7 +99,34 @@ interface ChatEntry {
   failed?: boolean
   /** The user text that triggered this failed turn, so a retry can re-send it. */
   retryText?: string
+  /** Local URI of an attached meal photo, shown in place of a text bubble. */
+  photo?: string
+  /**
+   * Vision results awaiting the user's confirmation.
+   *
+   * Cleared when the card's Log button writes them, at which point the same message grows
+   * `actions` instead — so the card becomes the ordinary receipt, with the ordinary Undo.
+   */
+  review?: AnalyzedFood[]
+  /**
+   * Excludes this turn from the history sent to `/api/chat`.
+   *
+   * A photo turn has no text of its own, and `send` maps every surviving message straight
+   * into `{ role, content: m.text }` — so without this flag the next text message would push
+   * an empty user turn at the model. The photo endpoint is stateless and separate, and what a
+   * photo logged still reaches the assistant through `todayEntries`, so nothing is lost.
+   */
+  fromPhoto?: boolean
 }
+
+/**
+ * Edge of the attached-photo thumbnail.
+ *
+ * Square and fixed rather than sized to the image: a transcript of portrait and landscape
+ * meals at their own aspect ratios reads as a jumble, and a tall photo pushes the review
+ * card it belongs with off the screen.
+ */
+const PHOTO_BUBBLE = 168
 
 const formatValue = (value: number): string =>
   Number.isInteger(value) ? String(value) : value.toFixed(1)
@@ -238,8 +282,9 @@ export default function ChatScreen() {
 
     const history: ChatMessageParam[] = messages
       // A failed turn is this client's error string, not something the assistant said. Sending
-      // it back would tell the model it had replied "Network request failed".
-      .filter(m => m.id !== WELCOME_ID && !m.failed)
+      // it back would tell the model it had replied "Network request failed". A photo turn is
+      // skipped for the reason on `fromPhoto`.
+      .filter(m => m.id !== WELCOME_ID && !m.failed && !m.fromPhoto)
       .map(m => ({ role: m.role, content: m.text }))
     history.push({ role: 'user', content: text })
 
@@ -302,30 +347,7 @@ export default function ChatScreen() {
       for (const action of reply.actions) {
         if (action.tool === 'log_food') {
           const inp = action.input
-          // `servings` is validated positive by the API client, so these divisions are safe.
-          const food: Food = {
-            id: `chat_${uuidv4()}`,
-            name: inp.name,
-            category: inp.category,
-            servingSize: inp.servingSize,
-            servingUnit: inp.servingUnit,
-            calories: inp.calories / inp.servings,
-            protein: inp.protein / inp.servings,
-            carbs: inp.carbs / inp.servings,
-            fat: inp.fat / inp.servings,
-            fiber: inp.fiber / inp.servings,
-            sugar: inp.sugar / inp.servings,
-            sodium: inp.sodium / inp.servings,
-            potassium: 0,
-            cholesterol: 0,
-            saturatedFat: 0,
-            transFat: 0,
-            vitaminA: 0,
-            vitaminC: 0,
-            calcium: 0,
-            iron: 0,
-            isCustom: true,
-          }
+          const food: Food = analyzedFoodToFood(inp, `chat_${uuidv4()}`)
           addFoodEntry(today, {
             foodId: food.id,
             food,
@@ -402,6 +424,180 @@ export default function ChatScreen() {
   }
 
   /*
+    Photographs a meal, reads it, and puts the reading in the transcript for confirmation.
+
+    The photo bubble is appended BEFORE the request so the wait has something to happen
+    against — an 18-second model call behind a motionless screen reads as a hang. Both the
+    bubble and whatever comes back carry `fromPhoto`; the note on that field says why.
+
+    `/api/analyze-photo` is a different model from `/api/chat` — vision rather than
+    tool-calling — and it is given no conversation, so nothing here touches `history`.
+  */
+  const runPhoto = async (source: PhotoSource) => {
+    if (loading) return
+
+    let capture
+    try {
+      capture = await capturePhoto(source)
+    } catch (err: unknown) {
+      // Resize or encode failed. Nothing is on screen yet, so an alert is the whole story.
+      Alert.alert(
+        'Could not prepare that photo',
+        err instanceof Error ? err.message : 'Try taking it again.',
+      )
+      return
+    }
+
+    if (capture.status === 'canceled') return
+    if (capture.status === 'denied') {
+      Alert.alert(
+        'Camera access is off',
+        'Allow the camera in Settings to photograph a meal. Choosing an existing photo from your library still works.',
+      )
+      return
+    }
+
+    const { uri, base64 } = capture.photo
+    setMessages(prev => [
+      ...prev,
+      { id: uuidv4(), role: 'user', text: '', photo: uri, fromPhoto: true },
+    ])
+    setLoading(true)
+    scrollToEnd()
+
+    /*
+      The clock picks the meal, not the user — and only as the card's starting position.
+      Sending it on to the model as well is worth doing: the same beige plate is a different
+      set of foods at 8am than at 9pm, and `mealType` is the only context this endpoint gets.
+    */
+    const meal = mealForNow()
+
+    try {
+      const foods = await postAnalyzePhoto(base64, meal)
+
+      setMessages(prev => [
+        ...prev,
+        foods.length === 0
+          ? {
+              id: uuidv4(),
+              role: 'assistant',
+              // An empty array is a valid 200, not a failure — so it is not styled as one.
+              text: "I couldn't make out any food in that one. A closer shot of the plate, in better light, usually does it.",
+              fromPhoto: true,
+            }
+          : {
+              id: uuidv4(),
+              role: 'assistant',
+              text: 'Here is what I can see. Check it over before I log it.',
+              review: foods,
+              fromPhoto: true,
+            },
+      ])
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Something went wrong.'
+      /*
+        No `retryText`: a retry would have to re-send an image this screen no longer holds,
+        and re-picking it is exactly what the camera button in the composer already does.
+      */
+      setMessages(prev => [
+        ...prev,
+        { id: uuidv4(), role: 'assistant', text: message, failed: true, fromPhoto: true },
+      ])
+    } finally {
+      setLoading(false)
+      scrollToEnd()
+    }
+  }
+
+  /**
+   * Asks where the photo should come from.
+   *
+   * A native action sheet on iOS and a three-button alert on Android, because those are the
+   * two platforms' own answers to this question and a shared custom sheet would look like
+   * neither.
+   */
+  const attachPhoto = () => {
+    if (loading) return
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: 'Add a meal photo',
+          options: ['Cancel', 'Take Photo', 'Choose from Library'],
+          cancelButtonIndex: 0,
+        },
+        index => {
+          if (index === 1) void runPhoto('camera')
+          if (index === 2) void runPhoto('library')
+        },
+      )
+      return
+    }
+
+    Alert.alert('Add a meal photo', undefined, [
+      { text: 'Take photo', onPress: () => void runPhoto('camera') },
+      { text: 'Choose from library', onPress: () => void runPhoto('library') },
+      { text: 'Cancel', style: 'cancel' },
+    ])
+  }
+
+  /*
+    Writes the items the user kept, then turns the card back into an ordinary receipt.
+
+    Replacing `review` with `actions` on the SAME message is what earns the existing Undo:
+    the receipt renderer and `undoTurn` already work on any turn carrying `actions`, and a
+    photo log reverses by the same route a text log does.
+  */
+  const logReviewed = (
+    messageId: string,
+    selection: PhotoReviewSelection[],
+    meal: MealType,
+  ) => {
+    const today = getTodayString()
+    const logged: LoggedAction[] = []
+
+    for (const { food: analyzed, servings } of selection) {
+      const food: Food = analyzedFoodToFood(analyzed, `photo_${uuidv4()}`)
+      addFoodEntry(today, { foodId: food.id, food, servings, mealType: meal })
+
+      /*
+        The receipt reports what was WRITTEN, not what was detected. The stepper can move a
+        count away from the model's, and a chip claiming 248 kcal next to a diary row holding
+        372 is the kind of quiet disagreement that makes the whole feature untrustworthy.
+      */
+      const scale = servings / analyzed.servings
+      logged.push({
+        type: 'food',
+        label: analyzed.name,
+        value: Math.round(analyzed.calories * scale),
+        unit: 'kcal',
+        foodId: food.id,
+        macros: {
+          protein: analyzed.protein * scale,
+          carbs: analyzed.carbs * scale,
+          fat: analyzed.fat * scale,
+        },
+      })
+    }
+
+    if (logged.length > 0) updateStreak()
+
+    setMessages(prev =>
+      prev.map(message =>
+        message.id === messageId
+          ? {
+              ...message,
+              review: undefined,
+              text: `Logged ${logged.length === 1 ? '1 item' : `${logged.length} items`} to ${meal}.`,
+              actions: logged,
+            }
+          : message,
+      ),
+    )
+    scrollToEnd()
+  }
+
+  /*
     THE ONE FEATURE THAT GENUINELY NEEDS AN ACCOUNT.
 
     Everything else in this app runs on the phone, so asking for a password anywhere else
@@ -446,7 +642,7 @@ export default function ChatScreen() {
   return (
     <Screen
       title="Assistant"
-      subtitle="Log food, weight and water by describing it"
+      subtitle="Describe a meal or photograph it"
       right={
         <IconButton accessibilityLabel="Close assistant" onPress={() => router.back()}>
           <X size={20} color={theme.text} strokeWidth={2} />
@@ -490,73 +686,106 @@ export default function ChatScreen() {
                     alignItems: mine ? 'flex-end' : 'flex-start',
                   }}
                 >
-                  {/* Role is carried by side, by surface and by the avatar icon — three
-                      signals, so it survives without color. */}
-                  <View
-                    accessible={!message.failed}
-                    accessibilityLabel={
-                      message.failed
-                        ? undefined
-                        : `${mine ? 'You said' : 'Assistant said'}: ${message.text}`
-                    }
-                    style={{
-                      maxWidth: '92%',
-                      paddingHorizontal: 14,
-                      paddingVertical: 10,
-                      borderRadius: radius.control,
-                      borderTopRightRadius: mine ? 4 : radius.control,
-                      borderTopLeftRadius: mine ? radius.control : 4,
-                      backgroundColor: mine ? theme.brand : theme.surface,
-                      borderWidth: StyleSheet.hairlineWidth * 2,
-                      borderColor: mine ? theme.brand : theme.border,
-                    }}
-                  >
-                    {message.failed ? (
-                      <View style={{ gap: spacing.sm }}>
-                        <View
-                          accessible
-                          accessibilityLabel={`Assistant failed: ${message.text}`}
-                          style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}
-                        >
-                          <View style={{ marginTop: 2 }}>
-                            <AlertTriangle size={16} color={theme.status.critical} strokeWidth={2.2} />
-                          </View>
-                          <Body size={14} style={{ flex: 1, color: theme.status.critical }}>
-                            {`Failed: ${message.text}`}
-                          </Body>
-                        </View>
-                        {message.retryText ? (
-                          <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel="Retry this message"
-                            onPress={() => retry(message.id, message.retryText!)}
-                            style={{
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              alignSelf: 'flex-start',
-                              gap: 4,
-                              minHeight: HIT_SIZE,
-                              paddingVertical: 4,
-                              paddingHorizontal: 8,
-                              borderRadius: radius.pill,
-                              borderWidth: StyleSheet.hairlineWidth * 2,
-                              borderColor: theme.border,
-                            }}
+                  {message.photo ? (
+                    /* The photo replaces the text bubble rather than sitting inside one —
+                       there is no text on a photo turn, and an empty pane under the image
+                       would read as a failed render. */
+                    <Image
+                      accessible
+                      accessibilityLabel="The meal photo you sent"
+                      source={{ uri: message.photo }}
+                      resizeMode="cover"
+                      style={{
+                        width: PHOTO_BUBBLE,
+                        height: PHOTO_BUBBLE,
+                        borderRadius: radius.control,
+                        borderTopRightRadius: 4,
+                        borderWidth: StyleSheet.hairlineWidth * 2,
+                        borderColor: theme.border,
+                        backgroundColor: theme.surface,
+                      }}
+                    />
+                  ) : (
+                    /* Role is carried by side, by surface and by the avatar icon — three
+                       signals, so it survives without color. */
+                    <View
+                      accessible={!message.failed}
+                      accessibilityLabel={
+                        message.failed
+                          ? undefined
+                          : `${mine ? 'You said' : 'Assistant said'}: ${message.text}`
+                      }
+                      style={{
+                        maxWidth: '92%',
+                        paddingHorizontal: 14,
+                        paddingVertical: 10,
+                        borderRadius: radius.control,
+                        borderTopRightRadius: mine ? 4 : radius.control,
+                        borderTopLeftRadius: mine ? radius.control : 4,
+                        backgroundColor: mine ? theme.brand : theme.surface,
+                        borderWidth: StyleSheet.hairlineWidth * 2,
+                        borderColor: mine ? theme.brand : theme.border,
+                      }}
+                    >
+                      {message.failed ? (
+                        <View style={{ gap: spacing.sm }}>
+                          <View
+                            accessible
+                            accessibilityLabel={`Assistant failed: ${message.text}`}
+                            style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}
                           >
-                            <RotateCcw size={12} color={theme.textSecondary} strokeWidth={2.2} />
-                            <Body size={12} weight="medium" style={{ color: theme.textSecondary }}>
-                              Retry
+                            <View style={{ marginTop: 2 }}>
+                              <AlertTriangle size={16} color={theme.status.critical} strokeWidth={2.2} />
+                            </View>
+                            <Body size={14} style={{ flex: 1, color: theme.status.critical }}>
+                              {`Failed: ${message.text}`}
                             </Body>
-                          </Pressable>
-                        ) : null}
-                      </View>
-                    ) : (
-                      <RichText
-                        text={message.text}
-                        color={mine ? theme.brandOn : theme.text}
+                          </View>
+                          {message.retryText ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel="Retry this message"
+                              onPress={() => retry(message.id, message.retryText!)}
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                alignSelf: 'flex-start',
+                                gap: 4,
+                                minHeight: HIT_SIZE,
+                                paddingVertical: 4,
+                                paddingHorizontal: 8,
+                                borderRadius: radius.pill,
+                                borderWidth: StyleSheet.hairlineWidth * 2,
+                                borderColor: theme.border,
+                              }}
+                            >
+                              <RotateCcw size={12} color={theme.textSecondary} strokeWidth={2.2} />
+                              <Body size={12} weight="medium" style={{ color: theme.textSecondary }}>
+                                Retry
+                              </Body>
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      ) : (
+                        <RichText
+                          text={message.text}
+                          color={mine ? theme.brandOn : theme.text}
+                        />
+                      )}
+                    </View>
+                  )}
+
+                  {message.review ? (
+                    <View style={{ alignSelf: 'stretch' }}>
+                      <PhotoReview
+                        foods={message.review}
+                        initialMeal={mealForNow()}
+                        disabled={loading}
+                        onLog={(selection, meal) => logReviewed(message.id, selection, meal)}
+                        onRetake={attachPhoto}
                       />
-                    )}
-                  </View>
+                    </View>
+                  ) : null}
 
                   {message.actions && message.actions.length > 0 ? (
                     <Surface
@@ -741,6 +970,20 @@ export default function ChatScreen() {
           />
 
           <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-end' }}>
+            {/* Bordered rather than bare: an IconButton is invisible until pressed, which is
+                right for chrome and wrong for the only entry point a whole feature has. */}
+            <IconButton
+              accessibilityLabel="Add a meal photo"
+              onPress={attachPhoto}
+              disabled={loading}
+              style={{
+                borderWidth: StyleSheet.hairlineWidth * 2,
+                borderColor: theme.border,
+                borderRadius: radius.control,
+              }}
+            >
+              <Camera size={19} color={theme.text} strokeWidth={2} />
+            </IconButton>
             <View style={{ flex: 1 }}>
               <Field
                 value={input}
