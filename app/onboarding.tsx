@@ -90,7 +90,7 @@ const OptionRow: React.FC<{
           width: 20,
           height: 20,
           marginTop: 2,
-          borderRadius: 10,
+          borderRadius: radius.pill,
           borderWidth: 2,
           borderColor: selected ? theme.status.good : theme.border,
           backgroundColor: selected ? theme.status.good : 'transparent',
@@ -568,10 +568,10 @@ export default function OnboardingScreen() {
             {current === 'Your phone' ? (
               <View style={{ gap: spacing.lg }}>
                 <View style={{ gap: spacing.sm }}>
-                  <SectionTitle style={{ fontSize: 22 }}>
+                  <SectionTitle style={{ fontSize: 20 }}>
                     Your phone already knows some of this
                   </SectionTitle>
-                  <Body size={14} tone="secondary">
+                  <Body size={15} tone="secondary">
                     Health Connect can hand over your height, your weight, and any weigh-ins
                     already recorded by a scale or another app. We still have to ask your age
                     and sex on the next screen — Health Connect does not store either, and the
@@ -696,7 +696,7 @@ export default function OnboardingScreen() {
 
             {current === 'About you' ? (
               <View style={{ gap: spacing.lg }}>
-                <Body size={14} tone="secondary">
+                <Body size={15} tone="secondary">
                   These four numbers set every target in the app. Nothing here is shared with anyone.
                 </Body>
 
@@ -729,7 +729,7 @@ export default function OnboardingScreen() {
                         }}
                       >
                         <Body
-                          size={14}
+                          size={15}
                           weight="semibold"
                           style={{
                             textTransform: 'capitalize',
@@ -829,7 +829,7 @@ export default function OnboardingScreen() {
 
             {current === 'Your days' ? (
               <View style={{ gap: spacing.md }}>
-                <Body size={14} tone="secondary">
+                <Body size={15} tone="secondary">
                   Pick the line closest to a normal week — not your best one. Overshooting here is the
                   most common reason a target ends up too high.
                 </Body>
@@ -897,8 +897,8 @@ export default function OnboardingScreen() {
             {current === 'Your plan' ? (
               <View style={{ gap: spacing.lg }}>
                 <View style={{ gap: spacing.sm }}>
-                  <SectionTitle style={{ fontSize: 21 }}>Here&apos;s your daily target</SectionTitle>
-                  <Body size={14} tone="secondary">
+                  <SectionTitle style={{ fontSize: 20 }}>Here&apos;s your daily target</SectionTitle>
+                  <Body size={15} tone="secondary">
                     {`You burn roughly ${plan.tdee} kcal a day. `}
                     {goal === 'lose' ? 'Eating under that is what moves the scale down.' : null}
                     {goal === 'gain' ? 'Eating over that is what gives training something to build with.' : null}

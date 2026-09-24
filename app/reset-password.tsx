@@ -111,7 +111,7 @@ export default function ResetPasswordScreen() {
 
           <GlassSurface style={{ padding: spacing.lg, gap: spacing.lg }}>
             <View style={{ gap: spacing.xs }}>
-              <Body size={22} weight="semibold" style={{ fontFamily: fonts.display }}>
+              <Body size={20} weight="semibold" style={{ fontFamily: fonts.display }}>
                 Choose a new password
               </Body>
               <Body size={13} tone="secondary">

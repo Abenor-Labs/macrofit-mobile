@@ -126,7 +126,7 @@ export const SnackbarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               elevation: 6,
             }}
           >
-            <Body size={14} style={{ flex: 1, color: theme.text }}>
+            <Body size={15} style={{ flex: 1, color: theme.text }}>
               {state.message}
             </Body>
 
@@ -144,7 +144,7 @@ export const SnackbarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                   { paddingHorizontal: spacing.md, borderRadius: radius.control },
                 ]}
               >
-                <Body size={14} weight="semibold" style={{ color: theme.brandText }}>
+                <Body size={15} weight="semibold" style={{ color: theme.brandText }}>
                   {state.action.label}
                 </Body>
               </Pressable>

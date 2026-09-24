@@ -1,7 +1,7 @@
 import React from 'react'
 import { Text, type StyleProp, type TextStyle } from 'react-native'
 import { useTheme } from '@/theme/useTheme'
-import { fonts } from '@/theme/tokens'
+import { fonts, type TypeSize } from '@/theme/tokens'
 
 type Tone = 'primary' | 'secondary' | 'muted' | 'brand' | 'inverse'
 
@@ -16,7 +16,7 @@ const useToneColor = (tone: Tone): string => {
 
 export interface StatValueProps {
   children: React.ReactNode
-  size?: number
+  size?: TypeSize
   tone?: Tone
   /** Overrides the tone entirely — used for macro-colored figures. */
   color?: string
@@ -63,7 +63,7 @@ export const StatValue: React.FC<StatValueProps> = ({
 
 export interface BodyProps {
   children: React.ReactNode
-  size?: number
+  size?: TypeSize
   tone?: Tone
   weight?: 'regular' | 'medium' | 'semibold'
   style?: StyleProp<TextStyle>

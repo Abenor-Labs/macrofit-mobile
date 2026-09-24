@@ -349,7 +349,7 @@ const styles = StyleSheet.create({
   */
   fab: {
     flex: 1,
-    borderRadius: 28,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth * 2,

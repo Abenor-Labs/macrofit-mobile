@@ -1,0 +1,4 @@
+# src/core is copied from the web repo (LF) by scripts/sync-core.mjs on every start and
+# typecheck. Pinning it to LF here stops Windows checkouts (autocrlf) from making every
+# sync show five "modified" files that differ only in line endings.
+src/core/** text eol=lf

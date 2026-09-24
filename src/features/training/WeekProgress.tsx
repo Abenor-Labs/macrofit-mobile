@@ -68,7 +68,7 @@ export const WeekProgressCard: React.FC<{ progress: WeeklyProgress }> = ({ progr
                 style={{
                   width: 34,
                   height: 34,
-                  borderRadius: 17,
+                  borderRadius: radius.pill,
                   alignItems: 'center',
                   justifyContent: 'center',
                   backgroundColor: trained ? theme.brand : theme.surfaceRaised,

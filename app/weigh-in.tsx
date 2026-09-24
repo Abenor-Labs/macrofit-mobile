@@ -217,7 +217,7 @@ export default function WeighInScreen() {
                   {formatDate(entry.date)}
                 </Body>
                 <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
-                  <StatValue size={16}>{String(entry.weight)}</StatValue>
+                  <StatValue size={15}>{String(entry.weight)}</StatValue>
                   <Body size={11} tone="muted">
                     {unit}
                   </Body>

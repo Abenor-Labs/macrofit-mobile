@@ -1,9 +1,10 @@
 import React, { useRef } from 'react'
 import { Modal, Platform, Pressable, StyleSheet, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import Animated, { Easing, FadeIn, SlideInDown, useReducedMotion } from 'react-native-reanimated'
+import Animated, { FadeIn, SlideInDown, useReducedMotion } from 'react-native-reanimated'
 
 import { useTheme } from '@/theme/useTheme'
+import { ENTER_MS, enterEasing } from '@/theme/motion'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
 import { Body } from './Text'
 
@@ -80,7 +81,7 @@ export const ActionSheet: React.FC<{
           entering={
             reduced
               ? FadeIn.duration(150)
-              : SlideInDown.duration(260).easing(Easing.bezier(0.23, 1, 0.32, 1))
+              : SlideInDown.duration(ENTER_MS).easing(enterEasing)
           }
           style={{
             margin: spacing.md,

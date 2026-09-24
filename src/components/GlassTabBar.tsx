@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
 import Animated, {
-  Easing,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
@@ -15,7 +14,8 @@ import { Circle } from 'lucide-react-native'
 import { Glass } from './Material'
 import { Body } from './Text'
 import { useTheme } from '@/theme/useTheme'
-import { HIT_SIZE } from '@/theme/tokens'
+import { ENTER_MS, enterEasing } from '@/theme/motion'
+import { HIT_SIZE, radius } from '@/theme/tokens'
 
 /**
  * expo-router bundles its own copy of the bottom-tabs types. Importing them from
@@ -80,7 +80,7 @@ export const GlassTabBar: React.FC<GlassTabBarProps> = ({ state, navigation, ite
       ? target
       : // Short and strongly decelerated: the finger has already arrived, so the indicator is
         // catching up rather than leading. Anything slower reads as lag.
-        withTiming(target, { duration: 260, easing: Easing.bezier(0.23, 1, 0.32, 1) })
+        withTiming(target, { duration: ENTER_MS, easing: enterEasing })
   }, [state.index, tabWidth, indicatorX, reduced])
 
   const indicatorStyle = useAnimatedStyle(() => ({
@@ -141,7 +141,7 @@ export const GlassTabBar: React.FC<GlassTabBarProps> = ({ state, navigation, ite
                 left: 0,
                 width: INDICATOR_WIDTH,
                 height: 3,
-                borderRadius: 999,
+                borderRadius: radius.pill,
                 backgroundColor: theme.brandText,
                 zIndex: 1,
               },

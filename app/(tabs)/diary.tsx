@@ -108,7 +108,7 @@ const MacroStat: React.FC<{
       accessible
       accessibilityLabel={`${label}: ${Math.round(value)} of ${Math.round(goal)} grams`}
     >
-      <StatValue size={18} color={color}>
+      <StatValue size={17} color={color}>
         {Math.round(value)}
       </StatValue>
       <Body size={12} tone="muted">{`/ ${Math.round(goal)} g`}</Body>
@@ -134,8 +134,8 @@ const DayTotals: React.FC<{ day: DiaryDay }> = ({ day }) => {
           accessible
           accessibilityLabel={`${totals.calories} of ${goals.calories} kilocalories eaten`}
         >
-          <StatValue size={34}>{formatNumber(totals.calories)}</StatValue>
-          <Body size={14} tone="muted">{`/ ${formatNumber(goals.calories)} kcal`}</Body>
+          <StatValue size={30}>{formatNumber(totals.calories)}</StatValue>
+          <Body size={15} tone="muted">{`/ ${formatNumber(goals.calories)} kcal`}</Body>
         </View>
         <ProgressTrack
           progress={goals.calories > 0 ? totals.calories / goals.calories : 0}
@@ -288,7 +288,7 @@ const EntryRow: React.FC<{ entry: FoodEntry; date: string }> = ({ entry, date })
         })}
       >
         <View style={{ flex: 1, gap: 3 }}>
-          <Body size={14} weight="medium" numberOfLines={1}>
+          <Body size={15} weight="medium" numberOfLines={1}>
             {entry.food.name}
           </Body>
           <Body size={12} tone="muted" numberOfLines={1}>
@@ -297,7 +297,7 @@ const EntryRow: React.FC<{ entry: FoodEntry; date: string }> = ({ entry, date })
         </View>
         <View style={{ alignItems: 'flex-end' }}>
           <StatValue size={17}>{formatNumber(kcal)}</StatValue>
-          <Body size={10} tone="muted">
+          <Body size={11} tone="muted">
             kcal
           </Body>
         </View>
@@ -411,7 +411,7 @@ const MealCard: React.FC<{
             accessible
             accessibilityLabel={`${kcal} kilocalories in ${meal}`}
           >
-            <StatValue size={18}>{formatNumber(kcal)}</StatValue>
+            <StatValue size={17}>{formatNumber(kcal)}</StatValue>
             <Body size={11} tone="muted">
               kcal
             </Body>

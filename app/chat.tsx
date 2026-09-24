@@ -138,7 +138,7 @@ const actionIcon = (
   type === 'food' ? Utensils : type === 'weight' ? Scale : Droplets
 
 const Dot: React.FC<{ color: string }> = ({ color }) => (
-  <View style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: color }} />
+  <View style={{ width: 6, height: 6, borderRadius: radius.pill, backgroundColor: color }} />
 )
 
 /** Macro identity is carried by the written name as well as the color. */
@@ -165,7 +165,7 @@ const MacroChip: React.FC<{ name: string; grams: number; color: string; theme: T
       {name}
     </Body>
     <StatValue size={12}>{String(Math.round(grams))}</StatValue>
-    <Body size={10} tone="muted">
+    <Body size={11} tone="muted">
       g
     </Body>
   </View>
@@ -176,7 +176,7 @@ const Avatar: React.FC<{ role: ChatEntry['role']; theme: Theme }> = ({ role, the
     style={{
       width: 28,
       height: 28,
-      borderRadius: 999,
+      borderRadius: radius.pill,
       alignItems: 'center',
       justifyContent: 'center',
       marginTop: 2,
@@ -737,7 +737,7 @@ export default function ChatScreen() {
                             <View style={{ marginTop: 2 }}>
                               <AlertTriangle size={16} color={theme.status.critical} strokeWidth={2.2} />
                             </View>
-                            <Body size={14} style={{ flex: 1, color: theme.status.critical }}>
+                            <Body size={15} style={{ flex: 1, color: theme.status.critical }}>
                               {message.text}
                             </Body>
                           </View>

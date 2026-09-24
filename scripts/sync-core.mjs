@@ -14,7 +14,7 @@
  * The directory layout is preserved exactly so the relative imports inside the copied
  * files (./calculations, ../types) keep resolving without rewriting a single line.
  */
-import { cp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -54,6 +54,23 @@ for (const entry of ENTRIES) {
   await mkdir(path.dirname(to), { recursive: true })
   await cp(from, to, { recursive: true })
 }
+
+/*
+  LF only. The web repo's checkout can hold CRLF files (Windows autocrlf), and copying those
+  verbatim made git report them modified on every start and typecheck while nothing but the
+  line endings differed. .gitattributes pins src/core to LF; this makes the copy match it.
+*/
+const normalise = async dir => {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) await normalise(full)
+    else if (/\.(ts|tsx|js|json|md)$/.test(entry.name)) {
+      const text = await readFile(full, 'utf8')
+      if (text.includes('\r\n')) await writeFile(full, text.replace(/\r\n/g, '\n'))
+    }
+  }
+}
+await normalise(coreDir)
 
 await writeFile(
   path.join(coreDir, 'README.md'),

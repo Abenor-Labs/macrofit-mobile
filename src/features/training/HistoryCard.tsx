@@ -100,7 +100,7 @@ export const HistoryCard: React.FC<{ session: WorkoutSession; unit: WeightUnit }
         </View>
 
         <View style={{ alignItems: 'flex-end' }}>
-          <StatValue size={18}>{groupDigits(fromKg(sessionVolume(session), unit))}</StatValue>
+          <StatValue size={17}>{groupDigits(fromKg(sessionVolume(session), unit))}</StatValue>
           <Label>{`${unitLabel} volume`}</Label>
         </View>
 

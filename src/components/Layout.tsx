@@ -222,7 +222,7 @@ export const Field: React.FC<FieldProps> = ({ label, numeric = false, style, ...
             color: theme.text,
             paddingHorizontal: 14,
             fontFamily: numeric ? fonts.display : fonts.body,
-            fontSize: 16,
+            fontSize: 15,
           },
           /*
             No `fontVariant: ['tabular-nums']` here, deliberately.

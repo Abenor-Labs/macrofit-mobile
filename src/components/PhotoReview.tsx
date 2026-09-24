@@ -289,7 +289,7 @@ export const PhotoReview: React.FC<PhotoReviewProps> = ({
         </ScrollView>
 
         <View style={{ gap: 2, paddingTop: spacing.xs }}>
-          <StatValue size={22}>{Math.round(totals.calories)}</StatValue>
+          <StatValue size={20}>{Math.round(totals.calories)}</StatValue>
           <Body size={12} tone="muted">
             kcal · {Math.round(totals.protein)}P {Math.round(totals.carbs)}C{' '}
             {Math.round(totals.fat)}F
