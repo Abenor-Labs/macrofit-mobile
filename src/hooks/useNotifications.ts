@@ -1,10 +1,15 @@
 import { useEffect, useRef } from 'react'
+import { AppState } from 'react-native'
 import * as Notifications from 'expo-notifications'
 import { router } from 'expo-router'
 
 import { sessionSetCount } from '@core/utils/workoutMath'
 import { useStore } from '@/store/useStore'
+import { getTodayString } from '@core/utils/calculations'
+import { useNotificationPrefs, getNotificationPrefs } from '@/store/notificationPrefs'
+import { planReminders } from '@/lib/reminderPlan'
 import {
+  applyReminderPlan,
   cancelRestOver,
   cancelWorkoutLeftOpen,
   routeOf,
@@ -49,6 +54,7 @@ export const useNotifications = (): void => {
   const sets = session ? sessionSetCount(session) : 0
   const sessionName = session?.name ?? null
   const wasRunning = useRef(false)
+  const workoutOpenOn = useNotificationPrefs(p => p.workoutOpen)
 
   useEffect(() => {
     if (sessionName === null) {
@@ -62,5 +68,59 @@ export const useNotifications = (): void => {
     }
     wasRunning.current = true
     void scheduleWorkoutLeftOpen(sessionName)
-  }, [sessionName, sets])
+  }, [sessionName, sets, workoutOpenOn])
+
+  /*
+    Reminders: the whole week's plan is recomputed from scratch and swapped in whenever
+    anything it reads changes, and whenever the app comes back to the foreground (the date may
+    have rolled over). Debounced, so a burst of edits — ticking five sets, typing a food —
+    costs one reschedule, not five.
+  */
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const reconcile = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        const state = useStore.getState()
+        const plan = planReminders({
+          now: new Date(),
+          today: getTodayString(),
+          diary: state.diary,
+          goals: state.goals,
+          weightLog: state.weightLog,
+          workoutLog: state.workoutLog,
+          activeWorkoutId: state.activeWorkoutId,
+          program: state.trainingPrograms.find(p => p.id === state.activeProgramId) ?? null,
+          weightUnit: state.profile.weightUnit,
+          prefs: getNotificationPrefs(),
+        })
+        void applyReminderPlan(plan).catch(() => undefined)
+      }, 1500)
+    }
+
+    reconcile()
+    const unsubscribeStore = useStore.subscribe((next, prev) => {
+      if (
+        next.diary !== prev.diary ||
+        next.weightLog !== prev.weightLog ||
+        next.workoutLog !== prev.workoutLog ||
+        next.activeWorkoutId !== prev.activeWorkoutId ||
+        next.trainingPrograms !== prev.trainingPrograms ||
+        next.activeProgramId !== prev.activeProgramId ||
+        next.goals !== prev.goals
+      ) {
+        reconcile()
+      }
+    })
+    const unsubscribePrefs = useNotificationPrefs.subscribe(reconcile)
+    const appState = AppState.addEventListener('change', status => {
+      if (status === 'active') reconcile()
+    })
+    return () => {
+      if (timer) clearTimeout(timer)
+      unsubscribeStore()
+      unsubscribePrefs()
+      appState.remove()
+    }
+  }, [])
 }
