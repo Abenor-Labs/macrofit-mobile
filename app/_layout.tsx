@@ -1,7 +1,7 @@
 import 'react-native-get-random-values'
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, Pressable, StyleSheet, View } from 'react-native'
+import { Pressable, StyleSheet, View } from 'react-native'
 import { Stack, useRouter, useSegments } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import * as SplashScreen from 'expo-splash-screen'
@@ -31,6 +31,7 @@ import {
   useWelcomeSeen,
 } from '@/lib/welcomeSeen'
 import { HealthProvider } from '@/hooks/useHealthSync'
+import { AppAlertHost, appAlert } from '@/components/AppAlert'
 import { LAUNCH_SEQUENCE_MS, LaunchScreen } from '@/components/LaunchScreen'
 import { BrandMark } from '@/components/BrandMark'
 import { Button } from '@/components/Button'
@@ -162,7 +163,7 @@ const SyncUnavailableScreen: React.FC = () => {
   const escape = () => {
     // Signing out here wipes the device. Profile confirms this every time; the one screen
     // the user cannot leave must not be the exception.
-    Alert.alert(
+    appAlert(
       'Sign out and clear this device?',
       'Anything saved only on this phone will be removed. Your account is not affected.',
       [
@@ -174,10 +175,10 @@ const SyncUnavailableScreen: React.FC = () => {
             setSigningOut(true)
             void signOut({ warnedAboutUnsyncedChanges: true })
               .then(result => {
-                if (result.error) Alert.alert('Still signed in', result.error)
+                if (result.error) appAlert('Still signed in', result.error)
               })
               .catch(() =>
-                Alert.alert(
+                appAlert(
                   'Still signed in',
                   'Something went wrong signing out. Check your connection and try again.'
                 )
@@ -264,7 +265,7 @@ const UnclaimedDataScreen: React.FC = () => {
   }
 
   const confirmDiscard = () => {
-    Alert.alert(
+    appAlert(
       'Delete the data on this phone?',
       'It has not been saved to any account, so this cannot be undone.',
       [
@@ -692,6 +693,9 @@ export default function RootLayout() {
           </HealthProvider>
         </AuthProvider>
         </AuroraDriftProvider>
+        {/* Above everything, including the screens that replace the navigator (sync
+            conflict, sync unavailable), which raise confirmations of their own. */}
+        <AppAlertHost />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   )

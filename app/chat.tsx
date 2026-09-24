@@ -1,9 +1,9 @@
 import React, { useCallback, useRef, useState } from 'react'
 import {
   ActivityIndicator,
-  Alert,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -41,6 +41,7 @@ import {
 } from '@/lib/api'
 import { analyzedFoodToFood, mealForNow } from '@/lib/analyzedFood'
 import { capturePhoto, type PhotoSource } from '@/lib/mealPhoto'
+import { appAlert } from '@/components/AppAlert'
 import { PhotoReview, type PhotoReviewSelection } from '@/components/PhotoReview'
 import { useStore } from '@/store/useStore'
 import { useAuth } from '@/lib/AuthProvider'
@@ -455,7 +456,7 @@ export default function ChatScreen() {
       capture = await capturePhoto(source)
     } catch (err: unknown) {
       // Resize or encode failed. Nothing is on screen yet, so an alert is the whole story.
-      Alert.alert(
+      appAlert(
         'Could not prepare that photo',
         err instanceof Error ? err.message : 'Try taking it again.',
       )
@@ -464,9 +465,14 @@ export default function ChatScreen() {
 
     if (capture.status === 'canceled') return
     if (capture.status === 'denied') {
-      Alert.alert(
+      appAlert(
         'Camera access is off',
         'Allow the camera in Settings to photograph a meal. Choosing an existing photo from your library still works.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          // Straight to this app's settings page, instead of telling the user to go find it.
+          { text: 'Open settings', onPress: () => void Linking.openSettings() },
+        ],
       )
       return
     }
