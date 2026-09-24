@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native'
-import { router, useRouter } from 'expo-router'
+import { Pressable, ScrollView, StyleSheet, View, useColorScheme } from 'react-native'
+import { useRouter } from 'expo-router'
 import {
   Activity,
   Bookmark,
@@ -12,9 +12,7 @@ import {
   CloudOff,
   Download,
   Flame,
-  LogOut,
   Moon,
-  Repeat,
   Ruler,
   Salad,
   Scale,
@@ -55,6 +53,7 @@ import {
 import { estimateBodyComposition, latestUsableMeasurement } from '@core/utils/bodyComposition'
 
 import { useStore } from '@/store/useStore'
+import { useAppearance, type AppearanceMode } from '@/store/appearance'
 import { useAuth } from '@/lib/AuthProvider'
 import { useHealthSync } from '@/hooks/useHealthSync'
 import { useLogWeight } from '@/hooks/useLogWeight'
@@ -69,6 +68,7 @@ import { Field, Pill, Screen } from '@/components/Layout'
 import { WeightTargetCard } from '@/components/WeightTarget'
 import { UpdatePanel } from '@/components/UpdatePanel'
 import { ActionSheet } from '@/components/ActionSheet'
+import { Segmented } from '@/components/Segmented'
 import { useSnackbar } from '@/components/Snackbar'
 import * as Application from 'expo-application'
 
@@ -251,6 +251,66 @@ const Section: React.FC<{
   )
 }
 
+const APPEARANCE_OPTIONS: { value: AppearanceMode; label: string }[] = [
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'system', label: 'System' },
+]
+
+/**
+ * Light, Dark or System, chosen in place.
+ *
+ * Not a Section: the whole answer is three words, so hiding them behind a disclosure made
+ * the one setting everyone understands cost two taps. It used to be a "Switch to dark" button,
+ * which could not say "follow my phone" at all.
+ */
+const AppearanceRow: React.FC = () => {
+  const theme = useTheme()
+  const mode = useAppearance(s => s.mode)
+  const setMode = useAppearance(s => s.setMode)
+  const toggleDarkMode = useStore(s => s.toggleDarkMode)
+  const scheme = useColorScheme()
+  const Icon = theme.mode === 'dark' ? Moon : Sun
+
+  const choose = (next: AppearanceMode) => {
+    setMode(next)
+    // The web app has no System option and reads only this flag, so it is kept in step with
+    // what this phone is actually showing. The store offers a toggle, not a setter.
+    const dark = next === 'system' ? scheme === 'dark' : next === 'dark'
+    if (dark !== useStore.getState().darkMode) toggleDarkMode()
+  }
+
+  return (
+    <View style={{ padding: spacing.lg, gap: spacing.md }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+        <View
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: radius.tight,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: theme.border,
+          }}
+        >
+          <Icon size={16} color={theme.brandText} strokeWidth={2} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Body weight="semibold">Appearance</Body>
+          <Body size={12} tone="muted" numberOfLines={1}>
+            {mode === 'system'
+              ? `Matches your phone · ${scheme === 'dark' ? 'dark' : 'light'} now`
+              : mode === 'dark'
+                ? 'Always dark'
+                : 'Always light'}
+          </Body>
+        </View>
+      </View>
+      <Segmented options={APPEARANCE_OPTIONS} value={mode} onChange={choose} />
+    </View>
+  )
+}
+
 /** Horizontal choice row. Selection is carried by fill AND weight, never colour alone. */
 function Choice<T extends string>({
   label,
@@ -365,8 +425,6 @@ export default function ProfileScreen() {
     })
   }
   const streak = useStore(s => s.streak)
-  const darkMode = useStore(s => s.darkMode)
-  const toggleDarkMode = useStore(s => s.toggleDarkMode)
   const resetOnboarding = useStore(s => s.resetOnboarding)
 
   const health = useHealthSync()
@@ -748,7 +806,7 @@ export default function ProfileScreen() {
             style={{
               width: 56,
               height: 56,
-              borderRadius: 28,
+              borderRadius: radius.pill,
               alignItems: 'center',
               justifyContent: 'center',
               backgroundColor: theme.brand,
@@ -832,18 +890,8 @@ export default function ProfileScreen() {
         title="Daily targets"
         icon={<Flame size={16} color={theme.brandText} strokeWidth={2} />}
         subtitle={`${goals.calories} kcal · ${goals.protein} g protein`}
-      >
-        <Body size={13} tone="secondary">
-          Set the calories and the protein, carb and fat split yourself, or accept what the
-          coach works out from your logged data.
-        </Body>
-        <Button
-          label="Edit daily targets"
-          variant="secondary"
-          onPress={() => router.push('/goals')}
-          icon={<Flame size={15} color={theme.text} strokeWidth={2} />}
-        />
-      </Section>
+        onOpen={() => router.push('/goals')}
+      />
 
       <Section
         title="About you"
@@ -1123,7 +1171,7 @@ export default function ProfileScreen() {
               style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}
             >
               <View style={{ flex: 1 }}>
-                <Body size={14} weight="medium" numberOfLines={1}>
+                <Body size={15} weight="medium" numberOfLines={1}>
                   {food.name}
                 </Body>
                 <Body size={11} tone="muted">
@@ -1162,7 +1210,7 @@ export default function ProfileScreen() {
               style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}
             >
               <View style={{ flex: 1 }}>
-                <Body size={14} weight="medium" numberOfLines={1}>
+                <Body size={15} weight="medium" numberOfLines={1}>
                   {template.name}
                 </Body>
                 <Body size={11} tone="muted">
@@ -1196,20 +1244,8 @@ export default function ProfileScreen() {
         title="How it works"
         icon={<BookOpen size={16} color={theme.brandText} strokeWidth={2} />}
         subtitle="What the numbers mean, and where they come from"
-      >
-        <Body size={13} tone="secondary">
-          The ring, the targets, the weight line and the assistant, explained in the order you
-          are likely to meet them.
-        </Body>
-        {/* Labelled with its destination, not with "Open": the Button forwards its label to
-            accessibilityLabel, so a screen reader swiping the page would land on "Open". */}
-        <Button
-          label="Read how it works"
-          variant="secondary"
-          onPress={() => router.push('/help')}
-          icon={<BookOpen size={15} color={theme.text} strokeWidth={2} />}
-        />
-      </Section>
+        onOpen={() => router.push('/help')}
+      />
 
       <Section
         title="Notifications"
@@ -1412,20 +1448,11 @@ export default function ProfileScreen() {
         <Section
           title="Health Connect"
           icon={<Activity size={16} color={theme.brandText} strokeWidth={2} />}
-          subtitle="Not installed"
-        >
-          <Body size={13} tone="secondary">
-            Health Connect is the free Google app that holds steps and bodyweight and decides
-            which apps may read them. With it installed, MacroFit can read your step count and
-            write your weigh-ins back to whatever else you use.
-          </Body>
-          <Button
-            label="Get Health Connect"
-            variant="secondary"
-            onPress={() => void openHealthConnectInstall()}
-            icon={<Download size={15} color={theme.text} strokeWidth={2} />}
-          />
-        </Section>
+          // The explanation that used to sit behind the chevron now rides on the subtitle,
+          // because the only thing to do here is go and install it.
+          subtitle="Not installed · Get it free to sync steps and weight"
+          onOpen={() => void openHealthConnectInstall()}
+        />
       )}
 
       {/*
@@ -1444,43 +1471,12 @@ export default function ProfileScreen() {
         title="Setup"
         icon={<RotateCcw size={16} color={theme.brandText} strokeWidth={2} />}
         subtitle="Re-answer the questions your targets are built from"
-      >
-        <Body size={13} tone="secondary">
-          Runs through age, height, weight, activity and goal again, then recalculates your
-          daily targets. Your diary, weigh-ins and workouts are not affected.
-        </Body>
-        <Button
-          label="Re-run setup"
-          variant="secondary"
-          onPress={confirmResetOnboarding}
-          icon={<Repeat size={15} color={theme.text} strokeWidth={2} />}
-        />
-      </Section>
+        // Straight to the confirmation: it already says what is kept, so a panel restating
+        // it first only added a tap.
+        onOpen={confirmResetOnboarding}
+      />
 
-      <Section
-        title="Appearance"
-        icon={
-          darkMode ? (
-            <Moon size={16} color={theme.brandText} strokeWidth={2} />
-          ) : (
-            <Sun size={16} color={theme.brandText} strokeWidth={2} />
-          )
-        }
-        subtitle={darkMode ? 'Dark' : 'Light'}
-      >
-        <Button
-          label={darkMode ? 'Switch to light' : 'Switch to dark'}
-          variant="secondary"
-          onPress={toggleDarkMode}
-          icon={
-            darkMode ? (
-              <Sun size={15} color={theme.text} strokeWidth={2} />
-            ) : (
-              <Moon size={15} color={theme.text} strokeWidth={2} />
-            )
-          }
-        />
-      </Section>
+      <AppearanceRow />
 
       {/* This build is sideloaded, so there is no store to notice a new version. The subtitle
           carries the installed build number, which is the thing anyone reporting a bug needs to
@@ -1496,9 +1492,13 @@ export default function ProfileScreen() {
       </Section>
 
       {/* Sync state rides on the row's subtitle rather than needing its own card. It is a
-          reassurance, not a task, and it was the only thing on this screen with no header. */}
+          reassurance, not a task, and it was the only thing on this screen with no header.
+
+          The row is titled with what it does, because a tap now does it: the email it used to
+          reveal is already under the screen title, and signing out still asks first. A guest
+          is sent to sign-in, where what an account is for is explained. */}
       <Section
-        title="Account"
+        title={guest ? 'Back up and sync' : 'Sign out'}
         icon={
           syncFailed ? (
             <CloudOff size={16} color={theme.status.critical} strokeWidth={2} />
@@ -1509,38 +1509,8 @@ export default function ProfileScreen() {
           )
         }
         subtitle={syncLabel}
-      >
-        {guest ? (
-          <>
-            {/*
-              The one place in the app that asks for an account, and it asks by describing
-              what an account is FOR rather than by demanding one. Everything else works
-              without it, so there is nothing to withhold and no reason to pressure.
-            */}
-            <Body size={13} tone="secondary">
-              Everything you log is saved on this phone. Add an account to back it up and
-              pick up where you left off on another device.
-            </Body>
-            <Button
-              label="Back up and sync"
-              onPress={() => router.push('/login')}
-              icon={<Cloud size={15} color={theme.brandOn} strokeWidth={2} />}
-            />
-          </>
-        ) : (
-          <>
-            <Body size={13} tone="secondary">
-              {user?.email}
-            </Body>
-            <Button
-              label="Sign out"
-              variant="secondary"
-              onPress={confirmSignOut}
-              icon={<LogOut size={15} color={theme.text} strokeWidth={2} />}
-            />
-          </>
-        )}
-      </Section>
+        onOpen={guest ? () => router.push('/login') : confirmSignOut}
+      />
       </SectionGroup>
 
       {/* A weigh-in is also deleted from Health Connect, which cannot be undone from here,
