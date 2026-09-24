@@ -7,7 +7,8 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { KeyboardAwareScrollView } from 'react-native-keyboard-controller'
+import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller'
+import Animated, { FadeInDown, FadeOutDown, useReducedMotion } from 'react-native-reanimated'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
@@ -18,7 +19,7 @@ import { LIFT_DATABASE, searchLifts } from '@core/data/exerciseDatabase'
 
 import { useStore } from '@/store/useStore'
 import { useTheme } from '@/theme/useTheme'
-import { HIT_SIZE, fonts, radius, spacing, workoutTheme } from '@/theme/tokens'
+import { HIT_SIZE, fonts, motion, radius, spacing, workoutTheme } from '@/theme/tokens'
 import { ThemeScope } from '@/theme/ThemeScope'
 import { GlassSurface, Surface } from '@/components/Glass'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
@@ -69,45 +70,79 @@ const Chip: React.FC<ChipProps> = ({ label, active, onPress, accessibilityLabel 
   )
 }
 
-const LiftRow: React.FC<{ lift: Lift; onPress: () => void }> = ({ lift, onPress }) => {
+interface LiftRowProps {
+  lift: Lift
+  selected: boolean
+  onToggle: () => void
+}
+
+/**
+ * One lift in the list. Tapping toggles it in the selection rather than adding it on the spot,
+ * so a whole day's lifts cost one tap each and a single Add at the end, the way Hevy's picker
+ * works. The press state is a background change and never a scale: rows that shrink under the
+ * thumb while the list scrolls read as the list jumping.
+ */
+const LiftRow: React.FC<LiftRowProps> = ({ lift, selected, onToggle }) => {
   const theme = useTheme()
   return (
     <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Add ${lift.name}, ${lift.muscleGroup}, ${lift.equipment}${lift.isCustom ? ', custom lift' : ''}`}
-      onPress={onPress}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: selected }}
+      accessibilityLabel={`${lift.name}, ${lift.muscleGroup}, ${lift.equipment}${lift.isCustom ? ', custom lift' : ''}`}
+      onPress={onToggle}
     >
-      <Surface
-        style={{
-          minHeight: HIT_SIZE,
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: spacing.md,
-          padding: spacing.md,
-        }}
-      >
-        <View
+      {({ pressed }) => (
+        <Surface
           style={{
-            width: 36,
-            height: 36,
-            borderRadius: radius.tight,
+            minHeight: HIT_SIZE,
+            flexDirection: 'row',
             alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: theme.border,
+            gap: spacing.md,
+            padding: spacing.md,
+            borderColor: selected ? theme.brand : theme.border,
+            backgroundColor: pressed
+              ? theme.surfaceRaised
+              : selected
+                ? `${theme.brand}1F`
+                : theme.surface,
           }}
         >
-          <Dumbbell size={16} color={theme.textSecondary} strokeWidth={2} />
-        </View>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Body weight="medium" numberOfLines={1}>
-            {lift.name}
-          </Body>
-          <Body size={12} tone="muted" numberOfLines={1}>
-            {`${lift.muscleGroup} · ${lift.equipment}${lift.isCustom ? ' · Custom' : ''}`}
-          </Body>
-        </View>
-        <Plus size={18} color={theme.brandText} strokeWidth={2.2} />
-      </Surface>
+          <View
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: radius.tight,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: theme.border,
+            }}
+          >
+            <Dumbbell size={16} color={theme.textSecondary} strokeWidth={2} />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Body weight="medium" numberOfLines={1}>
+              {lift.name}
+            </Body>
+            <Body size={12} tone="muted" numberOfLines={1}>
+              {`${lift.muscleGroup} · ${lift.equipment}${lift.isCustom ? ' · Custom' : ''}`}
+            </Body>
+          </View>
+          <View
+            style={{
+              width: 24,
+              height: 24,
+              borderRadius: radius.pill,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderWidth: StyleSheet.hairlineWidth * 2,
+              borderColor: selected ? theme.brand : theme.textMuted,
+              backgroundColor: selected ? theme.brand : 'transparent',
+            }}
+          >
+            {selected && <Check size={15} color={theme.brandOn} strokeWidth={2.8} />}
+          </View>
+        </Surface>
+      )}
     </Pressable>
   )
 }
@@ -115,13 +150,15 @@ const LiftRow: React.FC<{ lift: Lift; onPress: () => void }> = ({ lift, onPress 
 /**
  * Full-screen lift chooser, presented as a modal from the workout logger.
  *
- * The chosen lift is written straight into the in-progress session through the
- * store, so navigating here and back never touches the session itself — nothing
- * in flight can be lost by opening the picker.
+ * Lifts are ticked into a selection and written into the in-progress session (or the
+ * program day) through the store in one go when Add is pressed, so navigating here and
+ * back never touches the session itself — nothing in flight can be lost by opening the
+ * picker, and closing it without Add changes nothing.
  */
 function LiftPickerBody() {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
+  const reducedMotion = useReducedMotion()
   const params = useLocalSearchParams<{ sessionId?: string; programId?: string; dayId?: string }>()
 
   const customLifts = useStore(s => s.customLifts)
@@ -155,6 +192,13 @@ function LiftPickerBody() {
   const [newEquipment, setNewEquipment] = useState<LiftEquipment>('Barbell')
   const [newIsCompound, setNewIsCompound] = useState(false)
   const [nameError, setNameError] = useState('')
+
+  // Ordered by tap, which is the order the lifts are added in.
+  const [selected, setSelected] = useState<Lift[]>([])
+  const selectedIds = useMemo(() => new Set(selected.map(lift => lift.id)), [selected])
+  // Measured rather than assumed, so the last row always scrolls clear of the Add bar.
+  const [barHeight, setBarHeight] = useState(0)
+  const showBar = selected.length > 0 && !creating
 
   const filtersActive = query.trim() !== '' || muscle !== 'all' || equipment !== 'all'
 
@@ -195,17 +239,31 @@ function LiftPickerBody() {
     )
   }, [query, muscle, equipment, customLifts])
 
-  const handleSelect = (lift: Lift) => {
+  const toggle = (lift: Lift) => {
+    void Haptics.selectionAsync()
+    setSelected(current =>
+      current.some(entry => entry.id === lift.id)
+        ? current.filter(entry => entry.id !== lift.id)
+        : [...current, lift]
+    )
+  }
+
+  /**
+   * Commits the whole selection in the order it was tapped, then leaves once. A program day
+   * keeps one copy of each lift, so anything already on the day is skipped; a live session
+   * takes duplicates on purpose, since a second card is how a back-off block is logged.
+   */
+  const handleAdd = () => {
     if (programDay) {
       const { program, day } = programDay
-      if (!day.liftIds.includes(lift.id)) {
-        updateProgramDay(program.id, day.id, { liftIds: [...day.liftIds, lift.id] })
+      const fresh = selected.map(lift => lift.id).filter(id => !day.liftIds.includes(id))
+      if (fresh.length > 0) {
+        updateProgramDay(program.id, day.id, { liftIds: [...day.liftIds, ...fresh] })
       }
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
     } else if (sessionId) {
-      addExerciseToWorkout(sessionId, lift)
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+      for (const lift of selected) addExerciseToWorkout(sessionId, lift)
     }
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
     router.back()
   }
 
@@ -221,7 +279,11 @@ function LiftPickerBody() {
       equipment: newEquipment,
       isCompound: newIsCompound,
     })
-    handleSelect(lift)
+    // A new lift joins the selection instead of leaving the picker, so it is added alongside
+    // whatever else was ticked. The search is cleared so the list shows that selection again.
+    setSelected(current => [...current, lift])
+    setQuery('')
+    setCreating(false)
   }
 
   const startCreating = () => {
@@ -233,9 +295,11 @@ function LiftPickerBody() {
   const listPadding = {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
-    paddingBottom: insets.bottom + spacing.xxl,
+    paddingBottom: (showBar ? barHeight : insets.bottom) + spacing.xxl,
     gap: spacing.sm,
   }
+
+  const addLabel = `Add ${selected.length} ${selected.length === 1 ? 'lift' : 'lifts'}`
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.canvas }}>
@@ -269,7 +333,7 @@ function LiftPickerBody() {
           >
             <X size={22} color={theme.text} strokeWidth={2} />
           </Pressable>
-          <SectionTitle>Add exercise</SectionTitle>
+          <SectionTitle>Add exercises</SectionTitle>
         </View>
 
         <View style={{ justifyContent: 'center' }}>
@@ -291,7 +355,7 @@ function LiftPickerBody() {
               paddingLeft: 38,
               paddingRight: HIT_SIZE,
               fontFamily: fonts.body,
-              fontSize: 16,
+              fontSize: 15,
             }}
           />
           <View
@@ -443,7 +507,7 @@ function LiftPickerBody() {
                 style={{
                   width: 24,
                   height: 24,
-                  borderRadius: 8,
+                  borderRadius: radius.pill,
                   alignItems: 'center',
                   justifyContent: 'center',
                   borderWidth: StyleSheet.hairlineWidth * 2,
@@ -453,7 +517,7 @@ function LiftPickerBody() {
               >
                 {newIsCompound && <Check size={16} color={theme.brandOn} strokeWidth={2.6} />}
               </View>
-              <Body size={14} tone="secondary" style={{ flex: 1 }}>
+              <Body size={15} tone="secondary" style={{ flex: 1 }}>
                 Compound lift (moves more than one joint)
               </Body>
             </Pressable>
@@ -470,7 +534,7 @@ function LiftPickerBody() {
                 onPress={() => setCreating(false)}
                 style={{ flex: 1 }}
               />
-              <Button label="Create and add" onPress={handleCreate} style={{ flex: 1 }} />
+              <Button label="Create and select" onPress={handleCreate} style={{ flex: 1 }} />
             </View>
           </Surface>
         </KeyboardAwareScrollView>
@@ -482,7 +546,10 @@ function LiftPickerBody() {
           keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
           contentContainerStyle={listPadding}
-          renderItem={({ item }) => <LiftRow lift={item} onPress={() => handleSelect(item)} />}
+          extraData={selectedIds}
+          renderItem={({ item }) => (
+            <LiftRow lift={item} selected={selectedIds.has(item.id)} onToggle={() => toggle(item)} />
+          )}
           ListHeaderComponent={
             !filtersActive && frequentLifts.length > 0 ? (
               <View style={{ gap: spacing.sm, paddingBottom: spacing.sm }}>
@@ -497,7 +564,8 @@ function LiftPickerBody() {
                   <LiftRow
                     key={`frequent-${lift.id}`}
                     lift={lift}
-                    onPress={() => handleSelect(lift)}
+                    selected={selectedIds.has(lift.id)}
+                    onToggle={() => toggle(lift)}
                   />
                 ))}
                 <View style={{ paddingTop: spacing.sm }}>
@@ -538,6 +606,47 @@ function LiftPickerBody() {
           }
         />
       )}
+
+      {/*
+        The one commit for the whole selection. It rides the keyboard because the search field
+        can be focused while lifts are ticked; without that it would sit hidden behind the keys
+        exactly when someone searches for the last lift they want. Open, it drops the safe-area
+        padding, which the keyboard already covers.
+      */}
+      <KeyboardStickyView
+        offset={{ closed: 0, opened: insets.bottom }}
+        pointerEvents="box-none"
+        style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}
+      >
+        {/* The condition sits inside the sticky view so the bar itself is what unmounts,
+            which is what lets its exit animation play. */}
+        {showBar && (
+          <Animated.View
+            entering={reducedMotion ? undefined : FadeInDown.duration(motion.select.duration)}
+            exiting={reducedMotion ? undefined : FadeOutDown.duration(motion.fade.duration)}
+            onLayout={event => setBarHeight(event.nativeEvent.layout.height)}
+          >
+            <GlassSurface
+              radius={0}
+              bordered={false}
+              style={{
+                paddingHorizontal: spacing.lg,
+                paddingTop: spacing.md,
+                paddingBottom: insets.bottom + spacing.md,
+                borderTopWidth: StyleSheet.hairlineWidth * 2,
+                borderTopColor: theme.glass.border,
+              }}
+            >
+              <Button
+                label={addLabel}
+                full
+                onPress={handleAdd}
+                icon={<Plus size={16} color={theme.brandOn} strokeWidth={2.2} />}
+              />
+            </GlassSurface>
+          </Animated.View>
+        )}
+      </KeyboardStickyView>
     </View>
   )
 }

@@ -98,6 +98,7 @@ const LiveStrip: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
 const PinnedRestTimer: React.FC = () => {
   const theme = useTheme()
   const key = useRestClock(state => state.key)
+  const nextLabel = useRestClock(state => state.nextLabel)
   const dismiss = useRestClock(state => state.dismiss)
   const running = useStore(s => s.activeWorkoutId !== null)
   // A rest left running when the workout ended must not greet the next one.
@@ -114,7 +115,7 @@ const PinnedRestTimer: React.FC = () => {
         backgroundColor: theme.surfaceRaised,
       }}
     >
-      <RestTimer triggerKey={key} onDismiss={dismiss} />
+      <RestTimer triggerKey={key} nextLabel={nextLabel} onDismiss={dismiss} />
     </View>
   )
 }

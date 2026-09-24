@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
-import { StyleSheet, View } from 'react-native'
-import { Trophy } from 'lucide-react-native'
+import { Pressable, StyleSheet, View } from 'react-native'
+import { router } from 'expo-router'
+import { ChevronRight, Trophy } from 'lucide-react-native'
 
 import { formatDate } from '@core/utils/calculations'
 import { getPersonalRecords } from '@core/utils/workoutMath'
@@ -40,11 +41,19 @@ export default function TrainingRecords() {
           />
         </Surface>
       ) : (
-        <Surface>
+        // overflow hidden so the first and last rows' press highlight keeps the card's corners.
+        <Surface style={{ overflow: 'hidden' }}>
           {records.map((record, index) => (
-            <View
+            /* A record is where "how did I get here" starts, so every row opens that lift's
+               history, the way Hevy's exercise rows do. */
+            <Pressable
               key={record.liftId}
-              style={{
+              accessibilityRole="button"
+              accessibilityLabel={`${record.liftName}, best estimated one-rep max ${fromKg(record.bestEstimated1RM, unit)} ${unitLabel}. Open history`}
+              onPress={() =>
+                router.push({ pathname: '/lift-history', params: { liftId: record.liftId } })
+              }
+              style={({ pressed }) => ({
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: spacing.md,
@@ -52,7 +61,8 @@ export default function TrainingRecords() {
                 minHeight: 64,
                 borderTopWidth: index === 0 ? 0 : StyleSheet.hairlineWidth * 2,
                 borderTopColor: theme.border,
-              }}
+                backgroundColor: pressed ? theme.surfaceRaised : 'transparent',
+              })}
             >
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Body weight="semibold" numberOfLines={1}>
@@ -68,7 +78,8 @@ export default function TrainingRecords() {
                 <StatValue size={20}>{fromKg(record.bestEstimated1RM, unit)}</StatValue>
                 <Label>{`1RM ${unitLabel}`}</Label>
               </View>
-            </View>
+              <ChevronRight size={18} color={theme.textMuted} strokeWidth={2.2} />
+            </Pressable>
           ))}
         </Surface>
       )}
