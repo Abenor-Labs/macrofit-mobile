@@ -9,7 +9,11 @@ import {
   WeightEntry, UserProfile, MacroGoals, MealTemplate, DailyStreak,
   BodyMeasurement, ProgressPhoto, FastingSession, Recommendation,
   Lift, WorkoutSet, WorkoutSession, WorkoutTemplate,
+  ProgramDay, TrainingProgram, TrainingStyle,
 } from '../types'
+import { getLiftById } from '../data/exerciseDatabase'
+import { PROGRAM_PRESETS } from '../data/programPresets'
+import { resolveUpNext, cursorAfter } from '../utils/trainingProgram'
 import { getTodayString, calculateBMR, calculateTDEE, calculateCalorieGoal, calculateMacroGoals, lbsToKg } from '../utils/calculations'
 
 export interface AppState {
@@ -136,6 +140,25 @@ export interface AppState {
   saveWorkoutTemplate: (name: string, sessionId: string) => void
   applyWorkoutTemplate: (templateId: string, date: string) => string
 
+  // Training programs: repeating splits such as Chest / Back / Arms / Legs / Rest.
+  trainingPrograms: TrainingProgram[]
+  /** The program Training's Today tab follows. One at a time, of either style. */
+  activeProgramId: string | null
+
+  /** Creates a program from a preset (or a blank one when `presetId` is null) and makes it active. */
+  createProgram: (style: TrainingStyle, presetId: string | null, today: string) => string
+  setActiveProgram: (programId: string) => void
+  renameProgram: (programId: string, name: string) => void
+  deleteProgram: (programId: string) => void
+  addProgramDay: (programId: string, rest: boolean) => string
+  updateProgramDay: (programId: string, dayId: string, patch: Partial<Omit<ProgramDay, 'id'>>) => void
+  removeProgramDay: (programId: string, dayId: string) => void
+  moveProgramDay: (programId: string, dayId: string, direction: -1 | 1) => void
+  /** Moves the plan past whatever is up next today, without training it. */
+  skipProgramDay: (programId: string, today: string) => void
+  /** Starts a session holding the day's lifts, tagged so finishing it moves the plan on. */
+  startProgramDay: (programId: string, dayId: string, date: string) => string
+
   getDayOrCreate: (date: string) => DiaryDay
 
   // Bulk hydrate from cloud (used by AuthContext after login)
@@ -201,6 +224,28 @@ const findLift = (customLifts: Lift[], workoutLog: WorkoutSession[], liftId: str
 }
 
 /**
+ * Moves a program on after one of its days was trained.
+ *
+ * Only a session that logged real work counts, and the day that was trained wins over the
+ * day that was scheduled: doing Back when Chest was up next means whatever follows Back is
+ * next, which is what the person in the gym meant.
+ */
+const advanceProgramFor = (
+  state: { trainingPrograms: TrainingProgram[] },
+  session: WorkoutSession
+) => {
+  if (!session.programId || !session.programDayId) return
+  if (!session.exercises.some(ex => ex.sets.some(set => set.completed))) return
+  const program = state.trainingPrograms.find(p => p.id === session.programId)
+  if (!program) return
+  const index = program.days.findIndex(d => d.id === session.programDayId)
+  if (index < 0) return
+  const next = cursorAfter(program, index, session.date)
+  program.cursor = next.cursor
+  program.cursorDate = next.cursorDate
+}
+
+/**
  * Every line of app state, shared verbatim by the web app and the Expo app. It is a bare
  * immer state creator on purpose: persistence is the only thing the two platforms differ
  * on (localStorage vs AsyncStorage), so each wrapper supplies its own storage and nothing
@@ -227,6 +272,8 @@ export const createAppState: StateCreator<AppState, [['zustand/immer', never]], 
   customLifts: [],
   workoutTemplates: [],
   activeWorkoutId: null,
+  trainingPrograms: [],
+  activeProgramId: null,
 
   getDayOrCreate: (date: string): DiaryDay => {
     const existing = get().diary[date]
@@ -235,6 +282,21 @@ export const createAppState: StateCreator<AppState, [['zustand/immer', never]], 
   },
 
   updateProfile: (updates) => set((state) => {
+    /*
+      Weigh-ins are stored in the unit that was active when they were logged (WeightEntry.weight
+      is "in user's preferred unit"), and every screen reads them with the CURRENT unit. So a
+      unit switch has to convert the log, or 80 kg reads back as "80 lbs" the moment the user
+      flips the toggle. Converting here keeps the invariant — the whole log is always in
+      `profile.weightUnit` — true at the only place the unit can change.
+    */
+    const from = state.profile.weightUnit
+    const to = updates.weightUnit
+    if (to !== undefined && to !== from) {
+      const factor = to === 'lbs' ? 2.20462 : 1 / 2.20462
+      for (const entry of state.weightLog) {
+        entry.weight = Math.round(entry.weight * factor * 10) / 10
+      }
+    }
     Object.assign(state.profile, updates)
   }),
 
@@ -524,7 +586,10 @@ export const createAppState: StateCreator<AppState, [['zustand/immer', never]], 
 
   endWorkout: () => set((state) => {
     const session = state.workoutLog.find(w => w.id === state.activeWorkoutId)
-    if (session) session.endedAt = Date.now()
+    if (session) {
+      session.endedAt = Date.now()
+      advanceProgramFor(state, session)
+    }
     state.activeWorkoutId = null
   }),
 
@@ -535,6 +600,7 @@ export const createAppState: StateCreator<AppState, [['zustand/immer', never]], 
       if (hasCompletedSets) {
         // Real work was logged — keep it, same as finishing normally.
         session.endedAt = Date.now()
+        advanceProgramFor(state, session)
       } else {
         state.workoutLog = state.workoutLog.filter(w => w.id !== session.id)
       }
@@ -627,6 +693,130 @@ export const createAppState: StateCreator<AppState, [['zustand/immer', never]], 
     return session.id
   },
 
+  // --- Training programs ---
+
+  createProgram: (style, presetId, today) => {
+    const preset = PROGRAM_PRESETS.find(p => p.id === presetId && p.style === style)
+    const program: TrainingProgram = {
+      id: uuidv4(),
+      style,
+      name: preset?.name ?? (style === 'gym' ? 'My gym split' : 'My calisthenics split'),
+      days: preset
+        ? preset.days.map(day =>
+            day === null
+              ? { id: uuidv4(), name: 'Rest', rest: true, liftIds: [] }
+              : { id: uuidv4(), name: day.name, rest: false, liftIds: [...day.liftIds] }
+          )
+        : [{ id: uuidv4(), name: 'Day 1', rest: false, liftIds: [] }],
+      cursor: 0,
+      cursorDate: today,
+      createdAt: Date.now(),
+    }
+    set((state) => {
+      state.trainingPrograms.push(program)
+      state.activeProgramId = program.id
+    })
+    return program.id
+  },
+
+  setActiveProgram: (programId) => set((state) => {
+    if (state.trainingPrograms.some(p => p.id === programId)) state.activeProgramId = programId
+  }),
+
+  renameProgram: (programId, name) => set((state) => {
+    const program = state.trainingPrograms.find(p => p.id === programId)
+    if (program) program.name = name
+  }),
+
+  deleteProgram: (programId) => set((state) => {
+    state.trainingPrograms = state.trainingPrograms.filter(p => p.id !== programId)
+    if (state.activeProgramId === programId) {
+      state.activeProgramId = state.trainingPrograms[0]?.id ?? null
+    }
+  }),
+
+  addProgramDay: (programId, rest) => {
+    const day: ProgramDay = { id: uuidv4(), name: rest ? 'Rest' : 'New day', rest, liftIds: [] }
+    set((state) => {
+      const program = state.trainingPrograms.find(p => p.id === programId)
+      if (program) program.days.push(day)
+    })
+    return day.id
+  },
+
+  updateProgramDay: (programId, dayId, patch) => set((state) => {
+    const day = state.trainingPrograms.find(p => p.id === programId)?.days.find(d => d.id === dayId)
+    if (!day) return
+    Object.assign(day, patch)
+    if (day.rest) day.liftIds = []
+  }),
+
+  removeProgramDay: (programId, dayId) => set((state) => {
+    const program = state.trainingPrograms.find(p => p.id === programId)
+    if (!program) return
+    const index = program.days.findIndex(d => d.id === dayId)
+    if (index < 0) return
+    program.days.splice(index, 1)
+    // Keep pointing at the same day where possible; removing the current day hands its slot
+    // to whatever followed it.
+    if (index < program.cursor) program.cursor -= 1
+    if (program.cursor >= program.days.length) program.cursor = 0
+  }),
+
+  moveProgramDay: (programId, dayId, direction) => set((state) => {
+    const program = state.trainingPrograms.find(p => p.id === programId)
+    if (!program) return
+    const from = program.days.findIndex(d => d.id === dayId)
+    const to = from + direction
+    if (from < 0 || to < 0 || to >= program.days.length) return
+    const current = program.days[program.cursor]?.id
+    const [day] = program.days.splice(from, 1)
+    program.days.splice(to, 0, day)
+    // The cursor follows the day it pointed at, not the slot.
+    const moved = program.days.findIndex(d => d.id === current)
+    if (moved >= 0) program.cursor = moved
+  }),
+
+  skipProgramDay: (programId, today) => set((state) => {
+    const program = state.trainingPrograms.find(p => p.id === programId)
+    if (!program) return
+    const upNext = resolveUpNext(program, today)
+    if (!upNext) return
+    // Skipping hands today to the next day rather than tomorrow: someone skipping chest at
+    // the gym door wants back day now, not in 24 hours.
+    program.cursor = cursorAfter(program, upNext.index, today).cursor
+    program.cursorDate = upNext.date > today ? upNext.date : today
+  }),
+
+  startProgramDay: (programId, dayId, date) => {
+    const { trainingPrograms, customLifts, workoutLog } = get()
+    const day = trainingPrograms.find(p => p.id === programId)?.days.find(d => d.id === dayId)
+    const session: WorkoutSession = {
+      id: uuidv4(),
+      date,
+      name: day?.name ?? 'Workout',
+      startedAt: Date.now(),
+      exercises: [],
+      programId,
+      programDayId: dayId,
+    }
+    for (const liftId of day?.liftIds ?? []) {
+      // The library is consulted too: findLift only knows lifts already logged once, and a
+      // preset day is mostly lifts the user has never done in this app.
+      const lift = findLift(customLifts, workoutLog, liftId) ?? getLiftById(liftId) ?? null
+      if (lift) session.exercises.push({ id: uuidv4(), liftId, lift, sets: [] })
+    }
+    set((state) => {
+      const previous = state.workoutLog.find(w => w.id === state.activeWorkoutId)
+      if (previous && previous.endedAt === undefined) previous.endedAt = Date.now()
+
+      state.workoutLog.unshift(session)
+      state.workoutLog.sort(byNewestFirst)
+      state.activeWorkoutId = session.id
+    })
+    return session.id
+  },
+
   hydrateStore: (data) => set((state) => {
     // Must stay identical to SYNC_FIELDS in AuthContext.tsx — a key that is saved
     // but not hydrated silently never comes back on a new device.
@@ -636,6 +826,7 @@ export const createAppState: StateCreator<AppState, [['zustand/immer', never]], 
       'darkMode', 'bodyMeasurements', 'fastingSession', 'progressPhotos',
       'recommendation', 'recommendationSeenAt', 'onboardedAt',
       'workoutLog', 'customLifts', 'workoutTemplates', 'activeWorkoutId',
+      'trainingPrograms', 'activeProgramId',
     ] as const
     for (const key of syncFields) {
       if (key in data && data[key] !== undefined) {

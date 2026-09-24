@@ -288,12 +288,46 @@ export interface WorkoutSession {
   endedAt?: number        // undefined while in progress
   exercises: WorkoutExercise[]
   notes?: string
+  /** Set when the session was started from a program day, so finishing it moves the plan on. */
+  programId?: string
+  programDayId?: string
 }
 
 export interface WorkoutTemplate {
   id: string
   name: string
   liftIds: string[]
+  createdAt: number
+}
+
+export type TrainingStyle = 'gym' | 'calisthenics'
+
+/** One day of a repeating split: "Chest day", or a rest day. */
+export interface ProgramDay {
+  id: string
+  name: string
+  rest: boolean
+  /** In the order they are done. Empty on a rest day. */
+  liftIds: string[]
+}
+
+/**
+ * A repeating schedule — Chest, Back, Arms, Legs, Rest, and round again.
+ *
+ * It is a cycle rather than a weekly calendar on purpose. A missed Tuesday on a calendar
+ * silently skips leg day; in a cycle, leg day simply waits. `cursor` points at the day that
+ * is up next and only moves when that day is trained, skipped, or — for a rest day — once
+ * its date has passed.
+ */
+export interface TrainingProgram {
+  id: string
+  style: TrainingStyle
+  name: string
+  days: ProgramDay[]
+  /** Index into `days` of the day that is up next. */
+  cursor: number
+  /** 'YYYY-MM-DD' the cursor's day is for. A rest day is used up once this date is past. */
+  cursorDate: string
   createdAt: number
 }
 
