@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { ScrollView, View } from 'react-native'
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller'
-import { useRouter } from 'expo-router'
+import { landAt } from '@/lib/landAt'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { AlertTriangle, Clock, MailCheck } from 'lucide-react-native'
 
@@ -62,7 +62,6 @@ const Message: React.FC<{ text: string; kind: 'error' | 'notice' | 'info' }> = (
 export default function LoginScreen() {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
-  const router = useRouter()
   const onboardedAt = useStore(s => s.onboardedAt)
   const {
     signIn,
@@ -195,7 +194,7 @@ export default function LoginScreen() {
             {/* `size`, not a fontSize override — Body derives lineHeight from the prop, so
                 styling only fontSize crams a 34pt glyph into the 21.75pt box the default
                 implies and Android shears the caps. Same fix as welcome.tsx. */}
-            <Body size={34} style={{ fontFamily: fonts.displayBold, color: theme.text }}>
+            <Body size={30} style={{ fontFamily: fonts.displayBold, color: theme.text }}>
               MacroFit
             </Body>
             <Body tone="secondary" style={{ textAlign: 'center' }}>
@@ -337,7 +336,7 @@ export default function LoginScreen() {
               // Synchronous, so the navigation below cannot race the flag and be undone by
               // the routing effect on the next render.
               enterGuestMode()
-              router.replace(onboardedAt === null ? '/onboarding' : '/(tabs)')
+              landAt(onboardedAt === null ? '/onboarding' : '/(tabs)')
             }}
             full
             style={{ marginTop: spacing.md }}

@@ -43,6 +43,7 @@ import { HIT_SIZE, spacing } from '@/theme/tokens'
 import { configureFoodApis } from '@core/utils/foodApiConfig'
 import { USDA_API_KEY } from '@/lib/env'
 import { useNotifications } from '@/hooks/useNotifications'
+import { landAt } from '@/lib/landAt'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 // Defines the background update check at module scope: Android can start the JS runtime just
 // to run it, with no screen mounted, and the task has to be defined by then.
@@ -409,7 +410,7 @@ const RootNavigator: React.FC = () => {
         }
         // Login stays reachable: a guest tapping "sign in" from Profile must not be bounced
         // straight back out of it.
-        if (onWelcome) router.replace('/(tabs)')
+        if (onWelcome) landAt('/(tabs)')
         return
       }
 
@@ -447,10 +448,11 @@ const RootNavigator: React.FC = () => {
     }
 
     if (needsSetup) {
-      if (!onOnboarding) router.replace('/onboarding')
+      if (!onOnboarding) landAt('/onboarding')
       return
     }
-    if (onLoginScreen || onOnboarding || onWelcome || onResetPassword) router.replace('/(tabs)')
+    // Every way into the app from here is a one-way door: back must never reach sign-in again.
+    if (onLoginScreen || onOnboarding || onWelcome || onResetPassword) landAt('/(tabs)')
   }, [
     user,
     loading,

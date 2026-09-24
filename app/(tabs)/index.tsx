@@ -28,6 +28,7 @@ import {
   Sun,
   Sunrise,
   Target,
+  Bell,
 } from 'lucide-react-native'
 
 import type { DiaryDay, MealType, NutritionSummary, PhaseType, Recommendation } from '@core/types'
@@ -41,6 +42,8 @@ import {
 import { useStore } from '@/store/useStore'
 import { formatNumber } from '@/lib/formatNumber'
 import { useAvailableUpdate } from '@/hooks/useAvailableUpdate'
+import { useActivityFeed } from '@/hooks/useActivityFeed'
+import { WeeklyRecapCard } from '@/components/WeeklyRecapCard'
 import { buildTdeeEstimate } from '@core/utils/tdee'
 import { buildLocalRecommendation } from '@core/utils/localRecommendation'
 import { estimateBodyComposition, latestUsableMeasurement } from '@core/utils/bodyComposition'
@@ -114,6 +117,11 @@ export default function DashboardScreen() {
   // Null until the launch check finds something newer, so the header carries the icon only
   // while there is an update to take — never a permanent "check for updates" affordance.
   const update = useAvailableUpdate()
+  const { unread, recap } = useActivityFeed()
+  const weightUnit = useStore(s => s.profile.weightUnit)
+  // Monday to Wednesday: after that, last week is old news on the home screen (it stays in
+  // Activity).
+  const showRecap = recap !== null && [1, 2, 3].includes(new Date().getDay())
   const day = useMemo<DiaryDay>(
     () => storedDay ?? { date: today, entries: [], waterIntake: 0, exercises: [] },
     [storedDay, today]
@@ -152,7 +160,7 @@ export default function DashboardScreen() {
                   right: 11,
                   width: 9,
                   height: 9,
-                  borderRadius: 5,
+                  borderRadius: radius.pill,
                   borderWidth: 1.5,
                   backgroundColor: theme.brand,
                   borderColor: theme.canvas,
@@ -160,6 +168,30 @@ export default function DashboardScreen() {
               />
             </IconButton>
           ) : null}
+          {/* Activity: records, milestones and the weekly recap. The dot means something new
+              since you last looked — the only badge in the app, so it still means something. */}
+          <IconButton
+            accessibilityLabel={unread > 0 ? `Activity, ${unread} new` : 'Activity'}
+            onPress={() => router.push('/activity')}
+          >
+            <Bell size={20} color={theme.brandText} strokeWidth={2} />
+            {unread > 0 ? (
+              <View
+                pointerEvents="none"
+                style={{
+                  position: 'absolute',
+                  top: 11,
+                  right: 11,
+                  width: 9,
+                  height: 9,
+                  borderRadius: radius.pill,
+                  borderWidth: 1.5,
+                  backgroundColor: theme.brand,
+                  borderColor: theme.canvas,
+                }}
+              />
+            ) : null}
+          </IconButton>
           <IconButton
             accessibilityLabel="Open the assistant"
             onPress={() => router.push('/chat')}
@@ -180,6 +212,8 @@ export default function DashboardScreen() {
         menu. The card was the only one of the three that cost a slot above the day's numbers
         to advertise what the other two already offered.
       */}
+      {showRecap && recap ? <WeeklyRecapCard recap={recap} unit={weightUnit} /> : null}
+
       <MacroCard
         theme={theme}
         nutrition={nutrition}
@@ -549,7 +583,7 @@ const CoachCard: React.FC<{
             <Label>{recommendation ? 'Coach plan' : 'Coach'}</Label>
             {recommendation ? (
               <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
-                <Body size={16} weight="semibold">
+                <Body size={15} weight="semibold">
                   {PHASE_LABELS[recommendation.phase]}
                 </Body>
                 <Body size={13} tone="secondary">
@@ -651,7 +685,7 @@ const MealsCard: React.FC<{ theme: Theme; date: string; mealTotals: MealTotals }
 
             {data ? (
               <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}>
-                <StatValue size={18}>{formatNumber(data.calories)}</StatValue>
+                <StatValue size={17}>{formatNumber(data.calories)}</StatValue>
                 <Body size={11} tone="muted">
                   kcal
                 </Body>
@@ -699,7 +733,7 @@ const WaterCard: React.FC<{
 
         <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}>
           <StatValue
-            size={22}
+            size={20}
             accessibilityLabel={`${formatNumber(intakeMl)} of ${formatNumber(
               goalMl
             )} millilitres of water`}
