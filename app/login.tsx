@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native'
+import { ScrollView, View } from 'react-native'
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { AlertTriangle, Clock, MailCheck } from 'lucide-react-native'
@@ -176,7 +177,7 @@ export default function LoginScreen() {
     <LiquidGlassScene backdrop={<Aurora />} style={{ backgroundColor: theme.canvas }}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
       >
         <ScrollView
           contentContainerStyle={{

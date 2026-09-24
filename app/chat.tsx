@@ -2,14 +2,13 @@ import React, { useCallback, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Image,
-  KeyboardAvoidingView,
   Linking,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   View,
 } from 'react-native'
+import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller'
 import { useRouter } from 'expo-router'
 import { BlurView } from 'expo-blur'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -225,6 +224,7 @@ export default function ChatScreen() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [photoSheetOpen, setPhotoSheetOpen] = useState(false)
+  const keyboardVisible = useKeyboardState(state => state.isVisible)
   const [messages, setMessages] = useState<ChatEntry[]>([
     { id: WELCOME_ID, role: 'assistant', text: WELCOME_TEXT },
   ])
@@ -653,7 +653,7 @@ export default function ChatScreen() {
     >
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
       >
         <ScrollView
           ref={scrollRef}
@@ -948,7 +948,9 @@ export default function ChatScreen() {
             overflow: 'hidden',
             paddingHorizontal: spacing.lg,
             paddingTop: spacing.md,
-            paddingBottom: Math.max(insets.bottom, spacing.md),
+            // With the keyboard up, the keyboard is the bottom edge: the home-indicator inset
+            // under it would leave a dead band between the composer and the keys.
+            paddingBottom: keyboardVisible ? spacing.md : Math.max(insets.bottom, spacing.md),
             gap: spacing.md,
           }}
         >

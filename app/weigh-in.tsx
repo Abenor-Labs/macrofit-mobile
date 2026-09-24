@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
-import { ScrollView, StyleSheet, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller'
 import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Check, Scale, TriangleAlert, X } from 'lucide-react-native'
@@ -116,7 +117,8 @@ export default function WeighInScreen() {
         </View>
       </GlassSurface>
 
-      <ScrollView
+      <KeyboardAwareScrollView
+        bottomOffset={spacing.xl}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
@@ -224,7 +226,7 @@ export default function WeighInScreen() {
             ))}
           </Surface>
         )}
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </LiquidGlassScene>
   )
 }

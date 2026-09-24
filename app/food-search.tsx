@@ -3,11 +3,11 @@ import {
   ActivityIndicator,
   FlatList,
   Pressable,
-  ScrollView,
   StyleSheet,
   TextInput,
   View,
 } from 'react-native'
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
@@ -649,7 +649,8 @@ export default function FoodSearchScreen() {
     return (
       <LiquidGlassScene backdrop={<Aurora />} style={{ backgroundColor: theme.canvas }}>
         {header}
-        <ScrollView
+        <KeyboardAwareScrollView
+          bottomOffset={spacing.xl}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{
@@ -784,7 +785,7 @@ export default function FoodSearchScreen() {
             onPress={logFood}
             icon={<Plus size={16} color={theme.brandOn} strokeWidth={2.4} />}
           />
-        </ScrollView>
+        </KeyboardAwareScrollView>
       </LiquidGlassScene>
     )
   }

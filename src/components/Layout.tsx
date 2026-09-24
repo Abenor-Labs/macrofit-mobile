@@ -1,7 +1,6 @@
 import React from 'react'
 import {
   Pressable,
-  ScrollView,
   StyleSheet,
   TextInput,
   View,
@@ -9,6 +8,7 @@ import {
   type TextInputProps,
   type ViewStyle,
 } from 'react-native'
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { ChevronLeft } from 'lucide-react-native'
 import { BlurTargetArea } from './BlurTarget'
@@ -129,7 +129,13 @@ export const Screen: React.FC<ScreenProps> = ({
           expo-blur cannot composite. */}
       <BlurTargetArea style={{ flex: 1 }}>
         {scroll ? (
-          <ScrollView
+          /*
+            Keyboard-aware, so a focused field scrolls itself above the keyboard — set inputs
+            deep in a workout, a goal field, a weigh-in. The window no longer pans (that slid
+            headers off the top of the screen), so the scroll view has to make the room itself.
+          */
+          <KeyboardAwareScrollView
+            bottomOffset={spacing.xl}
             contentContainerStyle={{
               paddingTop: title === undefined ? insets.top + spacing.lg : spacing.lg,
               paddingBottom: TAB_BAR_SPACE + extraBottomSpace + insets.bottom + spacing.xl,
@@ -138,7 +144,7 @@ export const Screen: React.FC<ScreenProps> = ({
             keyboardShouldPersistTaps="handled"
           >
             {body}
-          </ScrollView>
+          </KeyboardAwareScrollView>
         ) : (
           body
         )}

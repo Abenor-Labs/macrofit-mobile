@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
+import { Pressable, StyleSheet, TextInput, View } from 'react-native'
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { ArrowDown, ArrowUp, Moon, Plus, Trash2, X } from 'lucide-react-native'
@@ -97,7 +98,8 @@ const RoutineDayBody: React.FC = () => {
         </View>
       </GlassSurface>
 
-      <ScrollView
+      <KeyboardAwareScrollView
+        bottomOffset={spacing.xl}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
@@ -269,7 +271,7 @@ const RoutineDayBody: React.FC = () => {
             {program.days.length <= 1 ? 'A plan needs at least one day' : 'Delete this day'}
           </Body>
         </Pressable>
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       <ActionSheet
         visible={confirmDelete}

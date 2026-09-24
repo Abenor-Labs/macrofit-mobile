@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
-import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native'
+import { ScrollView, View } from 'react-native'
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { AlertTriangle, MailCheck } from 'lucide-react-native'
 
@@ -92,7 +93,7 @@ export default function ResetPasswordScreen() {
       <Aurora />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
       >
         <ScrollView
           contentContainerStyle={{

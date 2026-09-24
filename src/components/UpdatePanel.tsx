@@ -1,12 +1,12 @@
 import React, { useState } from 'react'
-import { View } from 'react-native'
+import { Pressable, View } from 'react-native'
 import * as Application from 'expo-application'
 import { Download, RefreshCw } from 'lucide-react-native'
 
 import { checkForUpdate, downloadAndInstall, type AvailableRelease } from '@/lib/appUpdate'
 import { publishAvailableUpdate } from '@/hooks/useAvailableUpdate'
 import { useTheme } from '@/theme/useTheme'
-import { radius, spacing } from '@/theme/tokens'
+import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
 import { Body } from './Text'
 import { Button } from './Button'
 import { RichText } from './RichText'
@@ -33,7 +33,14 @@ const describeAvailable = (release: AvailableRelease, currentVersion: string): s
  * the panel opens ready to install instead of asking the user to check for what they were just
  * told exists. The launch check itself never prompts; it only decides whether that icon shows.
  */
-export const UpdatePanel: React.FC<{ initial?: AvailableRelease | null }> = ({ initial = null }) => {
+/** How much of the release notes shows before "Show all". */
+const NOTES_PREVIEW_HEIGHT = 180
+
+export const UpdatePanel: React.FC<{
+  initial?: AvailableRelease | null
+  /** Show the release notes in full: on the update screen they ARE the content. */
+  expandNotes?: boolean
+}> = ({ initial = null, expandNotes = false }) => {
   const theme = useTheme()
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<string | null>(() =>
@@ -41,6 +48,8 @@ export const UpdatePanel: React.FC<{ initial?: AvailableRelease | null }> = ({ i
   )
   const [error, setError] = useState<string | null>(null)
   const [available, setAvailable] = useState<AvailableRelease | null>(initial)
+  const [notesExpanded, setNotesExpanded] = useState(false)
+  const [notesClipped, setNotesClipped] = useState(false)
   /** 0 to 1 while downloading, null otherwise. */
   const [progress, setProgress] = useState<number | null>(null)
 
@@ -147,18 +156,42 @@ export const UpdatePanel: React.FC<{ initial?: AvailableRelease | null }> = ({ i
         trust that costs nothing to earn.
       */}
       {available?.notes && !busy ? (
-        <View
-          style={{
-            borderRadius: radius.control,
-            borderWidth: 1,
-            borderColor: theme.border,
-            padding: spacing.md,
-            maxHeight: 220,
-          }}
-        >
-          {/* Through the shared renderer: these notes are Markdown from GitHub, and a plain
-              Body would print the same literal hashes and asterisks the chat used to. */}
-          <RichText text={available.notes} color={theme.textSecondary} size={12} />
+        <View style={{ gap: spacing.xs }}>
+          {/*
+            Clipped, not just capped. This had a maxHeight and no overflow rule, so long notes
+            kept drawing past the box — over the Download button and the rows below it. A
+            preview with a "Show all" toggle, rather than a scroll box inside a scrolling
+            screen, which fights the page's own scroll for the same finger.
+          */}
+          <View
+            onLayout={event => {
+              if (!notesExpanded) setNotesClipped(event.nativeEvent.layout.height >= NOTES_PREVIEW_HEIGHT)
+            }}
+            style={{
+              borderRadius: radius.control,
+              borderWidth: 1,
+              borderColor: theme.border,
+              padding: spacing.md,
+              maxHeight: expandNotes || notesExpanded ? undefined : NOTES_PREVIEW_HEIGHT,
+              overflow: 'hidden',
+            }}
+          >
+            {/* Through the shared renderer: these notes are Markdown from GitHub, and a plain
+                Body would print the same literal hashes and asterisks the chat used to. */}
+            <RichText text={available.notes} color={theme.textSecondary} size={12} />
+          </View>
+          {!expandNotes && (notesClipped || notesExpanded) ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setNotesExpanded(value => !value)}
+              hitSlop={8}
+              style={{ alignSelf: 'flex-start', minHeight: HIT_SIZE, justifyContent: 'center' }}
+            >
+              <Body size={13} weight="semibold" tone="brand">
+                {notesExpanded ? 'Show less' : "Show all of what's new"}
+              </Body>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 

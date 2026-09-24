@@ -43,6 +43,7 @@ import { HIT_SIZE, spacing } from '@/theme/tokens'
 import { configureFoodApis } from '@core/utils/foodApiConfig'
 import { USDA_API_KEY } from '@/lib/env'
 import { useNotifications } from '@/hooks/useNotifications'
+import { KeyboardProvider } from 'react-native-keyboard-controller'
 // Defines the background update check at module scope: Android can start the JS runtime just
 // to run it, with no screen mounted, and the task has to be defined by then.
 import '@/lib/updateTask'
@@ -680,6 +681,13 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
+        {/*
+          Keyboard handling for the whole app. The window used to pan when the keyboard
+          opened, which slid headers (chat's title and close button among them) off the top
+          of the screen. Now nothing pans: fixed layouts avoid the keyboard and scroll views
+          bring the focused field into view, frame-synced with the keyboard's own animation.
+        */}
+        <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
         {/* Above everything, including the pane-local copies of the backdrop. One set of
             drift clocks for the whole app rather than three per Aurora instance — see the
             note in Aurora.tsx. */}
@@ -696,6 +704,7 @@ export default function RootLayout() {
         {/* Above everything, including the screens that replace the navigator (sync
             conflict, sync unavailable), which raise confirmations of their own. */}
         <AppAlertHost />
+        </KeyboardProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   )

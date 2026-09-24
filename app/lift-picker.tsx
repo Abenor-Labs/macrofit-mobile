@@ -7,6 +7,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
@@ -366,7 +367,8 @@ function LiftPickerBody() {
       </GlassSurface>
 
       {creating ? (
-        <ScrollView
+        <KeyboardAwareScrollView
+          bottomOffset={spacing.xl}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={listPadding}
           showsVerticalScrollIndicator={false}
@@ -471,7 +473,7 @@ function LiftPickerBody() {
               <Button label="Create and add" onPress={handleCreate} style={{ flex: 1 }} />
             </View>
           </Surface>
-        </ScrollView>
+        </KeyboardAwareScrollView>
       ) : (
         <FlatList
           data={results}
