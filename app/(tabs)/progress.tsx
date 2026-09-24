@@ -1,13 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { PanResponder, Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native'
+import React, { useEffect, useMemo, useState } from 'react'
+import { View, type LayoutChangeEvent } from 'react-native'
 import Svg, { Circle, Line, Path, Rect } from 'react-native-svg'
 import { useGlobalSearchParams, useRouter } from 'expo-router'
 import {
-  Activity,
   Dumbbell,
-  Flame,
   Minus,
-  RefreshCw,
   Scale,
   Sparkles,
   TrendingDown,
@@ -16,21 +13,22 @@ import {
   Utensils,
 } from 'lucide-react-native'
 
-import { Button, IconButton } from '@/components/Button'
+import { IconButton } from '@/components/Button'
+import { ScrubReadout, useChartScrub } from '@/components/charts/ChartScrub'
 import { Surface } from '@/components/Glass'
 import { EmptyState, Screen } from '@/components/Layout'
 import { ProgressTrack } from '@/components/MacroRing'
+import { Segmented, type SegmentedOption } from '@/components/Segmented'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
 import { WeightTargetCard } from '@/components/WeightTarget'
 import { DateNavigator } from '@/components/DateNavigator'
 import { useStore } from '@/store/useStore'
 import { useTheme } from '@/theme/useTheme'
-import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
+import { spacing } from '@/theme/tokens'
 import {
   formatDate,
+  getDateString,
   getDayNutrition,
-  getLast7Days,
-  getLast30Days,
   getTodayString,
   kgToLbs,
 } from '@core/utils/calculations'
@@ -57,16 +55,17 @@ const GUTTER = 44
 const PAD_X = 4
 const PAD_Y = 8
 const USABLE_H = CHART_H - PAD_Y * 2
-/** Scrub readout width. Wide enough for '2,427 kcal' plus a date under it. */
-const TOOLTIP_W = 116
+/** Scrub readout width. Wide enough for '2,427 kcal', or for 'Week of Sep 18' under a weight. */
+const TOOLTIP_W = 132
 
 /*
   Day sits alongside the week and the month because the Intake ring on the dashboard opens here
   and has to land on the day it was showing. Fit draws the same three: a detail screen answers
   "today", "this week" and "this month" from one place rather than making the user guess which
-  screen owns which span.
+  screen owns which span. The quarter and the year are there for weight, where a month is too
+  short to separate a trend from a week of water.
 */
-const RANGE_DAYS = { day: 1, '7d': 7, '30d': 30 } as const
+const RANGE_DAYS = { day: 1, '7d': 7, '30d': 30, '90d': 90, '1y': 365 } as const
 
 type RangeKey = keyof typeof RANGE_DAYS
 type TabKey = 'calories' | 'macros' | 'weight' | 'training'
@@ -125,6 +124,80 @@ const AxisDates: React.FC<{ from: string; to: string }> = ({ from, to }) => (
     </StatValue>
   </View>
 )
+
+/** The last `count` calendar days, oldest first, ending today. */
+const lastDays = (count: number): string[] =>
+  Array.from({ length: count }, (_, i) => {
+    const d = new Date()
+    d.setDate(d.getDate() - (count - 1 - i))
+    return getDateString(d)
+  })
+
+/** Width of one month label; three letters of an 11pt figure face, with room to centre. */
+const MONTH_LABEL_W = 32
+
+/**
+ * Month names under the year chart, each centred on the first week of its month.
+ *
+ * Two end dates, which is what the shorter spans show, say nothing about a year that a reader
+ * does not already know — "Sep 25 … Sep 24" is just the range control again. Months are what
+ * a year is navigated by. Every other month is named, counted back from the latest so the most
+ * recent one is always labelled: twelve three-letter names do not fit a phone's width without
+ * touching.
+ */
+const MonthAxis: React.FC<{
+  width: number
+  slots: number
+  startOf: (index: number) => string
+}> = ({ width, slots, startOf }) => {
+  const plotW = Math.max(width - GUTTER, 1)
+  const usableW = Math.max(plotW - PAD_X * 2, 1)
+  const xOf = (index: number): number =>
+    slots <= 1 ? PAD_X + usableW / 2 : PAD_X + (index * usableW) / (slots - 1)
+
+  const starts: { index: number; label: string }[] = []
+  let previousMonth = ''
+  for (let index = 0; index < slots; index++) {
+    const date = startOf(index)
+    const month = date.slice(0, 7)
+    if (month !== previousMonth) {
+      previousMonth = month
+      // The first slot's month is usually a partial one; naming it at the very edge would
+      // collide with the gutter and describe a week or two at most.
+      if (index > 0) {
+        const [year, monthNumber] = month.split('-').map(Number)
+        starts.push({
+          index,
+          label: new Date(year, monthNumber - 1, 1).toLocaleDateString('en-US', { month: 'short' }),
+        })
+      }
+    }
+  }
+  const shown = starts.filter((_, i) => (starts.length - 1 - i) % 2 === 0)
+
+  return (
+    <View style={{ height: 20, marginTop: 6 }}>
+      {shown.map(mark => (
+        <View
+          key={mark.index}
+          style={{
+            position: 'absolute',
+            left: Math.min(
+              Math.max(GUTTER + xOf(mark.index) - MONTH_LABEL_W / 2, GUTTER),
+              width - MONTH_LABEL_W
+            ),
+            width: MONTH_LABEL_W,
+            alignItems: 'center',
+          }}
+        >
+          <StatValue size={11} tone="muted">
+            {mark.label}
+          </StatValue>
+        </View>
+      ))}
+    </View>
+  )
+}
 
 interface LegendItem {
   label: string
@@ -196,8 +269,11 @@ interface LineChartProps {
   goalColor?: string
   showDots: boolean
   format: (value: number) => string
-  /** One date per slot, so a scrubbed point can say which day it is. */
-  dates?: readonly string[]
+  /**
+    Names a slot, so a scrubbed point can say which day it is. A function rather than a date
+    array because the year view plots weeks, and a week is named by its start, not by a day.
+  */
+  slotLabel?: (index: number) => string
   /** Appended to the scrubbed value, e.g. 'kcal'. The axis has no room to repeat it. */
   unit?: string
 }
@@ -213,7 +289,7 @@ const LineChart: React.FC<LineChartProps> = ({
   goalColor,
   showDots,
   format,
-  dates,
+  slotLabel,
   unit,
 }) => {
   const theme = useTheme()
@@ -222,27 +298,8 @@ const LineChart: React.FC<LineChartProps> = ({
     Press and drag to read the series. At this width a 30-day chart puts its points about ten
     pixels apart, which is under half a fingertip: without scrubbing the only way to know what
     a dot is worth is to count gridlines and guess.
-
-    The index is kept in state and the hit-testing in a ref. PanResponder is built once, so a
-    handler that closed over `points` directly would still be reading the first render's data
-    a week later; the ref is reassigned on every render and the handlers call through it.
   */
-  const [active, setActive] = useState<number | null>(null)
-  const nearestRef = useRef<(x: number) => number | null>(() => null)
-
-  const responder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      // The chart lives inside a ScrollView. Granting termination lets a vertical drag that
-      // started on the chart still scroll the page instead of trapping the finger.
-      onPanResponderTerminationRequest: () => true,
-      onPanResponderGrant: event => setActive(nearestRef.current(event.nativeEvent.locationX)),
-      onPanResponderMove: event => setActive(nearestRef.current(event.nativeEvent.locationX)),
-      onPanResponderRelease: () => setActive(null),
-      onPanResponderTerminate: () => setActive(null),
-    })
-  ).current
+  const { active, nearestRef, panHandlers } = useChartScrub()
 
   if (points.length === 0) return null
 
@@ -316,35 +373,18 @@ const LineChart: React.FC<LineChartProps> = ({
 
   const activePoint = active === null ? null : (points.find(p => p.index === active) ?? null)
   const activeX = activePoint === null ? 0 : xOf(activePoint.index)
-  const activeDate = activePoint === null ? undefined : dates?.[activePoint.index]
+  const activeLabel = activePoint === null ? undefined : slotLabel?.(activePoint.index)
 
   return (
     <View>
       {activePoint ? (
-        <View
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            top: 0,
-            // Clamped so a reading at either end stays on screen instead of hanging off it.
-            left: Math.min(Math.max(GUTTER + activeX - TOOLTIP_W / 2, 0), GUTTER + plotW - TOOLTIP_W),
-            width: TOOLTIP_W,
-            zIndex: 2,
-            alignItems: 'center',
-            gap: 1,
-            paddingVertical: 6,
-            borderRadius: radius.control,
-            borderWidth: StyleSheet.hairlineWidth * 2,
-            borderColor: theme.border,
-            backgroundColor: theme.surfaceRaised,
-          }}
-        >
+        <ScrubReadout left={GUTTER + activeX} bounds={GUTTER + plotW} width={TOOLTIP_W}>
           <StatValue size={15}>{`${format(activePoint.value)}${unit ? ` ${unit}` : ''}`}</StatValue>
-          {activeDate ? <Label>{formatDate(activeDate)}</Label> : null}
-        </View>
+          {activeLabel ? <Label>{activeLabel}</Label> : null}
+        </ScrubReadout>
       ) : null}
 
-      <View style={{ flexDirection: 'row' }} {...responder.panHandlers}>
+      <View style={{ flexDirection: 'row' }} {...panHandlers}>
         <YAxis ticks={ticks} format={format} />
         <Svg width={plotW} height={CHART_H}>
           {activePoint ? (
@@ -450,66 +490,166 @@ interface MacroDay {
   fat: number
 }
 
-const MacroBars: React.FC<{ width: number; slots: number; days: MacroDay[] }> = ({
-  width,
-  slots,
-  days,
-}) => {
+/** Macro readout is wider than the line chart's: it carries the split as well as the total. */
+const MACRO_TOOLTIP_W = 168
+
+const MacroBars: React.FC<{
+  width: number
+  slots: number
+  days: MacroDay[]
+  /** Sum of the three macro goals in grams — the height a day on target stacks to. */
+  goal?: number
+  slotLabel: (index: number) => string
+}> = ({ width, slots, days, goal, slotLabel }) => {
   const theme = useTheme()
+
+  /*
+    The same press-and-drag reading the line chart has. A stacked bar is the one chart where
+    the gridlines cannot answer the question at all: the protein band's height is readable,
+    but where carbs begin and end is a subtraction nobody does by eye.
+  */
+  const { active, nearestRef, panHandlers } = useChartScrub()
+
   if (days.length === 0) return null
 
+  const hasGoal = goal !== undefined && Number.isFinite(goal) && goal > 0
   const plotW = Math.max(width - GUTTER, 1)
   const totals = days.map(d => d.protein + d.carbs + d.fat)
-  const max = niceMax(Math.max(...totals, 1))
+  // The goal is part of the scale, so a week of under-eating still shows how far short it fell.
+  const max = niceMax(Math.max(...totals, hasGoal ? (goal as number) : 0, 1))
   const slotW = plotW / Math.max(slots, 1)
   const barW = Math.max(Math.min(slotW - 3, 18), 2)
 
   const yOf = (value: number): number => PAD_Y + USABLE_H - (value / max) * USABLE_H
   const ticks: Tick[] = [max, max / 2, 0].map(value => ({ value, y: yOf(value) }))
+  const centreOf = (index: number): number => slotW * index + slotW / 2
+
+  /*
+    Snap to the nearest logged day, not to the slot under the finger. On a sparse month most
+    slots are empty, and a readout that names an empty day tells the user nothing the gap in
+    the bars had not already said.
+  */
+  nearestRef.current = (x: number): number | null => {
+    let best = days[0]
+    let bestDistance = Math.abs(centreOf(best.index) - x)
+    for (const day of days) {
+      const distance = Math.abs(centreOf(day.index) - x)
+      if (distance < bestDistance) {
+        best = day
+        bestDistance = distance
+      }
+    }
+    return best.index
+  }
+
+  const activeDay = active === null ? null : (days.find(d => d.index === active) ?? null)
+  const goalY = hasGoal ? yOf(goal as number) : 0
 
   return (
-    <View style={{ flexDirection: 'row' }}>
-      <YAxis ticks={ticks} format={v => withCommas(v)} />
-      <Svg width={plotW} height={CHART_H}>
-        {ticks.map((tick, i) => (
-          <Line
-            key={`grid-${i}`}
-            x1={0}
-            y1={tick.y}
-            x2={plotW}
-            y2={tick.y}
-            stroke={theme.border}
-            strokeWidth={1}
-          />
-        ))}
+    <View>
+      {activeDay ? (
+        <ScrubReadout
+          left={GUTTER + centreOf(activeDay.index)}
+          bounds={GUTTER + plotW}
+          width={MACRO_TOOLTIP_W}
+        >
+          <StatValue size={15}>
+            {`${withCommas(activeDay.protein + activeDay.carbs + activeDay.fat)} g`}
+          </StatValue>
+          <Label>{slotLabel(activeDay.index)}</Label>
+          <Body size={11} tone="secondary">
+            {'P '}
+            <StatValue size={11} color={theme.macro.protein}>
+              {Math.round(activeDay.protein)}
+            </StatValue>
+            {' · C '}
+            <StatValue size={11} color={theme.macro.carbs}>
+              {Math.round(activeDay.carbs)}
+            </StatValue>
+            {' · F '}
+            <StatValue size={11} color={theme.macro.fat}>
+              {Math.round(activeDay.fat)}
+            </StatValue>
+          </Body>
+        </ScrubReadout>
+      ) : null}
 
-        {days.map(day => {
-          const stack = [
-            { key: 'protein', value: day.protein, color: theme.macro.protein },
-            { key: 'carbs', value: day.carbs, color: theme.macro.carbs },
-            { key: 'fat', value: day.fat, color: theme.macro.fat },
-          ]
-          const x = slotW * day.index + (slotW - barW) / 2
-          let base = 0
-          return stack.map(segment => {
-            const top = base + segment.value
-            const y = yOf(top)
-            const height = Math.max((segment.value / max) * USABLE_H, 0)
-            base = top
-            if (height <= 0) return null
-            return (
-              <Rect
-                key={`${day.index}-${segment.key}`}
-                x={x}
-                y={y}
-                width={barW}
-                height={height}
-                fill={segment.color}
+      <View style={{ flexDirection: 'row' }} {...panHandlers}>
+        <YAxis ticks={ticks} format={v => withCommas(v)} />
+        <View>
+          <Svg width={plotW} height={CHART_H}>
+            {ticks.map((tick, i) => (
+              <Line
+                key={`grid-${i}`}
+                x1={0}
+                y1={tick.y}
+                x2={plotW}
+                y2={tick.y}
+                stroke={theme.border}
+                strokeWidth={1}
               />
-            )
-          })
-        })}
-      </Svg>
+            ))}
+
+            {days.map(day => {
+              const stack = [
+                { key: 'protein', value: day.protein, color: theme.macro.protein },
+                { key: 'carbs', value: day.carbs, color: theme.macro.carbs },
+                { key: 'fat', value: day.fat, color: theme.macro.fat },
+              ]
+              const x = slotW * day.index + (slotW - barW) / 2
+              // While a bar is held the others recede, so the one being read is unmistakable
+              // even at thirty bars to a card.
+              const opacity = activeDay === null || activeDay.index === day.index ? 1 : 0.35
+              let base = 0
+              return stack.map(segment => {
+                const top = base + segment.value
+                const y = yOf(top)
+                const height = Math.max((segment.value / max) * USABLE_H, 0)
+                base = top
+                if (height <= 0) return null
+                return (
+                  <Rect
+                    key={`${day.index}-${segment.key}`}
+                    x={x}
+                    y={y}
+                    width={barW}
+                    height={height}
+                    fill={segment.color}
+                    fillOpacity={opacity}
+                  />
+                )
+              })
+            })}
+
+            {/* Drawn over the bars so a day that clears the goal still shows where the goal was. */}
+            {hasGoal ? (
+              <Line
+                x1={0}
+                y1={goalY}
+                x2={plotW}
+                y2={goalY}
+                stroke={theme.textMuted}
+                strokeWidth={1.5}
+                strokeDasharray="5 4"
+              />
+            ) : null}
+          </Svg>
+
+          {/* Named in React Native text rather than SVG text, like every other figure on the
+              chart, and tucked against the right edge where the latest bars are least likely to
+              be tall enough to collide with it. */}
+          {hasGoal ? (
+            <View
+              pointerEvents="none"
+              style={{ position: 'absolute', right: 2, top: Math.max(goalY - 16, 0) }}
+            >
+              <StatValue size={11} tone="muted">
+                {`Goal ${withCommas(goal as number)} g`}
+              </StatValue>
+            </View>
+          ) : null}
+        </View>
+      </View>
     </View>
   )
 }
@@ -585,70 +725,8 @@ const VolumeBars: React.FC<{ width: number; rows: VolumeRow[]; unit: string }> =
 }
 
 /* ------------------------------------------------------------------ *
- * Controls
+ * Cards
  * ------------------------------------------------------------------ */
-
-interface SegmentedOption<T extends string> {
-  key: T
-  label: string
-}
-
-function Segmented<T extends string>({
-  options,
-  value,
-  onChange,
-  groupLabel,
-}: {
-  options: readonly SegmentedOption<T>[]
-  value: T
-  onChange: (next: T) => void
-  groupLabel: string
-}) {
-  const theme = useTheme()
-  return (
-    <View
-      accessibilityRole="tablist"
-      style={{
-        flexDirection: 'row',
-        gap: 4,
-        padding: 4,
-        borderRadius: radius.control,
-        backgroundColor: theme.surface,
-        borderWidth: StyleSheet.hairlineWidth * 2,
-        borderColor: theme.border,
-      }}
-    >
-      {options.map(option => {
-        const selected = option.key === value
-        return (
-          <Pressable
-            key={option.key}
-            accessibilityRole="tab"
-            accessibilityState={{ selected }}
-            accessibilityLabel={`${groupLabel}: ${option.label}`}
-            onPress={() => onChange(option.key)}
-            style={{
-              flex: 1,
-              minHeight: HIT_SIZE,
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: radius.tight,
-              backgroundColor: selected ? theme.brand : 'transparent',
-            }}
-          >
-            <Body
-              size={13}
-              weight={selected ? 'semibold' : 'medium'}
-              style={{ color: selected ? theme.brandOn : theme.textSecondary }}
-            >
-              {option.label}
-            </Body>
-          </Pressable>
-        )
-      })}
-    </View>
-  )
-}
 
 const StatTile: React.FC<{
   label: string
@@ -665,7 +743,7 @@ const StatTile: React.FC<{
       </Body>
     ) : (
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
-        <StatValue size={22}>{value}</StatValue>
+        <StatValue size={20}>{value}</StatValue>
         {unit ? (
           <Body size={12} tone="muted">
             {unit}
@@ -688,23 +766,30 @@ const CardHeader: React.FC<{ title: string; caption?: string }> = ({ title, capt
 )
 
 const TABS: readonly SegmentedOption<TabKey>[] = [
-  { key: 'calories', label: 'Calories' },
-  { key: 'macros', label: 'Macros' },
-  { key: 'weight', label: 'Weight' },
-  { key: 'training', label: 'Training' },
+  { value: 'calories', label: 'Calories' },
+  { value: 'macros', label: 'Macros' },
+  { value: 'weight', label: 'Weight' },
+  { value: 'training', label: 'Training' },
 ]
 
 const RANGES: readonly SegmentedOption<RangeKey>[] = [
-  { key: 'day', label: 'Day' },
-  { key: '7d', label: 'Week' },
-  { key: '30d', label: 'Month' },
+  { value: 'day', label: 'Day' },
+  { value: '7d', label: 'Week' },
+  { value: '30d', label: 'Month' },
+  { value: '90d', label: '3M' },
+  { value: '1y', label: 'Year' },
 ]
 
-const TAB_CAPTION: Record<TabKey, string> = {
-  calories: 'Daily intake against your goal',
-  macros: 'Protein, carbs and fat per day',
-  weight: 'Every weigh-in you logged',
-  training: 'Volume load and personal records',
+/*
+  Which spans each metric can draw. Day is intake only, and the quarter and the year are weight
+  only: body weight is the one series whose story is told in months, while a year of daily
+  calorie or macro bars is 365 marks in a phone's width — a texture, not a chart.
+*/
+const TAB_RANGES: Record<TabKey, readonly RangeKey[]> = {
+  calories: ['day', '7d', '30d'],
+  macros: ['7d', '30d'],
+  weight: ['7d', '30d', '90d', '1y'],
+  training: ['7d', '30d'],
 }
 
 interface DayStat {
@@ -760,7 +845,7 @@ const DayBreakdown: React.FC<{
   return (
     <View style={{ gap: spacing.lg }}>
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
-        <StatValue size={34} color={over ? theme.status.critical : undefined}>
+        <StatValue size={30} color={over ? theme.status.critical : undefined}>
           {withCommas(total)}
         </StatValue>
         <Body size={13} tone="secondary">
@@ -841,7 +926,7 @@ const isTabKey = (value: string | undefined): value is TabKey =>
   value === 'calories' || value === 'macros' || value === 'weight' || value === 'training'
 
 const isRangeKey = (value: string | undefined): value is RangeKey =>
-  value === 'day' || value === '7d' || value === '30d'
+  value !== undefined && Object.prototype.hasOwnProperty.call(RANGE_DAYS, value)
 
 export default function ProgressScreen() {
   const theme = useTheme()
@@ -902,16 +987,17 @@ export default function ProgressScreen() {
   }, [params.range, router])
 
   /*
-    Day exists for intake only. The other three tabs would render it as a chart of one point —
-    the same degenerate view the calorie day replaced — so the option is not offered there, and
-    a tab switch away from Calories carries the span back to the week rather than leaving a
-    selected range that the tab cannot draw.
+    Each tab offers only the spans it can draw (see TAB_RANGES). Day on any tab but Calories
+    would be a chart of one point — the same degenerate view the calorie day replaced — and a
+    year of daily bars is a comb. So a tab switch carries a span the new tab cannot draw back to
+    the nearest one it can: Day to the week, the quarter and the year to the month.
 
     Offering a control that produces a broken view is worse than not offering it: the user reads
     the empty chart as missing data rather than as a span this screen does not answer.
   */
   useEffect(() => {
-    if (range === 'day' && tab !== 'calories') setRange('7d')
+    if (TAB_RANGES[tab].includes(range)) return
+    setRange(range === 'day' ? '7d' : '30d')
   }, [range, tab])
 
   const unitLabel = weightUnit === 'lbs' ? 'lb' : 'kg'
@@ -924,7 +1010,7 @@ export default function ProgressScreen() {
       so it carries its own cursor and the arrows move it. Week and month stay anchored to
       today, which is what makes them comparable from one visit to the next.
     */
-    () => (range === 'day' ? [day] : range === '7d' ? getLast7Days() : getLast30Days()),
+    () => (range === 'day' ? [day] : lastDays(RANGE_DAYS[range])),
     [range, day]
   )
   const slots = dates.length
@@ -1006,6 +1092,45 @@ export default function ProgressScreen() {
       .sort((a, b) => a.index - b.index)
   }, [dates, weightLog])
 
+  /*
+    What the weight chart actually plots. A year of daily slots puts 365 x positions across
+    roughly 300 pixels, and someone who weighs in every morning gets a line that zigzags on
+    every pixel — a comb, with the trend buried in day-to-day water. Weekly means are what a
+    year is read in, and they are what Fit draws at this span too.
+
+    Weeks are counted back from today so the last one ends on today rather than being a
+    fragment of a week that has barely started.
+  */
+  const weightSeries = useMemo(() => {
+    if (range !== '1y') {
+      return {
+        slots,
+        points: weightPoints.map(p => ({ index: p.index, value: p.value })),
+        slotLabel: (index: number) => formatDate(dates[index]),
+        startOf: (index: number) => dates[index],
+      }
+    }
+    const weeks = Math.ceil(slots / 7)
+    const offset = weeks * 7 - slots
+    const startOf = (week: number): string => dates[Math.max(week * 7 - offset, 0)]
+    const sums = new Map<number, { total: number; count: number }>()
+    for (const point of weightPoints) {
+      const week = Math.floor((point.index + offset) / 7)
+      const bucket = sums.get(week) ?? { total: 0, count: 0 }
+      bucket.total += point.value
+      bucket.count += 1
+      sums.set(week, bucket)
+    }
+    return {
+      slots: weeks,
+      points: [...sums.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([week, bucket]) => ({ index: week, value: bucket.total / bucket.count })),
+      slotLabel: (week: number) => `Week of ${formatDate(startOf(week))}`,
+      startOf,
+    }
+  }, [range, slots, dates, weightPoints])
+
   const firstWeight = weightPoints[0]
   const lastWeight = weightPoints[weightPoints.length - 1]
   const weightDelta =
@@ -1040,8 +1165,17 @@ export default function ProgressScreen() {
     [workoutLog]
   )
 
+  /*
+    The span in words, for screen readers and empty states only. The range control is the one
+    place the period is shown; captions and headers used to repeat it until the same "last 7
+    days" appeared four times on one screen.
+  */
   const rangeWords =
-    range === 'day' ? formatDate(day) : range === '7d' ? 'last 7 days' : 'last 30 days'
+    range === 'day'
+      ? formatDate(day)
+      : range === '1y'
+        ? 'last 12 months'
+        : `last ${RANGE_DAYS[range]} days`
 
   /* --------------------------- Calories --------------------------- */
 
@@ -1052,13 +1186,13 @@ export default function ProgressScreen() {
   */
   const caloriesTab = range === 'day' ? (
     <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
-      <CardHeader title="Calories" caption={`Intake on ${rangeWords}`} />
+      <CardHeader title="Calories" />
       <DayBreakdown entries={dayHours} total={Math.round(dayTotal)} goal={goals.calories} />
     </Surface>
   ) : (
     <>
       <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
-        <CardHeader title="Calories" caption={`Intake per day, ${rangeWords}`} />
+        <CardHeader title="Calories" caption="Intake per day" />
         {loggedDays === 0 ? (
           <EmptyState
             icon={<Utensils size={24} color={theme.textMuted} strokeWidth={1.8} />}
@@ -1091,7 +1225,7 @@ export default function ProgressScreen() {
                     goalColor={theme.textMuted}
                     showDots={slots <= 7}
                     format={withCommas}
-                    dates={dates}
+                    slotLabel={index => formatDate(dates[index])}
                     unit="kcal"
                   />
                   <AxisDates from={dates[0]} to={dates[slots - 1]} />
@@ -1151,7 +1285,7 @@ export default function ProgressScreen() {
   const macrosTab = (
     <>
       <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
-        <CardHeader title="Macros" caption={`Grams per day, ${rangeWords}`} />
+        <CardHeader title="Macros" caption="Grams per day" />
         {loggedDays === 0 ? (
           <EmptyState
             icon={<Utensils size={24} color={theme.textMuted} strokeWidth={1.8} />}
@@ -1175,6 +1309,8 @@ export default function ProgressScreen() {
                   <MacroBars
                     width={width}
                     slots={slots}
+                    goal={goals.protein + goals.carbs + goals.fat}
+                    slotLabel={index => formatDate(dates[index])}
                     days={dayStats.map(d => ({
                       index: d.index,
                       protein: d.protein,
@@ -1211,7 +1347,7 @@ export default function ProgressScreen() {
                     {row.label}
                   </Body>
                   <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
-                    <StatValue size={16} color={row.color}>
+                    <StatValue size={15} color={row.color}>
                       {row.avg === null ? '' : Math.round(row.avg)}
                     </StatValue>
                     <Body size={12} tone="muted">
@@ -1273,7 +1409,10 @@ export default function ProgressScreen() {
       <WeightTargetCard />
 
       <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
-        <CardHeader title="Weight" caption={`Weigh-ins in ${unitLabel}, ${rangeWords}`} />
+        <CardHeader
+          title="Weight"
+          caption={range === '1y' ? `Weekly average, in ${unitLabel}` : `Weigh-ins in ${unitLabel}`}
+        />
         {weightPoints.length === 0 ? (
           <EmptyState
             icon={<Scale size={24} color={theme.textMuted} strokeWidth={1.8} />}
@@ -1288,17 +1427,26 @@ export default function ProgressScreen() {
               <View>
                 <LineChart
                   width={width}
-                  slots={slots}
-                  points={weightPoints.map(p => ({ index: p.index, value: p.value }))}
+                  slots={weightSeries.slots}
+                  points={weightSeries.points}
                   color={theme.text}
                   fillToZero={false}
                   connectGaps
-                  showDots
+                  // Past a month the dots touch and become a second, thicker line.
+                  showDots={weightSeries.slots <= 31}
                   format={oneDecimal}
-                  dates={dates}
+                  slotLabel={weightSeries.slotLabel}
                   unit={unitLabel}
                 />
-                <AxisDates from={dates[0]} to={dates[slots - 1]} />
+                {range === '1y' ? (
+                  <MonthAxis
+                    width={width}
+                    slots={weightSeries.slots}
+                    startOf={weightSeries.startOf}
+                  />
+                ) : (
+                  <AxisDates from={dates[0]} to={dates[slots - 1]} />
+                )}
               </View>
             )}
           </ChartArea>
@@ -1308,11 +1456,6 @@ export default function ProgressScreen() {
       <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
         <CardHeader title="Summary" />
         <View style={{ flexDirection: 'row', gap: spacing.lg }}>
-          <StatTile
-            label="Latest"
-            value={lastWeight ? oneDecimal(lastWeight.value) : null}
-            unit={unitLabel}
-          />
           <StatTile
             label="Entries"
             value={weightPoints.length > 0 ? String(weightPoints.length) : null}
@@ -1331,7 +1474,7 @@ export default function ProgressScreen() {
                 </Body>
                 {directionWord === 'No change' ? null : (
                   <>
-                    <StatValue size={18}>{oneDecimal(Math.abs(weightDelta))}</StatValue>
+                    <StatValue size={17}>{oneDecimal(Math.abs(weightDelta))}</StatValue>
                     <Body size={12} tone="muted">
                       {unitLabel}
                     </Body>
@@ -1374,7 +1517,7 @@ export default function ProgressScreen() {
   const trainingTab = (
     <>
       <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
-        <CardHeader title="Volume by muscle" caption={`Volume load in ${unitLabel}, ${rangeWords}`} />
+        <CardHeader title="Volume by muscle" caption={`Volume load in ${unitLabel}`} />
         {volumeRows.length === 0 ? (
           <EmptyState
             icon={<Dumbbell size={24} color={theme.textMuted} strokeWidth={1.8} />}
@@ -1433,7 +1576,7 @@ export default function ProgressScreen() {
                 }}
               >
                 <View style={{ flex: 1, gap: 2 }}>
-                  <Body size={14} weight="medium" numberOfLines={1}>
+                  <Body size={15} weight="medium" numberOfLines={1}>
                     {pr.liftName}
                   </Body>
                   <Body size={11} tone="muted">
@@ -1441,7 +1584,7 @@ export default function ProgressScreen() {
                   </Body>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
-                  <StatValue size={18}>
+                  <StatValue size={17}>
                     {oneDecimal(toDisplayWeight(pr.bestEstimated1RM))}
                   </StatValue>
                   <Body size={12} tone="muted">
@@ -1456,21 +1599,9 @@ export default function ProgressScreen() {
     </>
   )
 
-  const tabIcon =
-    tab === 'calories' ? (
-      <Flame size={16} color={theme.textMuted} strokeWidth={2} />
-    ) : tab === 'macros' ? (
-      <Utensils size={16} color={theme.textMuted} strokeWidth={2} />
-    ) : tab === 'weight' ? (
-      <Scale size={16} color={theme.textMuted} strokeWidth={2} />
-    ) : (
-      <Dumbbell size={16} color={theme.textMuted} strokeWidth={2} />
-    )
-
   return (
     <Screen
       title="Progress"
-      subtitle={TAB_CAPTION[tab]}
       right={
         <IconButton accessibilityLabel="Open the assistant" onPress={() => router.push('/chat')}>
           <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
@@ -1478,30 +1609,15 @@ export default function ProgressScreen() {
       }
     >
       <View style={{ gap: spacing.md }}>
-        <Segmented options={TABS} value={tab} onChange={setTab} groupLabel="Metric" />
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: spacing.md,
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-            {tabIcon}
-            <Label>{rangeWords}</Label>
-          </View>
-          <View style={{ width: 168 }}>
-            <Segmented
-              options={tab === 'calories' ? RANGES : RANGES.filter(r => r.key !== 'day')}
-              value={range}
-              onChange={setRange}
-              groupLabel="Range"
-            />
-          </View>
-        </View>
+        <Segmented options={TABS} value={tab} onChange={setTab} />
+        {/* Full width, and the only statement of the period on the screen. */}
+        <Segmented
+          options={RANGES.filter(r => TAB_RANGES[tab].includes(r.value))}
+          value={range}
+          onChange={setRange}
+        />
 
-        {/* Only the Day range has a cursor to move. Week and month stay anchored to today,
+        {/* Only the Day range has a cursor to move. The other spans stay anchored to today,
             which is what keeps them comparable between visits. */}
         {range === 'day' ? (
           <DateNavigator date={day} today={getTodayString()} onChange={setDay} />
