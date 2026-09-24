@@ -71,7 +71,9 @@ export default function UpdateScreen() {
           paddingBottom: insets.bottom + spacing.xl,
         }}
       >
-        <UpdatePanel initial={available} />
+        {/* Keyed on the version: opened from the notification on a cold start, the check has
+            not finished at first render, and the panel reads `initial` only once. */}
+        <UpdatePanel key={available?.version ?? 'none'} initial={available} />
       </ScrollView>
     </View>
   )

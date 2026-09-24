@@ -8,6 +8,7 @@ import { radius, spacing } from '@/theme/tokens'
 import { Body, StatValue } from './Text'
 import { IconButton } from './Button'
 import { ProgressTrack } from './MacroRing'
+import { cancelRestOver, scheduleRestOver } from '@/lib/notifications'
 
 const DEFAULT_REST_SECONDS = 120
 const STEP_SECONDS = 30
@@ -46,6 +47,16 @@ export const RestTimer: React.FC<RestTimerProps> = ({ triggerKey, onDismiss }) =
     deadlineRef.current = Date.now() + target * 1000
     firedRef.current = false
     setRemaining(target)
+    /*
+      The system notification is what reaches a phone locked in a pocket; the interval below
+      only runs while the app is open. With the app open, the notification handler keeps it
+      silent, so the in-app buzz is still the only signal. Dismissing the timer, or the
+      workout ending, unmounts this and takes the notification with it.
+    */
+    void scheduleRestOver(target)
+    return () => {
+      void cancelRestOver()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [triggerKey])
 
@@ -69,8 +80,12 @@ export const RestTimer: React.FC<RestTimerProps> = ({ triggerKey, onDismiss }) =
     const next = Math.max(STEP_SECONDS, target + delta)
     setTarget(next)
     deadlineRef.current += delta * 1000
-    setRemaining(Math.max(0, (deadlineRef.current - Date.now()) / 1000))
+    const left = Math.max(0, (deadlineRef.current - Date.now()) / 1000)
+    setRemaining(left)
     firedRef.current = false
+    // Same identifier, so this moves the pending notification rather than adding one.
+    if (left > 0) void scheduleRestOver(left)
+    else void cancelRestOver()
   }
 
   return (

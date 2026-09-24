@@ -41,6 +41,10 @@ import { SnackbarProvider } from '@/components/Snackbar'
 import { HIT_SIZE, spacing } from '@/theme/tokens'
 import { configureFoodApis } from '@core/utils/foodApiConfig'
 import { USDA_API_KEY } from '@/lib/env'
+import { useNotifications } from '@/hooks/useNotifications'
+// Defines the background update check at module scope: Android can start the JS runtime just
+// to run it, with no screen mounted, and the task has to be defined by then.
+import '@/lib/updateTask'
 
 // Hold the native splash until fonts AND persisted state are ready. Without the store
 // gate, the first frame renders default goals and an empty diary before AsyncStorage
@@ -372,6 +376,7 @@ const RootNavigator: React.FC = () => {
   const needsSetup = onboardedAt === null
   const welcomeSeen = useWelcomeSeen()
   const guest = useGuestMode()
+  useNotifications()
 
   useEffect(() => {
     // `hydrating` is the fetch that follows a fresh sign-in. Routing before it lands would
