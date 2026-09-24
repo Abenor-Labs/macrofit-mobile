@@ -1,13 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
   StyleSheet,
   TextInput,
   View,
 } from 'react-native'
-import { KeyboardAwareScrollView } from 'react-native-keyboard-controller'
+import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
@@ -138,12 +137,29 @@ type RemoteState =
   | { status: 'loading' }
   | { status: 'ready'; hits: RemoteHit[]; failed: number }
 
+/**
+ * Where a row sits inside its section's grouped surface. A FlatList cannot wrap a run of
+ * items in one container without giving up virtualisation, so each row draws its own slice
+ * of the surface — the top slice carries the top corners, the bottom slice the bottom ones,
+ * and every slice after the first carries the hairline that separates it from the row above.
+ */
+interface GroupEdges {
+  first: boolean
+  last: boolean
+}
+
 type Row =
   | { kind: 'section'; key: string; title: string }
-  | { kind: 'food'; key: string; food: Food; source?: RemoteSource }
-  | { kind: 'remote-loading'; key: string }
+  | ({ kind: 'food'; key: string; food: Food; source?: RemoteSource } & GroupEdges)
+  | ({ kind: 'remote-skeleton'; key: string; index: number } & GroupEdges)
   | { kind: 'remote-error'; key: string }
   | { kind: 'remote-empty'; key: string }
+
+/** Enough placeholder rows to hold the space most online answers fill, without implying a count. */
+const SKELETON_ROWS = 3
+
+/** Tall enough for a name and a meta line with breathing room, and well clear of HIT_SIZE. */
+const ROW_MIN_HEIGHT = 56
 
 // --- Shared pieces ----------------------------------------------------------
 
@@ -243,7 +259,7 @@ const SearchBar: React.FC<{
           paddingVertical: 10,
           color: theme.text,
           fontFamily: fonts.body,
-          fontSize: 16,
+          fontSize: 15,
         }}
       />
       {value.length > 0 ? (
@@ -257,13 +273,56 @@ const SearchBar: React.FC<{
   )
 }
 
-const FoodRow: React.FC<{ food: Food; source?: RemoteSource; onPress: () => void }> = ({
-  food,
-  source,
-  onPress,
+/**
+ * One slice of a section's grouped surface. Results used to be a padded card each, which
+ * fitted about four foods on a phone and made the list read as a stack of identical slabs;
+ * a flat row inside one surface, the way Swiggy and Instamart list items, fits twice that
+ * and lets the band of canvas between sections do the grouping.
+ */
+const GroupSlice: React.FC<GroupEdges & { children: React.ReactNode }> = ({
+  first,
+  last,
+  children,
 }) => {
   const theme = useTheme()
+  // Matches `SectionGroup`: the outline only earns its place in light mode, where the
+  // surface and the canvas are too close to separate on their own.
+  const edge = theme.mode === 'light' ? StyleSheet.hairlineWidth : 0
+  return (
+    <View
+      style={{
+        backgroundColor: theme.surface,
+        borderColor: theme.border,
+        borderLeftWidth: edge,
+        borderRightWidth: edge,
+        borderTopWidth: first ? edge : 0,
+        borderBottomWidth: last ? edge : 0,
+        borderTopLeftRadius: first ? radius.card : 0,
+        borderTopRightRadius: first ? radius.card : 0,
+        borderBottomLeftRadius: last ? radius.card : 0,
+        borderBottomRightRadius: last ? radius.card : 0,
+        // Clips the pressed highlight to the rounded corners of the end slices.
+        overflow: 'hidden',
+      }}
+    >
+      {!first && (
+        <View
+          style={{ height: HAIRLINE, marginLeft: spacing.lg, backgroundColor: theme.hairline }}
+        />
+      )}
+      {children}
+    </View>
+  )
+}
+
+const FoodRow: React.FC<
+  GroupEdges & { food: Food; source?: RemoteSource; onPress: () => void }
+> = ({ food, source, onPress, first, last }) => {
+  const theme = useTheme()
   const serving = `${formatAmount(food.servingSize)} ${food.servingUnit}`
+  const protein = Math.round(food.protein)
+  const carbs = Math.round(food.carbs)
+  const fat = Math.round(food.fat)
   // Provenance rides on the row's existing meta line rather than earning a heading of its
   // own. Someone comparing two similar entries wants to know which database each came from;
   // nobody wants to pick a database before they can search.
@@ -272,41 +331,91 @@ const FoodRow: React.FC<{ food: Food; source?: RemoteSource; onPress: () => void
     .join(' · ')
 
   return (
-    <Pressable
-      needsOffscreenAlphaCompositing
-      accessibilityRole="button"
-      accessibilityLabel={`${food.name}${
-        food.brand ? `, ${food.brand}` : ''
-      }. ${food.calories} kilocalories per ${serving}. Protein ${Math.round(
-        food.protein
-      )} grams, carbs ${Math.round(food.carbs)} grams, fat ${Math.round(food.fat)} grams`}
-      onPress={onPress}
-      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-    >
-      <Surface style={{ padding: spacing.md, gap: spacing.sm }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-          <View style={{ flex: 1, gap: 3 }}>
-            <Body size={14} weight="medium" numberOfLines={2}>
-              {food.name}
+    <GroupSlice first={first} last={last}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${food.name}${
+          food.brand ? `, ${food.brand}` : ''
+        }. ${food.calories} kilocalories per ${serving}. Protein ${protein} grams, carbs ${carbs} grams, fat ${fat} grams`}
+        onPress={onPress}
+        // A highlight rather than a fade or a shrink: the row is full-bleed inside its group,
+        // so scaling it would pull it away from its own hairlines.
+        style={({ pressed }) => ({
+          minHeight: ROW_MIN_HEIGHT,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: spacing.md,
+          paddingHorizontal: spacing.lg,
+          paddingVertical: spacing.sm,
+          backgroundColor: pressed ? theme.border : 'transparent',
+        })}
+      >
+        <View style={{ flex: 1, gap: 2 }}>
+          <Body size={15} weight="semibold" numberOfLines={1}>
+            {food.name}
+          </Body>
+          <View style={{ flexDirection: 'row' }}>
+            {/* The macros never shrink, so a long brand truncates before the numbers do. */}
+            <Body size={12} tone="muted" numberOfLines={1} style={{ flexShrink: 1 }}>
+              {`${meta} · `}
             </Body>
-            <Body size={12} tone="muted" numberOfLines={1}>
-              {meta}
-            </Body>
-          </View>
-          <View style={{ alignItems: 'flex-end' }}>
-            <StatValue size={18}>{formatNumber(food.calories)}</StatValue>
-            <Body size={10} tone="muted">
-              kcal
+            <Body size={12} tone="muted" numberOfLines={1} style={{ flexShrink: 0 }}>
+              {`P ${protein} · C ${carbs} · F ${fat}`}
             </Body>
           </View>
         </View>
-        <MacroChips
-          protein={Math.round(food.protein)}
-          carbs={Math.round(food.carbs)}
-          fat={Math.round(food.fat)}
-        />
-      </Surface>
-    </Pressable>
+        <View style={{ alignItems: 'flex-end' }}>
+          <StatValue size={17}>{formatNumber(food.calories)}</StatValue>
+          <Body size={11} tone="muted">
+            kcal
+          </Body>
+        </View>
+      </Pressable>
+    </GroupSlice>
+  )
+}
+
+/**
+ * A placeholder in the exact shape of a `FoodRow`, shown while the online databases answer.
+ * A spinner row is shorter than the results that replace it, so the list used to jump when
+ * they landed; a same-height skeleton reserves the space. It is static on purpose — the
+ * search usually finishes inside a second, which is less time than a shimmer needs to read
+ * as motion rather than flicker.
+ */
+const SkeletonRow: React.FC<GroupEdges & { index: number }> = ({ index, first, last }) => {
+  const theme = useTheme()
+  const bar = { backgroundColor: theme.border, borderRadius: radius.tiny }
+  // Vary the name width a little so three placeholders do not read as a single striped block.
+  const nameWidth = (['62%', '48%', '70%'] as const)[index % 3]
+  const announced = index === 0
+
+  return (
+    <GroupSlice first={first} last={last}>
+      <View
+        accessible={announced}
+        accessibilityRole={announced ? 'progressbar' : undefined}
+        accessibilityLabel={announced ? 'Searching the online food databases' : undefined}
+        importantForAccessibility={announced ? 'yes' : 'no-hide-descendants'}
+        accessibilityElementsHidden={!announced}
+        style={{
+          minHeight: ROW_MIN_HEIGHT,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: spacing.md,
+          paddingHorizontal: spacing.lg,
+          paddingVertical: spacing.sm,
+        }}
+      >
+        <View style={{ flex: 1, gap: 8 }}>
+          <View style={[bar, { height: 14, width: nameWidth }]} />
+          <View style={[bar, { height: 10, width: '40%' }]} />
+        </View>
+        <View style={{ alignItems: 'flex-end', gap: 4 }}>
+          <View style={[bar, { height: 18, width: 36 }]} />
+          <View style={[bar, { height: 8, width: 22 }]} />
+        </View>
+      </View>
+    </GroupSlice>
   )
 }
 
@@ -333,6 +442,9 @@ export default function FoodSearchScreen() {
   const [selected, setSelected] = useState<Food | null>(null)
   const [unitMode, setUnitMode] = useState<'serving' | 'measure'>('serving')
   const [quantity, setQuantity] = useState('1')
+  // Measured rather than assumed, because the button's height follows the font scale.
+  // The estimate only covers the first frame, before the footer has laid out.
+  const [footerHeight, setFooterHeight] = useState(HIT_SIZE + spacing.md * 2)
 
   // --- Search ---------------------------------------------------------------
 
@@ -431,7 +543,7 @@ export default function FoodSearchScreen() {
       out.push({ kind: 'section', key: `section-${id}`, title })
       for (const food of fresh) {
         seen.add(food.id)
-        out.push({ kind: 'food', key: `${id}-${food.id}`, food })
+        out.push({ kind: 'food', key: `${id}-${food.id}`, food, first: false, last: false })
       }
     }
 
@@ -451,12 +563,27 @@ export default function FoodSearchScreen() {
       out.push({ kind: 'section', key: 'section-remote', title: 'More results' })
 
       if (remote.status === 'loading' || remote.status === 'idle') {
-        out.push({ kind: 'remote-loading', key: 'remote-loading' })
+        for (let index = 0; index < SKELETON_ROWS; index += 1) {
+          out.push({
+            kind: 'remote-skeleton',
+            key: `remote-skeleton-${index}`,
+            index,
+            first: false,
+            last: false,
+          })
+        }
       } else {
         const fresh = remote.hits.filter(hit => !seen.has(hit.food.id))
         for (const hit of fresh) {
           seen.add(hit.food.id)
-          out.push({ kind: 'food', key: `remote-${hit.food.id}`, food: hit.food, source: hit.source })
+          out.push({
+            kind: 'food',
+            key: `remote-${hit.food.id}`,
+            food: hit.food,
+            source: hit.source,
+            first: false,
+            last: false,
+          })
         }
         // Only a total failure is worth saying. One source down while the other answered is
         // not something the user can act on, and an error row above real results reads as if
@@ -471,7 +598,16 @@ export default function FoodSearchScreen() {
       }
     }
 
-    return out
+    // Mark where each run of grouped rows starts and ends, so each row knows which corners
+    // and which hairline its slice of the section surface draws. A section heading, an error
+    // card or an empty note all end a run.
+    const grouped = (row: Row | undefined): boolean =>
+      row?.kind === 'food' || row?.kind === 'remote-skeleton'
+    return out.map((row, i) =>
+      row.kind === 'food' || row.kind === 'remote-skeleton'
+        ? { ...row, first: !grouped(out[i - 1]), last: !grouped(out[i + 1]) }
+        : row
+    )
   }, [recentMatches, customMatches, presetMatches, debounced, remote])
 
   const hasResults = rows.some(row => row.kind === 'food')
@@ -579,7 +715,7 @@ export default function FoodSearchScreen() {
   const renderRow = ({ item }: { item: Row }) => {
     if (item.kind === 'section') {
       return (
-        <View style={{ paddingTop: spacing.md, paddingBottom: spacing.xs }}>
+        <View style={{ paddingTop: spacing.lg, paddingBottom: spacing.sm }}>
           <Label>{item.title}</Label>
         </View>
       )
@@ -590,20 +726,15 @@ export default function FoodSearchScreen() {
         <FoodRow
           food={item.food}
           source={item.source}
+          first={item.first}
+          last={item.last}
           onPress={() => openServingStep(item.food)}
         />
       )
     }
 
-    if (item.kind === 'remote-loading') {
-      return (
-        <Surface style={{ padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-          <ActivityIndicator color={theme.brandText} />
-          <Body size={13} tone="secondary">
-            Searching the online food databases…
-          </Body>
-        </Surface>
-      )
+    if (item.kind === 'remote-skeleton') {
+      return <SkeletonRow index={item.index} first={item.first} last={item.last} />
     }
 
     if (item.kind === 'remote-error') {
@@ -650,12 +781,16 @@ export default function FoodSearchScreen() {
       <LiquidGlassScene backdrop={<Aurora />} style={{ backgroundColor: theme.canvas }}>
         {header}
         <KeyboardAwareScrollView
-          bottomOffset={spacing.xl}
+          // With the keyboard up the footer rides on top of it, so a focused field has to clear
+          // the footer as well as the keyboard. The footer drops its safe-area padding while
+          // the keyboard is open, hence the subtraction.
+          bottomOffset={footerHeight - insets.bottom + spacing.lg}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{
             padding: spacing.lg,
-            paddingBottom: insets.bottom + spacing.xxl,
+            // Room for the pinned footer, so the last card can scroll clear of it.
+            paddingBottom: footerHeight + spacing.lg,
             gap: spacing.lg,
           }}
         >
@@ -751,8 +886,8 @@ export default function FoodSearchScreen() {
                   accessible
                   accessibilityLabel={`${kcal} kilocalories`}
                 >
-                  <StatValue size={34}>{formatNumber(kcal)}</StatValue>
-                  <Body size={14} tone="muted">
+                  <StatValue size={30}>{formatNumber(kcal)}</StatValue>
+                  <Body size={15} tone="muted">
                     kcal
                   </Body>
                 </View>
@@ -777,15 +912,39 @@ export default function FoodSearchScreen() {
               </Body>
             )}
           </Surface>
-
-          <Button
-            label={`Add to ${meal}`}
-            full
-            disabled={!quantityValid}
-            onPress={logFood}
-            icon={<Plus size={16} color={theme.brandOn} strokeWidth={2.4} />}
-          />
         </KeyboardAwareScrollView>
+
+        {/*
+          The primary action is pinned rather than scrolled. At the end of three cards it sat
+          below the fold on a small phone, so the one thing everyone came here to do needed a
+          scroll to find. Outside the scroll view it is always in reach, and KeyboardStickyView
+          lifts it above the keyboard while the amount is being typed. The open offset pushes
+          it back down by the safe-area inset, because the keyboard already covers that strip.
+        */}
+        <KeyboardStickyView
+          offset={{ opened: insets.bottom }}
+          style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}
+        >
+          <View
+            onLayout={event => setFooterHeight(event.nativeEvent.layout.height)}
+            style={{
+              paddingHorizontal: spacing.lg,
+              paddingTop: spacing.md,
+              paddingBottom: insets.bottom + spacing.md,
+              borderTopWidth: HAIRLINE,
+              borderTopColor: theme.hairline,
+              backgroundColor: theme.canvas,
+            }}
+          >
+            <Button
+              label={`Add to ${meal}`}
+              full
+              disabled={!quantityValid}
+              onPress={logFood}
+              icon={<Plus size={16} color={theme.brandOn} strokeWidth={2.4} />}
+            />
+          </View>
+        </KeyboardStickyView>
       </LiquidGlassScene>
     )
   }
@@ -800,10 +959,11 @@ export default function FoodSearchScreen() {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
+        // No gap between items: grouped rows are slices of one surface and must touch. The
+        // section headings carry the spacing between groups instead.
         contentContainerStyle={{
           paddingHorizontal: spacing.lg,
           paddingBottom: insets.bottom + spacing.xxl,
-          gap: spacing.sm,
         }}
         ListFooterComponent={
           hasResults || remote.status === 'loading' ? null : (
