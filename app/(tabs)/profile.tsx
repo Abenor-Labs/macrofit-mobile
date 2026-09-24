@@ -17,6 +17,7 @@ import {
   Ruler,
   Salad,
   Scale,
+  RotateCcw,
   Sparkles,
   Sun,
   Target,
@@ -65,6 +66,8 @@ import { Button, IconButton } from '@/components/Button'
 import { Field, Pill, Screen } from '@/components/Layout'
 import { WeightTargetCard } from '@/components/WeightTarget'
 import { UpdatePanel } from '@/components/UpdatePanel'
+import { ActionSheet } from '@/components/ActionSheet'
+import { useSnackbar } from '@/components/Snackbar'
 import * as Application from 'expo-application'
 
 const LBS_PER_KG = 2.20462
@@ -334,6 +337,26 @@ export default function ProfileScreen() {
   const removeCustomFood = useStore(s => s.removeCustomFood)
   const mealTemplates = useStore(s => s.mealTemplates)
   const deleteMealTemplate = useStore(s => s.deleteMealTemplate)
+  const snackbar = useSnackbar()
+  const [weighInToRemove, setWeighInToRemove] = useState<{ id: string; date: string } | null>(null)
+
+  /*
+    Deleting from a list used to be one tap on a red bin, with no confirmation and no way
+    back. Everything restorable now goes at once with an Undo, the way the diary already
+    works: the list is snapshotted before the delete and put back verbatim if asked.
+  */
+  const removeWithUndo = (
+    key: 'bodyMeasurements' | 'customFoods' | 'mealTemplates',
+    message: string,
+    remove: () => void
+  ) => {
+    const before = useStore.getState()[key]
+    remove()
+    snackbar.show(message, {
+      label: 'Undo',
+      onPress: () => useStore.setState({ [key]: before }),
+    })
+  }
   const streak = useStore(s => s.streak)
   const darkMode = useStore(s => s.darkMode)
   const toggleDarkMode = useStore(s => s.toggleDarkMode)
@@ -706,7 +729,7 @@ export default function ProfileScreen() {
       title="Profile"
       subtitle={user?.email ?? undefined}
       right={
-        <IconButton accessibilityLabel="Open AI Assistant" onPress={() => router.push('/chat')}>
+        <IconButton accessibilityLabel="Open the assistant" onPress={() => router.push('/chat')}>
           <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
         </IconButton>
       }
@@ -986,9 +1009,9 @@ export default function ProfileScreen() {
                 accessibilityLabel={`Remove weigh-in from ${formatDate(entry.date)}`}
                 // Goes through the hook so the Health Connect record goes with it. Calling
                 // the store action alone deleted it here and left it visible in Google Fit.
-                onPress={() => removeWeight(entry.id, entry.date)}
+                onPress={() => setWeighInToRemove({ id: entry.id, date: entry.date })}
               >
-                <Trash2 size={16} color={theme.status.critical} strokeWidth={2} />
+                <Trash2 size={16} color={theme.textMuted} strokeWidth={2} />
               </IconButton>
             </View>
           ))
@@ -1063,9 +1086,13 @@ export default function ProfileScreen() {
             </View>
             <IconButton
               accessibilityLabel={`Remove measurement from ${formatDate(entry.date)}`}
-              onPress={() => removeBodyMeasurement(entry.id)}
+              onPress={() =>
+                removeWithUndo('bodyMeasurements', 'Measurement removed', () =>
+                  removeBodyMeasurement(entry.id)
+                )
+              }
             >
-              <Trash2 size={16} color={theme.status.critical} strokeWidth={2} />
+              <Trash2 size={16} color={theme.textMuted} strokeWidth={2} />
             </IconButton>
           </View>
         ))}
@@ -1098,9 +1125,13 @@ export default function ProfileScreen() {
               </View>
               <IconButton
                 accessibilityLabel={`Delete ${food.name}`}
-                onPress={() => removeCustomFood(food.id)}
+                onPress={() =>
+                  removeWithUndo('customFoods', `${food.name} deleted`, () =>
+                    removeCustomFood(food.id)
+                  )
+                }
               >
-                <Trash2 size={16} color={theme.status.critical} strokeWidth={2} />
+                <Trash2 size={16} color={theme.textMuted} strokeWidth={2} />
               </IconButton>
             </View>
           ))
@@ -1133,9 +1164,13 @@ export default function ProfileScreen() {
               </View>
               <IconButton
                 accessibilityLabel={`Delete template ${template.name}`}
-                onPress={() => deleteMealTemplate(template.id)}
+                onPress={() =>
+                  removeWithUndo('mealTemplates', `${template.name} deleted`, () =>
+                    deleteMealTemplate(template.id)
+                  )
+                }
               >
-                <Trash2 size={16} color={theme.status.critical} strokeWidth={2} />
+                <Trash2 size={16} color={theme.textMuted} strokeWidth={2} />
               </IconButton>
             </View>
           ))
@@ -1393,7 +1428,7 @@ export default function ProfileScreen() {
       */}
       <Section
         title="Setup"
-        icon={<Sparkles size={16} color={theme.brandText} strokeWidth={2} />}
+        icon={<RotateCcw size={16} color={theme.brandText} strokeWidth={2} />}
         subtitle="Re-answer the questions your targets are built from"
       >
         <Body size={13} tone="secondary">
@@ -1493,6 +1528,29 @@ export default function ProfileScreen() {
         )}
       </Section>
       </SectionGroup>
+
+      {/* A weigh-in is also deleted from Health Connect, which cannot be undone from here,
+          so this one asks rather than offering an Undo it could not honour. */}
+      <ActionSheet
+        visible={weighInToRemove !== null}
+        title="Delete this weigh-in?"
+        message={
+          weighInToRemove
+            ? `${formatDate(weighInToRemove.date)}. It is removed from Health Connect too.`
+            : undefined
+        }
+        onClose={() => setWeighInToRemove(null)}
+        options={[
+          {
+            label: 'Delete weigh-in',
+            icon: <Trash2 size={20} color={theme.status.critical} strokeWidth={2} />,
+            destructive: true,
+            onPress: () => {
+              if (weighInToRemove) removeWeight(weighInToRemove.id, weighInToRemove.date)
+            },
+          },
+        ]}
+      />
     </Screen>
   )
 }

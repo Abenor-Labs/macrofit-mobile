@@ -1,14 +1,11 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
 import Animated, {
-  Easing,
   useAnimatedStyle,
-  useReducedMotion,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated'
 import { Tabs, useRouter, useSegments } from 'expo-router'
-import { Glass } from '@/components/Material'
 import { useSnackbar } from '@/components/Snackbar'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
@@ -28,196 +25,17 @@ import {
 import { getTodayString } from '@core/utils/calculations'
 import { useStore } from '@/store/useStore'
 
-/**
- * expo-router bundles its own copy of the bottom-tabs types. Importing them from
- * @react-navigation/bottom-tabs pulls in a second, structurally incompatible copy, so the
- * prop type is derived from the Tabs component itself and stays correct across upgrades.
- */
-type TabBarProps = Parameters<NonNullable<React.ComponentProps<typeof Tabs>['tabBar']>>[0]
-
 import { useTheme } from '@/theme/useTheme'
 import { Body } from '@/components/Text'
-import { HIT_SIZE, radius, shadow, spacing, workoutTheme } from '@/theme/tokens'
+import { GlassTabBar, type GlassTabBarProps } from '@/components/GlassTabBar'
+import { HIT_SIZE, radius, shadow, spacing } from '@/theme/tokens'
 
-const ICONS: Record<string, React.ComponentType<{ size: number; color: string; strokeWidth: number }>> = {
-  index: Home,
-  diary: BookOpen,
-  workout: Dumbbell,
-  progress: TrendingUp,
-  profile: User,
-}
-
-/** Width of the sliding active indicator. */
-const INDICATOR_WIDTH = 26
-
-const LABELS: Record<string, string> = {
-  index: 'Dashboard',
-  diary: 'Diary',
-  workout: 'Workout',
-  progress: 'Progress',
-  profile: 'Profile',
-}
-
-/**
- * Floating glass tab bar.
- *
- * This is the one place blur is unambiguously worth its cost: content scrolls underneath
- * it continuously, so a solid bar would look pasted on. The active state carries an
- * indicator bar AND a weight change, never color alone.
- */
-const GlassTabBar: React.FC<TabBarProps> = ({ state, navigation }) => {
-  const appTheme = useTheme()
-  const insets = useSafeAreaInsets()
-
-  /*
-    The bar crosses into workout mode with the content above it. Leaving it jade over a
-    near-black lime screen would draw a seam across the bottom of the display and undo the
-    thing the mode is for — the chrome has to be in the room too.
-
-    Read off the focused route rather than a context, because the tab bar renders as a
-    sibling of the screens, outside any ThemeScope they set.
-  */
-  const theme = state.routes[state.index]?.name === 'workout' ? workoutTheme : appTheme
-
-  /*
-    The active indicator travels between tabs instead of being repainted under each one.
-
-    It used to be a per-tab View whose background flipped between `brandText` and
-    `transparent`, so the state changed with no motion at all — the one moment in the app
-    where the user's own finger causes a jump cut. A single indicator that slides is the
-    standard treatment and it is what makes the bar feel like one object rather than five.
-
-    Tab CONTENT still never slides (the screens are peers, and cross-fading them would claim
-    a hierarchy that is not there). This is the indicator only.
-  */
-  const [barWidth, setBarWidth] = useState(0)
-  const reduced = useReducedMotion()
-  const tabWidth = state.routes.length > 0 ? barWidth / state.routes.length : 0
-  const indicatorX = useSharedValue(0)
-
-  useEffect(() => {
-    if (tabWidth === 0) return
-    const target = state.index * tabWidth + (tabWidth - INDICATOR_WIDTH) / 2
-    indicatorX.value = reduced
-      ? target
-      : // Short and strongly decelerated: the finger has already arrived, so the indicator is
-        // catching up rather than leading. Anything slower reads as lag.
-        withTiming(target, { duration: 260, easing: Easing.bezier(0.23, 1, 0.32, 1) })
-  }, [state.index, tabWidth, indicatorX, reduced])
-
-  const indicatorStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: indicatorX.value }],
-  }))
-
-  return (
-    /*
-      The tab bar is one of the four things in this app allowed to be glass, and it is the
-      canonical one — Telegram attaches its own glass drawable to exactly this surface
-      (`MainTabsActivity`, `tabsViewBackground`) and to sheets, and to nothing else.
-
-      `Glass` owns the blur, the tint and the edge now. The tint it applies is far heavier
-      than the 0.30 that used to be here, which is what makes these five labels legible
-      against whatever is scrolling underneath them.
-    */
-    <Glass
-      radius={0}
-      style={{
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        bottom: 0,
-        // Clears the iOS home indicator / Android gesture bar.
-        paddingBottom: Math.max(insets.bottom, 8),
-        borderTopWidth: StyleSheet.hairlineWidth * 2,
-        borderTopColor: theme.glass.border,
-      }}
-    >
-      {/*
-        A lit bevel used to sit here, drawn by a Skia runtime shader, giving the bar's edge the
-        thickness of real glass.
-
-        It cost 10.8 MB of native library per architecture — 43 MB across the four the app
-        shipped, on a download users fetch in full every release because this app sideloads
-        rather than going through a store. One highlight on one bar is not worth a third of the
-        APK, and the blur and tint above carry the material on their own.
-
-        LiquidGlass already returned null whenever its shader failed to compile, so the bar was
-        always built to stand without it.
-      */}
-
-      <View
-        style={{ flexDirection: 'row' }}
-        onLayout={event => setBarWidth(event.nativeEvent.layout.width)}
-      >
-        {/* One indicator for the whole bar, positioned by transform. Shape as well as hue, so
-            the active state still survives greyscale. */}
-        {tabWidth > 0 ? (
-          <Animated.View
-            pointerEvents="none"
-            style={[
-              {
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: INDICATOR_WIDTH,
-                height: 3,
-                borderRadius: 999,
-                backgroundColor: theme.brandText,
-                zIndex: 1,
-              },
-              indicatorStyle,
-            ]}
-          />
-        ) : null}
-        {state.routes.map((route, index) => {
-          const focused = state.index === index
-          const Icon = ICONS[route.name] ?? Home
-          const label = LABELS[route.name] ?? route.name
-
-          return (
-            <Pressable
-              key={route.key}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: focused }}
-              accessibilityLabel={label}
-              onPress={() => {
-                const event = navigation.emit({
-                  type: 'tabPress',
-                  target: route.key,
-                  canPreventDefault: true,
-                })
-                if (!focused && !event.defaultPrevented) {
-                  void Haptics.selectionAsync()
-                  navigation.navigate(route.name)
-                }
-              }}
-              style={{
-                flex: 1,
-                minHeight: HIT_SIZE,
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingTop: 10,
-                gap: 3,
-              }}
-            >
-              <Icon
-                size={22}
-                color={focused ? theme.brandText : theme.textMuted}
-                strokeWidth={focused ? 2.4 : 1.8}
-              />
-              <Body
-                size={10}
-                weight={focused ? 'semibold' : 'medium'}
-                style={{ color: focused ? theme.brandText : theme.textMuted }}
-              >
-                {label}
-              </Body>
-            </Pressable>
-          )
-        })}
-      </View>
-    </Glass>
-  )
+const TAB_ITEMS: GlassTabBarProps['items'] = {
+  index: { label: 'Dashboard', icon: Home },
+  diary: { label: 'Diary', icon: BookOpen },
+  workout: { label: 'Workout', icon: Dumbbell },
+  progress: { label: 'Progress', icon: TrendingUp },
+  profile: { label: 'Profile', icon: User },
 }
 
 /**
@@ -290,7 +108,7 @@ const QuickLogButton: React.FC = () => {
       key: 'workout',
       label: 'Log workout',
       icon: <Dumbbell size={18} color={theme.brandText} strokeWidth={2} />,
-      run: () => router.push('/(tabs)/workout'),
+      run: () => router.push('/training'),
     },
     {
       key: 'water',
@@ -367,6 +185,7 @@ const QuickLogButton: React.FC = () => {
         >
           {actions.map(action => (
             <Pressable
+              needsOffscreenAlphaCompositing
               key={action.key}
               accessibilityRole="button"
               accessibilityLabel={action.label}
@@ -489,10 +308,24 @@ export default function TabsLayout() {
   const active = segments[segments.length - 1]
   // '(tabs)' is what the segment reads as on the index route, which has no name of its own.
   const onHome = active === '(tabs)' || active === 'index'
+  const router = useRouter()
+
+  /*
+    Workout is a launcher, not a tab. Training is its own app — own tab bar, own colours,
+    own back arrow — the way JioTunes opens out of MyJio, and a tab switch cannot give it
+    that: the main bar would stay on screen underneath it. So the press is swallowed and
+    Training is pushed over the whole tab navigator instead.
+  */
+  const openItem = (routeName: string): boolean => {
+    if (routeName !== 'workout') return false
+    void Haptics.selectionAsync()
+    router.push('/training')
+    return true
+  }
 
   return (
     <View style={{ flex: 1 }}>
-      <Tabs screenOptions={{ headerShown: false }} tabBar={props => <GlassTabBar {...props} />}>
+      <Tabs screenOptions={{ headerShown: false }} tabBar={props => <GlassTabBar {...props} items={TAB_ITEMS} onPressItem={openItem} />}>
         <Tabs.Screen name="index" />
         <Tabs.Screen name="diary" />
         <Tabs.Screen name="workout" />

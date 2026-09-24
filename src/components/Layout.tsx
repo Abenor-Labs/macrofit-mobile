@@ -1,5 +1,6 @@
 import React from 'react'
 import {
+  Pressable,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -9,6 +10,7 @@ import {
   type ViewStyle,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { ChevronLeft } from 'lucide-react-native'
 import { BlurTargetArea } from './BlurTarget'
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, fonts, radius, spacing } from '@/theme/tokens'
@@ -22,6 +24,10 @@ export interface ScreenProps {
   title?: string
   subtitle?: string
   right?: React.ReactNode
+  /** Shows a back arrow before the title. Training uses it to return to the main app. */
+  onBack?: () => void
+  /** Extra space under the content, for chrome that sits above the tab bar. */
+  extraBottomSpace?: number
   children: React.ReactNode
   /** Set false for screens that manage their own scrolling (e.g. a FlatList). */
   scroll?: boolean
@@ -36,6 +42,8 @@ export const Screen: React.FC<ScreenProps> = ({
   title,
   subtitle,
   right,
+  onBack,
+  extraBottomSpace = 0,
   children,
   scroll = true,
   contentStyle,
@@ -83,6 +91,26 @@ export const Screen: React.FC<ScreenProps> = ({
               gap: spacing.md,
             }}
           >
+            {onBack ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Back"
+                onPress={onBack}
+                hitSlop={8}
+                style={({ pressed }) => ({
+                  width: HIT_SIZE,
+                  height: HIT_SIZE,
+                  marginLeft: -spacing.md,
+                  marginRight: -spacing.sm,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: radius.pill,
+                  backgroundColor: pressed ? theme.border : 'transparent',
+                })}
+              >
+                <ChevronLeft size={26} color={theme.text} strokeWidth={2.2} />
+              </Pressable>
+            ) : null}
             <View style={{ flex: 1 }}>
               <SectionTitle>{title}</SectionTitle>
               {subtitle ? (
@@ -104,7 +132,7 @@ export const Screen: React.FC<ScreenProps> = ({
           <ScrollView
             contentContainerStyle={{
               paddingTop: title === undefined ? insets.top + spacing.lg : spacing.lg,
-              paddingBottom: TAB_BAR_SPACE + insets.bottom + spacing.xl,
+              paddingBottom: TAB_BAR_SPACE + extraBottomSpace + insets.bottom + spacing.xl,
             }}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"

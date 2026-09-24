@@ -2,11 +2,15 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { Pressable, StyleSheet, View } from 'react-native'
 import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useSegments } from 'expo-router'
 
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
 import { Body } from './Text'
 import { TAB_BAR_SPACE } from './Layout'
+
+/** The quick-log button's height plus its gap above the tab bar, on Home only. */
+const QUICK_LOG_CLEARANCE = 56 + spacing.md
 
 /**
  * Transient confirmation with an optional way back.
@@ -46,6 +50,9 @@ interface SnackbarState {
 export const SnackbarProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
+  const segments = useSegments() as string[]
+  const onHome =
+    segments[0] === '(tabs)' && (segments.length === 1 || segments[segments.length - 1] === 'index')
   const [state, setState] = useState<SnackbarState | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const keyRef = useRef(0)
@@ -77,6 +84,7 @@ export const SnackbarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       {state ? (
         <Animated.View
+          needsOffscreenAlphaCompositing
           key={state.key}
           entering={FadeInDown.duration(180)}
           exiting={FadeOutDown.duration(140)}
@@ -87,8 +95,10 @@ export const SnackbarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             position: 'absolute',
             left: spacing.lg,
             right: spacing.lg,
-            // Clears the floating tab bar, the same measurement Screen pads its scroll by.
-            bottom: TAB_BAR_SPACE + insets.bottom,
+            // Clears the floating tab bar, the same measurement Screen pads its scroll by —
+            // and on Home the quick-log button too, which the "water logged / Undo" toast it
+            // triggers used to land right on top of.
+            bottom: TAB_BAR_SPACE + insets.bottom + (onHome ? QUICK_LOG_CLEARANCE : 0),
             zIndex: 20,
           }}
         >

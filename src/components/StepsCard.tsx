@@ -3,6 +3,7 @@ import { View } from 'react-native'
 import { Footprints, Link2, RefreshCw } from 'lucide-react-native'
 
 import { useStore } from '@/store/useStore'
+import { formatNumber } from '@/lib/formatNumber'
 import { useTheme } from '@/theme/useTheme'
 import { spacing } from '@/theme/tokens'
 import { useHealthSync } from '@/hooks/useHealthSync'
@@ -14,8 +15,6 @@ import { ProgressTrack } from './MacroRing'
 
 const DEFAULT_STEP_GOAL = 8000
 
-const formatNumber = (value: number): string =>
-  Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 
 /**
  * Steps read from Android Health Connect.
@@ -97,7 +96,7 @@ export const StepsCard: React.FC = () => {
       </View>
 
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm }}>
-        <StatValue size={36}>{formatNumber(steps)}</StatValue>
+        <StatValue size={24}>{formatNumber(steps)}</StatValue>
         <Body tone="muted" style={{ marginBottom: 5 }}>
           {`/ ${formatNumber(goal)}`}
         </Body>

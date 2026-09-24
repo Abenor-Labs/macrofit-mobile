@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native'
+import { BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
@@ -8,10 +8,6 @@ import {
   Check,
   Download,
   Flame,
-  NotebookPen,
-  Sparkles,
-  Target,
-  TrendingUp,
   TriangleAlert,
 } from 'lucide-react-native'
 
@@ -72,6 +68,7 @@ const OptionRow: React.FC<{
   const theme = useTheme()
   return (
     <Pressable
+      needsOffscreenAlphaCompositing
       onPress={onSelect}
       accessibilityRole="radio"
       accessibilityState={{ selected }}
@@ -144,6 +141,9 @@ const UnitToggle = <T extends string>({
             onPress={() => onChange(o.value)}
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
+            // Compact to look at, full-size to hit: the visible pill is ~26dp tall, so the
+            // touch area extends to clear the 44dp floor.
+            hitSlop={{ top: 10, bottom: 10, left: 2, right: 2 }}
             style={{
               paddingHorizontal: 12,
               paddingVertical: 5,
@@ -478,6 +478,21 @@ export default function OnboardingScreen() {
     setStep(s => Math.max(0, s - 1))
   }
 
+  /*
+    Android's back button steps back through setup instead of leaving the app. Without this,
+    back on step four closed MacroFit and threw away every answer typed so far. On the first
+    step it does nothing special, so back behaves as the system expects.
+  */
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (step === 0) return false
+      back()
+      return true
+    })
+    return () => subscription.remove()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step])
+
   const changeGoal = (nextGoal: WeightGoal) => {
     setGoal(nextGoal)
     setPace(defaultPaceFor(nextGoal))
@@ -533,58 +548,19 @@ export default function OnboardingScreen() {
           </View>
 
           <GlassSurface style={{ padding: spacing.lg, gap: spacing.lg }}>
+            {/*
+              Title and one line. This step used to repeat the Welcome screen the user had just
+              left — a sparkles tile, three feature bullets and a second "Get started" — and to
+              promise "three short questions" above a bar reading "1 of 6". It stays as a step
+              only because leaving it is what locks the step list (see `lockedSteps`).
+            */}
             {current === 'Welcome' ? (
-              <View style={{ gap: spacing.lg }}>
-                <View
-                  style={{
-                    width: 56,
-                    height: 56,
-                    borderRadius: radius.control,
-                    // The token pair, not a hardcoded jade and a hardcoded white. Those two were
-                    // fixed while everything around them changed with the theme, so the one mark
-                    // on the first screen a user ever sees was the one that ignored dark mode.
-                    backgroundColor: theme.brand,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Sparkles size={28} color={theme.brandOn} />
-                </View>
-                <View style={{ gap: spacing.sm }}>
-                  <SectionTitle style={{ fontSize: 24 }}>Let&apos;s set up your targets</SectionTitle>
-                  {/* Three, not five. The old number counted screens rather than questions, and
-                      it was wrong either way on a phone with Health Connect, where the progress
-                      bar directly below it reads "1 of 6". */}
-                  <Body tone="secondary">
-                    Three short questions. We work out what your body burns in a day, then turn
-                    that into a calorie and protein target you can actually hit.
-                  </Body>
-                </View>
-                <View style={{ gap: spacing.md }}>
-                  {[
-                    { Icon: NotebookPen, text: 'Log meals by searching, snapping a photo or just typing what you ate.' },
-                    { Icon: TrendingUp, text: 'Weigh in whenever you like — we read the trend, not the daily noise.' },
-                    { Icon: Target, text: 'Targets adjust as your weight moves, so they stay honest.' },
-                  ].map(({ Icon, text }) => (
-                    <View key={text} style={{ flexDirection: 'row', gap: spacing.md }}>
-                      <View
-                        style={{
-                          width: 28,
-                          height: 28,
-                          borderRadius: radius.tight,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          backgroundColor: `${theme.status.good}1F`,
-                        }}
-                      >
-                        <Icon size={15} color={theme.status.good} />
-                      </View>
-                      <Body size={14} tone="secondary" style={{ flex: 1 }}>
-                        {text}
-                      </Body>
-                    </View>
-                  ))}
-                </View>
+              <View style={{ gap: spacing.sm }}>
+                <SectionTitle style={{ fontSize: 24 }}>Let&apos;s set up your targets</SectionTitle>
+                <Body tone="secondary">
+                  A few quick questions. We work out what your body burns in a day, then turn it
+                  into a calorie and protein target you can actually hit.
+                </Body>
               </View>
             ) : null}
 

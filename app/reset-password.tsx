@@ -11,7 +11,6 @@ import { Body, Label } from '@/components/Text'
 import { Button } from '@/components/Button'
 import { Field } from '@/components/Layout'
 import { Aurora } from '@/components/Aurora'
-import { LiquidGlassScene } from '@/components/LiquidGlass'
 import { fonts, spacing } from '@/theme/tokens'
 
 /**
@@ -88,8 +87,9 @@ export default function ResetPasswordScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.canvas }}>
+      {/* Absolutely filled, behind the form. An empty LiquidGlassScene used to sit here as a
+          flex:1 sibling, which took half the screen and squeezed the form into the bottom. */}
       <Aurora />
-      <LiquidGlassScene />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}

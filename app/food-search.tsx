@@ -18,6 +18,7 @@ import { Button, IconButton } from '@/components/Button'
 import { EmptyState, Field, Pill } from '@/components/Layout'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
 import { useStore } from '@/store/useStore'
+import { formatNumber } from '@/lib/formatNumber'
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, fonts, radius, spacing } from '@/theme/tokens'
 import type { Food, MealType } from '@core/types'
@@ -272,6 +273,7 @@ const FoodRow: React.FC<{ food: Food; source?: RemoteSource; onPress: () => void
 
   return (
     <Pressable
+      needsOffscreenAlphaCompositing
       accessibilityRole="button"
       accessibilityLabel={`${food.name}${
         food.brand ? `, ${food.brand}` : ''
@@ -292,7 +294,7 @@ const FoodRow: React.FC<{ food: Food; source?: RemoteSource; onPress: () => void
             </Body>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
-            <StatValue size={18}>{food.calories}</StatValue>
+            <StatValue size={18}>{formatNumber(food.calories)}</StatValue>
             <Body size={10} tone="muted">
               kcal
             </Body>
@@ -748,7 +750,7 @@ export default function FoodSearchScreen() {
                   accessible
                   accessibilityLabel={`${kcal} kilocalories`}
                 >
-                  <StatValue size={34}>{kcal}</StatValue>
+                  <StatValue size={34}>{formatNumber(kcal)}</StatValue>
                   <Body size={14} tone="muted">
                     kcal
                   </Body>

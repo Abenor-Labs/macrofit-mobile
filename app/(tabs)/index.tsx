@@ -16,17 +16,18 @@ import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native'
   suspect the moment a row goes vertical.
 */
 import { useRouter } from 'expo-router'
-import { LinearGradient } from 'expo-linear-gradient'
 import {
   Check,
   ChevronRight,
   Cookie,
+  Download,
   Droplets,
   Minus,
   Moon,
   Sparkles,
   Sun,
   Sunrise,
+  Target,
 } from 'lucide-react-native'
 
 import type { DiaryDay, MealType, NutritionSummary, PhaseType, Recommendation } from '@core/types'
@@ -38,28 +39,21 @@ import {
 } from '@core/utils/calculations'
 
 import { useStore } from '@/store/useStore'
+import { formatNumber } from '@/lib/formatNumber'
+import { useAvailableUpdate } from '@/hooks/useAvailableUpdate'
 import { buildTdeeEstimate } from '@core/utils/tdee'
 import { buildLocalRecommendation } from '@core/utils/localRecommendation'
 import { estimateBodyComposition, latestUsableMeasurement } from '@core/utils/bodyComposition'
 import { useTheme, type Theme } from '@/theme/useTheme'
-import { GlassSurface, Surface } from '@/components/Glass'
+import { Surface } from '@/components/Glass'
 import { MacroRing, ProgressTrack } from '@/components/MacroRing'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
 import { IconButton } from '@/components/Button'
 import { Screen } from '@/components/Layout'
 import { StepsCard } from '@/components/StepsCard'
 import { WeightTargetCard, WeightVerdict } from '@/components/WeightTarget'
-import { HIT_SIZE, jade, radius, spacing } from '@/theme/tokens'
+import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
 
-/**
- * Grouped thousands without Intl.
- *
- * Hermes ships Intl, but every figure on this screen is tabular and has to line up the
- * same way on every device — locale data resolving differently on one Android build would
- * silently change the separator and the column width with it.
- */
-const formatNumber = (value: number): string =>
-  Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 
 const WEEKDAYS = [
   'Sunday',
@@ -94,12 +88,6 @@ const QUICK_ADD_ML = [150, 250, 350, 500] as const
 
 type MealTotals = Record<string, { calories: number; count: number }>
 
-/** Two-stop wash, written as the tuple LinearGradient's props require. */
-type Wash = readonly [string, string, ...string[]]
-
-const coachWash = (theme: Theme): Wash =>
-  theme.mode === 'dark' ? [jade[900], theme.canvas] : [jade[100], jade[50]]
-
 export default function DashboardScreen() {
   const theme = useTheme()
 
@@ -123,6 +111,9 @@ export default function DashboardScreen() {
   // in a memo rather than inline in the selector keeps the object identity stable, so
   // getDayNutrition is not re-run on every unrelated store change.
   const router = useRouter()
+  // Null until the launch check finds something newer, so the header carries the icon only
+  // while there is an update to take — never a permanent "check for updates" affordance.
+  const update = useAvailableUpdate()
   const day = useMemo<DiaryDay>(
     () => storedDay ?? { date: today, entries: [], waterIntake: 0, exercises: [] },
     [storedDay, today]
@@ -146,12 +137,36 @@ export default function DashboardScreen() {
       title="Today"
       subtitle={`${formatDate(today)} · ${WEEKDAYS[new Date().getDay()]}`}
       right={
-        <IconButton
-          accessibilityLabel="Open the nutrition assistant"
-          onPress={() => router.push('/chat')}
-        >
-          <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
-        </IconButton>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          {update ? (
+            <IconButton
+              accessibilityLabel={`Update to version ${update.version}`}
+              onPress={() => router.push('/update')}
+            >
+              <Download size={20} color={theme.brandText} strokeWidth={2} />
+              <View
+                pointerEvents="none"
+                style={{
+                  position: 'absolute',
+                  top: 11,
+                  right: 11,
+                  width: 9,
+                  height: 9,
+                  borderRadius: 5,
+                  borderWidth: 1.5,
+                  backgroundColor: theme.brand,
+                  borderColor: theme.canvas,
+                }}
+              />
+            </IconButton>
+          ) : null}
+          <IconButton
+            accessibilityLabel="Open the assistant"
+            onPress={() => router.push('/chat')}
+          >
+            <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
+          </IconButton>
+        </View>
       }
     >
       {/*
@@ -276,6 +291,7 @@ const MacroCard: React.FC<{
       never show.
     */
     <Pressable
+      needsOffscreenAlphaCompositing
       accessibilityRole="link"
       accessibilityLabel={`${formatNumber(nutrition.calories)} of ${formatNumber(
         goalCalories
@@ -490,29 +506,25 @@ const CoachCard: React.FC<{
 
   return (
     <Pressable
+      needsOffscreenAlphaCompositing
       accessibilityRole={recommendation ? 'link' : 'button'}
       accessibilityLabel={label}
       onPress={() => {
         if (building) return
         recommendation ? router.push('/goals') : buildPlan()
       }}
-      // The card is clipped and fully covered by the wash, so a background change would
-      // never show through — opacity is the press feedback that survives the gradient.
+      /*
+        A plain card like every other one on this screen. It used to be the only card with a
+        gradient wash under glass — decoration with no job, and the one surface that did not
+        look like it belonged to the rest of the dashboard.
+      */
       style={({ pressed }) => ({
         borderRadius: radius.card,
-        overflow: 'hidden',
         minHeight: HIT_SIZE,
         opacity: pressed ? 0.85 : 1,
       })}
     >
-      <LinearGradient
-        colors={coachWash(theme)}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-
-      <GlassSurface style={{ padding: spacing.lg }}>
+      <Surface style={{ padding: spacing.lg }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
           <View
             style={{
@@ -527,7 +539,9 @@ const CoachCard: React.FC<{
             {building ? (
               <ActivityIndicator size="small" color={theme.brandText} />
             ) : (
-              <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
+              // A target, not sparkles: sparkles mean the assistant in this app's headers,
+              // and this card is a calorie plan.
+              <Target size={20} color={theme.brandText} strokeWidth={2} />
             )}
           </View>
 
@@ -554,7 +568,7 @@ const CoachCard: React.FC<{
 
           <ChevronRight size={20} color={theme.textMuted} />
         </View>
-      </GlassSurface>
+      </Surface>
     </Pressable>
   )
 }
@@ -833,9 +847,10 @@ const WeekCard: React.FC<{
   const summary =
     week.settledDays === 0
       ? 'Finish a day and this starts filling in.'
-      : delta === 0
-        ? `Averaging exactly your ${formatNumber(goalCalories)} kcal target across ${week.settledDays} ${dayWord}.`
-        : `${formatNumber(Math.abs(delta))} kcal ${delta > 0 ? 'over' : 'under'} target across ${week.settledDays} ${dayWord}. Today not counted yet.`
+      : // The average itself is printed just below; this line only adds what it means.
+        delta === 0
+        ? `On target across ${week.settledDays} ${dayWord}`
+        : `${delta > 0 ? '+' : '−'}${formatNumber(Math.abs(delta))} kcal vs target, ${week.settledDays} ${dayWord}`
 
   return (
     /*
@@ -843,6 +858,7 @@ const WeekCard: React.FC<{
       it; Progress is the same seven days plotted, with 30d alongside.
     */
     <Pressable
+      needsOffscreenAlphaCompositing
       accessibilityRole="link"
       accessibilityLabel={
         week.settledDays === 0

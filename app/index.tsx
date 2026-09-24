@@ -3,7 +3,7 @@ import { Redirect } from 'expo-router'
 
 import { useAuth } from '@/lib/AuthProvider'
 import { useStore } from '@/store/useStore'
-import { useWelcomeSeen } from '@/lib/welcomeSeen'
+import { useGuestMode, useWelcomeSeen } from '@/lib/welcomeSeen'
 import { LaunchScreen } from '@/components/LaunchScreen'
 
 /**
@@ -24,11 +24,18 @@ export default function Index() {
   const { user, loading } = useAuth()
   const onboardedAt = useStore(s => s.onboardedAt)
   const welcomeSeen = useWelcomeSeen()
+  const guest = useGuestMode()
 
   if (loading) return <LaunchScreen />
   // A phone that has never run the app is introduced to it before it is asked for a
   // password. `LaunchGate` holds the splash until this flag is read, so the null branch
   // here is the same defensive fallback as the one in `RootNavigator`.
+  // A guest chose not to have an account. Sending them to a password field on every cold
+  // start asked that question again each morning — and RootNavigator deliberately leaves
+  // Login alone for guests (so "Sign in" from Profile works), so nothing bounced them out.
+  if (!user && guest) {
+    return <Redirect href={onboardedAt === null ? '/onboarding' : '/(tabs)'} />
+  }
   if (!user) return <Redirect href={welcomeSeen === false ? '/welcome' : '/login'} />
   // Setup has to clear before the tabs: the store's defaults describe a 30-year-old
   // 175 cm male, so an unconfigured account shows targets that look authoritative and
