@@ -151,6 +151,7 @@ const SYNC_FIELDS = [
   'darkMode', 'bodyMeasurements', 'fastingSession', 'progressPhotos',
   'recommendation', 'recommendationSeenAt', 'onboardedAt',
   'workoutLog', 'customLifts', 'workoutTemplates', 'activeWorkoutId',
+  'trainingPrograms', 'activeProgramId',
 ] as const
 
 const SAVE_DEBOUNCE_MS = 1500
