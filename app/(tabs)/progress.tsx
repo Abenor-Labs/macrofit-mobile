@@ -657,7 +657,7 @@ const StatTile: React.FC<{
   /** Shown instead of the figure when there is nothing real to report. */
   fallback?: string
 }> = ({ label, value, unit, fallback = 'No data yet' }) => (
-  <View style={{ flex: 1, gap: 4, minWidth: 92 }}>
+  <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
     <Label>{label}</Label>
     {value === null ? (
       <Body size={13} tone="muted">
@@ -1317,7 +1317,7 @@ export default function ProgressScreen() {
             label="Entries"
             value={weightPoints.length > 0 ? String(weightPoints.length) : null}
           />
-          <View style={{ flex: 1, gap: 4, minWidth: 92 }}>
+          <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
             <Label>Change</Label>
             {weightDelta === null ? (
               <Body size={13} tone="muted">
@@ -1472,7 +1472,7 @@ export default function ProgressScreen() {
       title="Progress"
       subtitle={TAB_CAPTION[tab]}
       right={
-        <IconButton accessibilityLabel="Open AI Assistant" onPress={() => router.push('/chat')}>
+        <IconButton accessibilityLabel="Open the assistant" onPress={() => router.push('/chat')}>
           <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
         </IconButton>
       }

@@ -109,7 +109,10 @@ const Ring: React.FC<{
  * on a cold start, so a fast sign-in cannot truncate the animation half way through — a
  * launch animation that gets cut off looks like a bug, not like speed.
  */
-export const LAUNCH_SEQUENCE_MS = 1150
+// Was 1150: a floor that long is paid on every warm start, before the app is usable. The
+// curves are strongly decelerating, so the rings read as arrived well before the end — the
+// shorter run loses none of the landing and gives half a second back to every launch.
+export const LAUNCH_SEQUENCE_MS = 620
 
 export const LaunchScreen: React.FC = () => {
   const theme = useTheme()
@@ -126,11 +129,11 @@ export const LaunchScreen: React.FC = () => {
       arrive without a bounce — a spring here would overshoot the alignment and undo the one
       thing the motion exists to do, which is land on the launcher icon.
     */
-    settle.value = withTiming(1, { duration: 900, easing: Easing.bezier(0.16, 1, 0.3, 1) })
+    settle.value = withTiming(1, { duration: 560, easing: Easing.bezier(0.16, 1, 0.3, 1) })
     // After the mark has essentially arrived, not alongside it.
     follow.value = withDelay(
-      420,
-      withTiming(1, { duration: 420, easing: Easing.bezier(0.23, 1, 0.32, 1) })
+      260,
+      withTiming(1, { duration: 300, easing: Easing.bezier(0.23, 1, 0.32, 1) })
     )
   }, [settle, follow, reduced])
 
@@ -199,7 +202,7 @@ export const LaunchScreen: React.FC = () => {
           </View>
         </Animated.View>
 
-        <Animated.View style={belowStyle}>
+        <Animated.View needsOffscreenAlphaCompositing style={belowStyle}>
           <Body size={34} style={{ fontFamily: fonts.displayBold, color: theme.text }}>
             MacroFit
           </Body>
@@ -213,7 +216,7 @@ export const LaunchScreen: React.FC = () => {
           a logo on it. The rings ARE the spinner — they are already the app's own circular
           motion — so the status line only has to say the words.
         */}
-        <Animated.View style={belowStyle}>
+        <Animated.View needsOffscreenAlphaCompositing style={belowStyle}>
           <Body size={13} tone="muted">
             Loading your account…
           </Body>

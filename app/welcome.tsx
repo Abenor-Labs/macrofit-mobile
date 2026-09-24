@@ -89,7 +89,13 @@ const Rise: React.FC<{
     transform: [{ translateY: (1 - progress.value) * 12 }],
   }))
 
-  return <Animated.View style={[style, animatedStyle]}>{children}</Animated.View>
+  return (
+    // Composited as one layer, or Android fades each child on its own and the button labels
+    // flash lighter boxes over their panes for the length of the entrance.
+    <Animated.View needsOffscreenAlphaCompositing style={[style, animatedStyle]}>
+      {children}
+    </Animated.View>
+  )
 }
 
 /** The three things the app does, in the order a day happens. */

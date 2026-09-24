@@ -1,6 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react'
 import {
-  ActionSheetIOS,
   ActivityIndicator,
   Alert,
   Image,
@@ -21,6 +20,7 @@ import {
   Camera,
   Check,
   Droplets,
+  ImageIcon,
   Lightbulb,
   RotateCcw,
   Scale,
@@ -50,6 +50,7 @@ import { Surface } from '@/components/Glass'
 import { Body, Label, StatValue } from '@/components/Text'
 import { RichText } from '@/components/RichText'
 import { Button, IconButton } from '@/components/Button'
+import { ActionSheet } from '@/components/ActionSheet'
 import { EmptyState, Field, Screen } from '@/components/Layout'
 
 /**
@@ -192,6 +193,18 @@ const Avatar: React.FC<{ role: ChatEntry['role']; theme: Theme }> = ({ role, the
   </View>
 )
 
+/**
+ * Plain words for a failed request. The raw message used to be printed verbatim, so a lost
+ * connection read "Failed: Network request failed" — true, and useless to act on.
+ */
+const friendlyError = (err: unknown): string => {
+  const raw = err instanceof Error ? err.message : ''
+  if (/network request failed|failed to fetch|timed? ?out|abort/i.test(raw)) {
+    return "Couldn't reach the assistant. Check your connection and try again."
+  }
+  return raw.trim().length > 0 ? raw : 'Something went wrong. Try again.'
+}
+
 export default function ChatScreen() {
   const { user } = useAuth()
   const theme = useTheme()
@@ -210,6 +223,7 @@ export default function ChatScreen() {
 
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [photoSheetOpen, setPhotoSheetOpen] = useState(false)
   const [messages, setMessages] = useState<ChatEntry[]>([
     { id: WELCOME_ID, role: 'assistant', text: WELCOME_TEXT },
   ])
@@ -412,7 +426,7 @@ export default function ChatScreen() {
         },
       ])
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Something went wrong.'
+      const message = friendlyError(err)
       setMessages(prev => [
         ...prev,
         { id: uuidv4(), role: 'assistant', text: message, failed: true, retryText: text },
@@ -510,35 +524,15 @@ export default function ChatScreen() {
   }
 
   /**
-   * Asks where the photo should come from.
+   * Asks where the photo should come from, in the app's own sheet.
    *
-   * A native action sheet on iOS and a three-button alert on Android, because those are the
-   * two platforms' own answers to this question and a shared custom sheet would look like
-   * neither.
+   * This used to be ActionSheetIOS on iOS and a three-button Alert on Android. The Android one
+   * is the system's stock dialog — platform grey, uppercase buttons stacked to the right, and a
+   * hole where the message goes — which read as an error rather than a choice.
    */
   const attachPhoto = () => {
     if (loading) return
-
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          title: 'Add a meal photo',
-          options: ['Cancel', 'Take Photo', 'Choose from Library'],
-          cancelButtonIndex: 0,
-        },
-        index => {
-          if (index === 1) void runPhoto('camera')
-          if (index === 2) void runPhoto('library')
-        },
-      )
-      return
-    }
-
-    Alert.alert('Add a meal photo', undefined, [
-      { text: 'Take photo', onPress: () => void runPhoto('camera') },
-      { text: 'Choose from library', onPress: () => void runPhoto('library') },
-      { text: 'Cancel', style: 'cancel' },
-    ])
+    setPhotoSheetOpen(true)
   }
 
   /*
@@ -738,7 +732,7 @@ export default function ChatScreen() {
                               <AlertTriangle size={16} color={theme.status.critical} strokeWidth={2.2} />
                             </View>
                             <Body size={14} style={{ flex: 1, color: theme.status.critical }}>
-                              {`Failed: ${message.text}`}
+                              {message.text}
                             </Body>
                           </View>
                           {message.retryText ? (
@@ -961,13 +955,18 @@ export default function ChatScreen() {
             style={StyleSheet.absoluteFill}
           />
           <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.glass.overlay }]} />
-          <Button
-            label="Suggest a meal"
-            variant="secondary"
-            onPress={() => setInput('What should I eat to hit my remaining macros today?')}
-            disabled={loading}
-            icon={<Lightbulb size={14} color={theme.text} strokeWidth={2} />}
-          />
+          {/* A starter, not furniture: it sat above the composer on every turn, costing a
+              row of the transcript for a prompt most people use once. It shows until the
+              conversation has started. */}
+          {messages.length <= 1 ? (
+            <Button
+              label="Suggest a meal"
+              variant="secondary"
+              onPress={() => setInput('What should I eat to hit my remaining macros today?')}
+              disabled={loading}
+              icon={<Lightbulb size={14} color={theme.text} strokeWidth={2} />}
+            />
+          ) : null}
 
           <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-end' }}>
             {/* Bordered rather than bare: an IconButton is invisible until pressed, which is
@@ -1009,6 +1008,24 @@ export default function ChatScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      <ActionSheet
+        visible={photoSheetOpen}
+        title="Add a meal photo"
+        onClose={() => setPhotoSheetOpen(false)}
+        options={[
+          {
+            label: 'Take photo',
+            icon: <Camera size={20} color={theme.brandText} strokeWidth={2} />,
+            onPress: () => void runPhoto('camera'),
+          },
+          {
+            label: 'Choose from library',
+            icon: <ImageIcon size={20} color={theme.brandText} strokeWidth={2} />,
+            onPress: () => void runPhoto('library'),
+          },
+        ]}
+      />
     </Screen>
   )
 }

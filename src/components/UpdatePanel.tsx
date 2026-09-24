@@ -1,8 +1,10 @@
 import React, { useState } from 'react'
 import { View } from 'react-native'
+import * as Application from 'expo-application'
 import { Download, RefreshCw } from 'lucide-react-native'
 
 import { checkForUpdate, downloadAndInstall, type AvailableRelease } from '@/lib/appUpdate'
+import { publishAvailableUpdate } from '@/hooks/useAvailableUpdate'
 import { useTheme } from '@/theme/useTheme'
 import { radius, spacing } from '@/theme/tokens'
 import { Body } from './Text'
@@ -12,6 +14,13 @@ import { RichText } from './RichText'
 /** Megabytes to one decimal. Binary, because that is what a phone's storage screen reports. */
 const formatMb = (bytes: number): string => `${(bytes / 1048576).toFixed(1)} MB`
 
+const describeAvailable = (release: AvailableRelease, currentVersion: string): string =>
+  // The size is named up front. This is a sideloaded APK, not a Play Store delta, so it is the
+  // whole app every time — and someone on mobile data deserves to learn that before the
+  // transfer rather than from their bill.
+  `Version ${release.version} is available. You have ${currentVersion}.` +
+  (release.sizeBytes === null ? '' : ` The download is ${formatMb(release.sizeBytes)}.`)
+
 /**
  * The update control, for a build that has no store behind it.
  *
@@ -20,16 +29,18 @@ const formatMb = (bytes: number): string => `${(bytes / 1048576).toFixed(1)} MB`
  * waiting on the user in Android's installer are four different things, and "something went
  * wrong" would leave the user unable to tell which.
  *
- * Nothing is checked automatically. A background check that offered an APK on launch would be
- * asking to replace the app before the user has done the thing they opened it for, and the check
- * costs a request against a host that may not exist yet.
+ * `initial` is a release the launch check already found (the Today header's update icon), so
+ * the panel opens ready to install instead of asking the user to check for what they were just
+ * told exists. The launch check itself never prompts; it only decides whether that icon shows.
  */
-export const UpdatePanel: React.FC = () => {
+export const UpdatePanel: React.FC<{ initial?: AvailableRelease | null }> = ({ initial = null }) => {
   const theme = useTheme()
   const [busy, setBusy] = useState(false)
-  const [status, setStatus] = useState<string | null>(null)
+  const [status, setStatus] = useState<string | null>(() =>
+    initial ? describeAvailable(initial, Application.nativeApplicationVersion ?? '—') : null
+  )
   const [error, setError] = useState<string | null>(null)
-  const [available, setAvailable] = useState<AvailableRelease | null>(null)
+  const [available, setAvailable] = useState<AvailableRelease | null>(initial)
   /** 0 to 1 while downloading, null otherwise. */
   const [progress, setProgress] = useState<number | null>(null)
 
@@ -40,15 +51,10 @@ export const UpdatePanel: React.FC = () => {
     void checkForUpdate()
       .then(result => {
         setAvailable(result.available)
+        publishAvailableUpdate(result.available)
         setStatus(
           result.available
-            ? // The size is named up front. This is a sideloaded APK, not a Play Store delta,
-              // so it is the whole app every time — and someone on mobile data deserves to
-              // learn that before the transfer rather than from their bill.
-              `Version ${result.available.version} is available. You have ${result.currentVersion}.` +
-                (result.available.sizeBytes === null
-                  ? ''
-                  : ` The download is ${formatMb(result.available.sizeBytes)}.`)
+            ? describeAvailable(result.available, result.currentVersion)
             : `You are on the newest build (${result.currentVersion}).`
         )
       })

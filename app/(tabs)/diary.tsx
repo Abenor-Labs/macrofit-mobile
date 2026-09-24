@@ -20,6 +20,7 @@ import { ProgressTrack } from '@/components/MacroRing'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
 import { useSnackbar } from '@/components/Snackbar'
 import { useStore } from '@/store/useStore'
+import { formatNumber } from '@/lib/formatNumber'
 import { DateNavigator } from '@/components/DateNavigator'
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
@@ -132,8 +133,8 @@ const DayTotals: React.FC<{ day: DiaryDay }> = ({ day }) => {
           accessible
           accessibilityLabel={`${totals.calories} of ${goals.calories} kilocalories eaten`}
         >
-          <StatValue size={34}>{totals.calories}</StatValue>
-          <Body size={14} tone="muted">{`/ ${goals.calories} kcal`}</Body>
+          <StatValue size={34}>{formatNumber(totals.calories)}</StatValue>
+          <Body size={14} tone="muted">{`/ ${formatNumber(goals.calories)} kcal`}</Body>
         </View>
         <ProgressTrack
           progress={goals.calories > 0 ? totals.calories / goals.calories : 0}
@@ -143,11 +144,11 @@ const DayTotals: React.FC<{ day: DiaryDay }> = ({ day }) => {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <AlertCircle size={14} color={theme.status.warning} strokeWidth={2.2} />
             <Body size={12} weight="medium" style={{ color: theme.status.warning }}>
-              {`Over goal by ${Math.abs(remaining)} kcal`}
+              {`Over goal by ${formatNumber(Math.abs(remaining))} kcal`}
             </Body>
           </View>
         ) : (
-          <Body size={12} tone="secondary">{`${remaining} kcal left today`}</Body>
+          <Body size={12} tone="secondary">{`${formatNumber(remaining)} kcal left today`}</Body>
         )}
       </View>
 
@@ -267,6 +268,7 @@ const EntryRow: React.FC<{ entry: FoodEntry; date: string }> = ({ entry, date })
   return (
     <View style={{ gap: spacing.sm }}>
       <Pressable
+        needsOffscreenAlphaCompositing
         accessibilityRole="button"
         accessibilityState={{ expanded: editing }}
         accessibilityLabel={`${entry.food.name}, ${amount}, ${kcal} kilocalories. ${
@@ -293,7 +295,7 @@ const EntryRow: React.FC<{ entry: FoodEntry; date: string }> = ({ entry, date })
           </Body>
         </View>
         <View style={{ alignItems: 'flex-end' }}>
-          <StatValue size={17}>{kcal}</StatValue>
+          <StatValue size={17}>{formatNumber(kcal)}</StatValue>
           <Body size={10} tone="muted">
             kcal
           </Body>
@@ -408,7 +410,7 @@ const MealCard: React.FC<{
             accessible
             accessibilityLabel={`${kcal} kilocalories in ${meal}`}
           >
-            <StatValue size={18}>{kcal}</StatValue>
+            <StatValue size={18}>{formatNumber(kcal)}</StatValue>
             <Body size={11} tone="muted">
               kcal
             </Body>
@@ -560,6 +562,7 @@ const SavedMeals: React.FC<{ date: string }> = ({ date }) => {
                 }}
               >
                 <Pressable
+                  needsOffscreenAlphaCompositing
                   accessibilityRole="button"
                   accessibilityLabel={`Add saved meal ${template.name} to this day. ${plural(
                     items,
@@ -674,7 +677,7 @@ export default function DiaryScreen() {
     <Screen
       title="Diary"
       right={
-        <IconButton accessibilityLabel="Open AI Assistant" onPress={() => router.push('/chat')}>
+        <IconButton accessibilityLabel="Open the assistant" onPress={() => router.push('/chat')}>
           <Sparkles size={20} color={theme.brandText} strokeWidth={2} />
         </IconButton>
       }
@@ -689,7 +692,14 @@ export default function DiaryScreen() {
       */}
       <SavedMeals date={date} />
 
-      {MEAL_TYPES.map((meal, index) => (
+      {/* Pre- and Post-Workout only once they hold something. Six cards on a rest day was
+          two of them permanently empty, each with its own Add button; food search still
+          offers both meals when picking where an item goes. */}
+      {MEAL_TYPES.filter(
+        meal =>
+          (meal !== 'Pre-Workout' && meal !== 'Post-Workout') ||
+          (byMeal.get(meal)?.length ?? 0) > 0
+      ).map((meal, index) => (
         <MealCard
           key={meal}
           meal={meal}

@@ -10,20 +10,19 @@ import {
 import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
-import { Check, ChevronLeft, Dumbbell, History, Plus, Search, X } from 'lucide-react-native'
+import { Check, Dumbbell, History, Plus, Search, X } from 'lucide-react-native'
 
 import type { Lift, LiftEquipment, MuscleGroup } from '@core/types'
 import { LIFT_DATABASE, searchLifts } from '@core/data/exerciseDatabase'
 
 import { useStore } from '@/store/useStore'
 import { useTheme } from '@/theme/useTheme'
-import { HIT_SIZE, fonts, radius, spacing } from '@/theme/tokens'
+import { HIT_SIZE, fonts, radius, spacing, workoutTheme } from '@/theme/tokens'
+import { ThemeScope } from '@/theme/ThemeScope'
 import { GlassSurface, Surface } from '@/components/Glass'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
 import { Button } from '@/components/Button'
 import { EmptyState, Field } from '@/components/Layout'
-import { Aurora } from '@/components/Aurora'
-import { LiquidGlassScene } from '@/components/LiquidGlass'
 
 const MUSCLE_GROUPS: MuscleGroup[] = [
   'Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps',
@@ -119,16 +118,24 @@ const LiftRow: React.FC<{ lift: Lift; onPress: () => void }> = ({ lift, onPress 
  * store, so navigating here and back never touches the session itself — nothing
  * in flight can be lost by opening the picker.
  */
-export default function LiftPickerScreen() {
+function LiftPickerBody() {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
-  const params = useLocalSearchParams<{ sessionId?: string }>()
+  const params = useLocalSearchParams<{ sessionId?: string; programId?: string; dayId?: string }>()
 
   const customLifts = useStore(s => s.customLifts)
   const workoutLog = useStore(s => s.workoutLog)
   const activeWorkoutId = useStore(s => s.activeWorkoutId)
   const addCustomLift = useStore(s => s.addCustomLift)
   const addExerciseToWorkout = useStore(s => s.addExerciseToWorkout)
+  const updateProgramDay = useStore(s => s.updateProgramDay)
+  // Opened from a program day's editor: the pick goes into that day, not into a session.
+  const pickingProgram = useStore(
+    s => s.trainingPrograms.find(p => p.id === params.programId) ?? null
+  )
+  const pickingDay = pickingProgram?.days.find(d => d.id === params.dayId) ?? null
+  const programDay =
+    pickingProgram && pickingDay ? { program: pickingProgram, day: pickingDay } : null
 
   // The param is the source of truth; activeWorkoutId is the fallback for a
   // deep link or a cold start into this modal.
@@ -136,7 +143,10 @@ export default function LiftPickerScreen() {
 
   const [query, setQuery] = useState('')
   const [muscle, setMuscle] = useState<MuscleGroup | 'all'>('all')
-  const [equipment, setEquipment] = useState<LiftEquipment | 'all'>('all')
+  // A calisthenics plan opens on bodyweight lifts; the filter is one tap to clear.
+  const [equipment, setEquipment] = useState<LiftEquipment | 'all'>(() =>
+    programDay?.program.style === 'calisthenics' ? 'Bodyweight' : 'all'
+  )
 
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
@@ -185,7 +195,13 @@ export default function LiftPickerScreen() {
   }, [query, muscle, equipment, customLifts])
 
   const handleSelect = (lift: Lift) => {
-    if (sessionId) {
+    if (programDay) {
+      const { program, day } = programDay
+      if (!day.liftIds.includes(lift.id)) {
+        updateProgramDay(program.id, day.id, { liftIds: [...day.liftIds, lift.id] })
+      }
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    } else if (sessionId) {
       addExerciseToWorkout(sessionId, lift)
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
     }
@@ -221,7 +237,7 @@ export default function LiftPickerScreen() {
   }
 
   return (
-    <LiquidGlassScene backdrop={<Aurora />} style={{ backgroundColor: theme.canvas }}>
+    <View style={{ flex: 1, backgroundColor: theme.canvas }}>
       {/* A picker is a sheet: this is one of the places glass belongs. */}
       <GlassSurface
         radius={0}
@@ -250,7 +266,7 @@ export default function LiftPickerScreen() {
               backgroundColor: pressed ? theme.border : 'transparent',
             })}
           >
-            <ChevronLeft size={22} color={theme.text} strokeWidth={2} />
+            <X size={22} color={theme.text} strokeWidth={2} />
           </Pressable>
           <SectionTitle>Add exercise</SectionTitle>
         </View>
@@ -520,6 +536,18 @@ export default function LiftPickerScreen() {
           }
         />
       )}
-    </LiquidGlassScene>
+    </View>
+  )
+}
+
+/**
+ * Only ever opened from Training, so it is drawn in Training's palette. Without the scope it
+ * slid up in the app's light theme over a near-black screen, which read as leaving Training.
+ */
+export default function LiftPickerScreen() {
+  return (
+    <ThemeScope theme={workoutTheme}>
+      <LiftPickerBody />
+    </ThemeScope>
   )
 }

@@ -22,6 +22,7 @@ export interface StatValueProps {
   color?: string
   style?: StyleProp<TextStyle>
   accessibilityLabel?: string
+  numberOfLines?: number
 }
 
 /**
@@ -37,11 +38,13 @@ export const StatValue: React.FC<StatValueProps> = ({
   color,
   style,
   accessibilityLabel,
+  numberOfLines,
 }) => {
   const toneColor = useToneColor(tone)
   return (
     <Text
       accessibilityLabel={accessibilityLabel}
+      numberOfLines={numberOfLines}
       style={[
         {
           fontFamily: fonts.display,

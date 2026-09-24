@@ -9,6 +9,7 @@ import {
 import * as Haptics from 'expo-haptics'
 import Animated, {
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated'
@@ -60,6 +61,7 @@ export const Button: React.FC<ButtonProps> = ({
   style,
 }) => {
   const theme = useTheme()
+  const reduced = useReducedMotion()
   const scale = useSharedValue(1)
   /*
     A second value for the press highlight, separate from the scale.
@@ -86,12 +88,24 @@ export const Button: React.FC<ButtonProps> = ({
 
   return (
     <AnimatedPressable
+      /*
+        Required for the dimmed state to look dimmed rather than broken.
+
+        React Native tells Android its views never overlap, so `opacity` is applied to every
+        child separately instead of to the finished button. The label and icon were each drawn
+        at half alpha over a pane that was itself at half alpha, which printed a lighter box
+        around them — the disabled Send button in chat showed it plainly. This renders the
+        button into one layer first and fades that. It costs a layer only while opacity < 1.
+        Any Pressable that fades itself (pressed or disabled) needs the same prop.
+      */
+      needsOffscreenAlphaCompositing
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled: inactive, busy: loading }}
       disabled={inactive}
       onPressIn={() => {
-        scale.value = withTiming(0.97, { duration: 120 })
+        // Reduce Motion keeps the sheen (a light change, not movement) and drops the scale.
+        if (!reduced) scale.value = withTiming(0.97, { duration: 120 })
         press.value = withTiming(1, { duration: 100 })
       }}
       onPressOut={() => {
@@ -193,6 +207,7 @@ export const IconButton: React.FC<IconButtonProps> = ({
 
   return (
     <Pressable
+      needsOffscreenAlphaCompositing
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       disabled={disabled}

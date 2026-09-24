@@ -140,6 +140,7 @@ export const WeightVerdict: React.FC = () => {
 
     return (
       <Pressable
+        needsOffscreenAlphaCompositing
         accessibilityRole="link"
         accessibilityLabel={
           loggedToday
@@ -168,6 +169,7 @@ export const WeightVerdict: React.FC = () => {
 
   return (
     <Pressable
+      needsOffscreenAlphaCompositing
       accessibilityRole="link"
       accessibilityLabel={`${meta.label}. ${progress.message} Open weight history.`}
       onPress={() => router.push({ pathname: '/progress', params: { metric: 'weight' } })}
@@ -214,11 +216,18 @@ export const WeightTargetCard: React.FC<{ compact?: boolean }> = ({ compact = fa
 
   const submitWeighIn = () => {
     const value = Number(draft.replace(',', '.').trim())
-    if (!Number.isFinite(value) || value <= 0) return
+    // The same plausible range the weigh-in screen enforces, so a slipped decimal (724 for
+    // 72.4) cannot land in the log and swing the trend line off the chart.
+    const kg = unit === 'lbs' ? value / LBS_PER_KG : value
+    if (!Number.isFinite(value) || kg < 30 || kg > 300) return
     // Stored in the user's display unit, exactly like the rest of the weight log.
     logWeight({ date: today, displayWeight: Math.round(value * 10) / 10 })
     setDraft('')
   }
+
+  // With no goal weight, the dashboard's WeightVerdict line already says whether you weighed
+  // in and what you weighed; this card would only repeat it at the bottom of the same screen.
+  if (compact && progress.targetKg === null) return null
 
   return (
     <Surface style={{ padding: spacing.lg, gap: spacing.lg }}>
@@ -232,7 +241,9 @@ export const WeightTargetCard: React.FC<{ compact?: boolean }> = ({ compact = fa
       ) : (
         <>
           <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm }}>
-            <StatValue size={40}>{String(toDisplay(currentWeightKg))}</StatValue>
+            {/* Compact on the dashboard: the calorie ring is that screen's one display figure, and
+                a 40pt weight at the bottom used to out-shout it. */}
+            <StatValue size={compact ? 24 : 40}>{String(toDisplay(currentWeightKg))}</StatValue>
             <Body tone="muted" style={{ marginBottom: 6 }}>
               {`${unit} → ${toDisplay(progress.targetKg)} ${unit}`}
             </Body>

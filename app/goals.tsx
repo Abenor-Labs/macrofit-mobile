@@ -4,7 +4,6 @@ import { useRouter } from 'expo-router'
 import {
   Activity,
   AlertTriangle,
-  ArrowLeft,
   Check,
   CloudOff,
   Flame,
@@ -31,7 +30,7 @@ import { useTheme, type Theme } from '@/theme/useTheme'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
 import { GlassSurface, Surface } from '@/components/Glass'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
-import { Button, IconButton } from '@/components/Button'
+import { Button } from '@/components/Button'
 import { Field, Pill, Screen } from '@/components/Layout'
 
 /**
@@ -459,11 +458,7 @@ export default function GoalsScreen() {
     <Screen
       title="Goals"
       subtitle="Your coach plan and your own numbers"
-      right={
-        <IconButton accessibilityLabel="Go back" onPress={() => router.back()}>
-          <ArrowLeft size={20} color={theme.text} strokeWidth={2} />
-        </IconButton>
-      }
+      onBack={() => router.back()}
     >
       {/* ---------------------------------------------------------------- */}
       {/* The coach plan. Glass: it is the hero of this screen.             */}

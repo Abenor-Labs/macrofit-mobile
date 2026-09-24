@@ -3,7 +3,6 @@ import { Pressable, StyleSheet, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import {
   Activity,
-  ArrowLeft,
   Bookmark,
   ChevronDown,
   Download,
@@ -16,7 +15,6 @@ import { useTheme, type Theme } from '@/theme/useTheme'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
 import { Surface } from '@/components/Glass'
 import { Body, SectionTitle } from '@/components/Text'
-import { IconButton } from '@/components/Button'
 import { Screen } from '@/components/Layout'
 
 /**
@@ -147,6 +145,7 @@ const TopicRow: React.FC<{ topic: Topic; open: boolean; onToggle: () => void }> 
   return (
     <Surface style={{ padding: spacing.lg, gap: open ? spacing.md : 0 }}>
       <Pressable
+        needsOffscreenAlphaCompositing
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
         // No "Expand"/"Collapse" verb in the label: accessibilityState already carries it, and
@@ -221,11 +220,7 @@ export default function HelpScreen() {
     <Screen
       title="How it works"
       subtitle="What the numbers mean, and where they come from"
-      right={
-        <IconButton accessibilityLabel="Go back" onPress={() => router.back()}>
-          <ArrowLeft size={20} color={theme.text} strokeWidth={2} />
-        </IconButton>
-      }
+      onBack={() => router.back()}
     >
       {topics.map(topic => (
         <TopicRow

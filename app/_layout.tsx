@@ -107,6 +107,7 @@ const SyncBlockedBanner: React.FC<{ topInset: number }> = ({ topInset }) => {
         this device.
       </Body>
       <Pressable
+        needsOffscreenAlphaCompositing
         accessibilityRole="button"
         accessibilityLabel="Retry syncing your account"
         accessibilityState={{ disabled: hydrating, busy: hydrating }}
@@ -313,7 +314,17 @@ const UnclaimedDataScreen: React.FC = () => {
 }
 
 /** Routes registered with `presentation: 'modal'` in the Stack below. */
-const MODAL_ROUTES = new Set(['food-search', 'lift-picker', 'chat', 'weigh-in'])
+const MODAL_ROUTES = new Set([
+  'food-search',
+  'lift-picker',
+  'chat',
+  'weigh-in',
+  'update',
+  'routine-day',
+])
+
+/** Routes drawn in workout mode's always-dark palette. */
+const TRAINING_ROUTES = new Set(['training', 'lift-picker', 'routine-day', 'workout-summary'])
 
 const RootNavigator: React.FC = () => {
   const theme = useTheme()
@@ -506,7 +517,11 @@ const RootNavigator: React.FC = () => {
 
   return (
     <>
-      <StatusBar style={theme.mode === 'dark' ? 'light' : 'dark'} />
+      {/* Training is always dark (workout mode ignores the light/dark setting), so its
+          status bar is light whatever the rest of the app is doing. */}
+      <StatusBar
+        style={theme.mode === 'dark' || TRAINING_ROUTES.has(segments[0] ?? '') ? 'light' : 'dark'}
+      />
       {showBanner ? <SyncBlockedBanner topInset={insets.top} /> : null}
       <SafeAreaInsetsContext.Provider value={insetsForStack}>
         {/* Above the Stack so the tab bar, which renders outside the screens, can still reach
@@ -558,6 +573,23 @@ const RootNavigator: React.FC = () => {
               options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
             />
             <Stack.Screen name="chat" options={{ presentation: 'modal' }} />
+            {/* Training opens like an app inside the app: it slides in over the whole tab
+                navigator, main tab bar included, and its own back arrow takes it away. */}
+            <Stack.Screen name="training" options={{ animation: 'slide_from_right' }} />
+            {/* Fades up over the finished workout rather than sliding: it is the same moment,
+                concluded, not a new place. */}
+            <Stack.Screen
+              name="workout-summary"
+              options={{ presentation: 'fullScreenModal', animation: 'fade' }}
+            />
+            <Stack.Screen
+              name="routine-day"
+              options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+            />
+            <Stack.Screen
+              name="update"
+              options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+            />
           </Stack>
           </SnackbarProvider>
         </BlurTargetProvider>
