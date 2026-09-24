@@ -25,7 +25,8 @@
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
-        "android.permission.REQUEST_INSTALL_PACKAGES"
+        "android.permission.REQUEST_INSTALL_PACKAGES",
+        "android.permission.SCHEDULE_EXACT_ALARM"
       ],
       "softwareKeyboardLayoutMode": "pan",
       "versionCode": 10
@@ -39,7 +40,9 @@
         {
           "android": {
             "minSdkVersion": 26,
-            "buildArchs": ["arm64-v8a"]
+            "buildArchs": [
+              "arm64-v8a"
+            ]
           }
         }
       ],
@@ -60,13 +63,28 @@
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#FAFAF9",
-          "dark": { "backgroundColor": "#090C0A" }
+          "dark": {
+            "backgroundColor": "#090C0A"
+          }
         }
       ],
       "react-native-health-connect",
       "./plugins/with-health-connect-permissions",
       "./plugins/with-health-connect-delegate",
-      "./plugins/with-release-signing"
+      "./plugins/with-release-signing",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#0C8261",
+          "sounds": [
+            "./assets/sounds/rest_over.wav",
+            "./assets/sounds/reminder.wav",
+            "./assets/sounds/water.wav"
+          ]
+        }
+      ],
+      "expo-background-task"
     ],
     "experiments": {
       "typedRoutes": true
