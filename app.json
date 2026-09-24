@@ -2,7 +2,7 @@
   "expo": {
     "name": "MacroFit",
     "slug": "macrofit",
-    "version": "1.4.0",
+    "version": "1.4.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "macrofit",
@@ -26,10 +26,11 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.REQUEST_INSTALL_PACKAGES",
-        "android.permission.SCHEDULE_EXACT_ALARM"
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.USE_EXACT_ALARM"
       ],
       "softwareKeyboardLayoutMode": "pan",
-      "versionCode": 10
+      "versionCode": 11
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -84,7 +85,8 @@
           ]
         }
       ],
-      "expo-background-task"
+      "expo-background-task",
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true

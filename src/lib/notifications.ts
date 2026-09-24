@@ -2,6 +2,9 @@ import { Platform } from 'react-native'
 import * as Notifications from 'expo-notifications'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
+import { getNotificationPrefs } from '@/store/notificationPrefs'
+import type { PlannedReminder } from './reminderPlan'
+
 /**
  * Every system notification MacroFit sends, in one place.
  *
@@ -19,6 +22,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 export const CHANNELS = {
   workout: 'workout-v1',
   reminders: 'reminders-v1',
+  // Its own channel because on Android 8+ the CHANNEL's sound plays, not the notification's:
+  // a water nudge posted to 'reminders' would ring the reminder tone.
+  water: 'water-v1',
   updates: 'updates-v1',
 } as const
 
@@ -78,6 +84,13 @@ export const setupNotifications = async (): Promise<void> => {
     sound: 'reminder.wav',
     vibrationPattern: [0, 180],
   })
+  await Notifications.setNotificationChannelAsync(CHANNELS.water, {
+    name: 'Water',
+    description: 'A nudge when you are behind on water for the day',
+    importance: Notifications.AndroidImportance.DEFAULT,
+    sound: 'water.wav',
+    vibrationPattern: [0, 120],
+  })
   await Notifications.setNotificationChannelAsync(CHANNELS.updates, {
     name: 'App updates',
     description: 'A new version of MacroFit is ready',
@@ -106,7 +119,8 @@ const hasPermission = async (): Promise<boolean> =>
  * -30s on the timer simply move it.
  */
 export const scheduleRestOver = async (seconds: number): Promise<void> => {
-  if (seconds < 1 || !(await ensureNotificationPermission())) return
+  if (seconds < 1 || !getNotificationPrefs().restOver) return
+  if (!(await ensureNotificationPermission())) return
   await Notifications.scheduleNotificationAsync({
     identifier: IDS.restOver,
     content: {
@@ -136,6 +150,7 @@ const WORKOUT_OPEN_AFTER_S = 2 * 60 * 60
  * nothing. Never asks for permission itself: it is not worth an interruption on its own.
  */
 export const scheduleWorkoutLeftOpen = async (workoutName: string): Promise<void> => {
+  if (!getNotificationPrefs().workoutOpen) return void cancelWorkoutLeftOpen()
   if (!(await hasPermission())) return
   await Notifications.scheduleNotificationAsync({
     identifier: IDS.workoutOpen,
@@ -172,7 +187,7 @@ const summaryOf = (notes: string | undefined): string | null => {
  * never asks for permission — without it, the update icon on Today still does the job.
  */
 export const notifyUpdateAvailable = async (version: string, notes?: string): Promise<void> => {
-  if (!(await hasPermission())) return
+  if (!getNotificationPrefs().updates || !(await hasPermission())) return
   if ((await AsyncStorage.getItem(LAST_UPDATE_NOTIFIED_KEY)) === version) return
   await Notifications.scheduleNotificationAsync({
     content: {
@@ -190,4 +205,40 @@ export const notifyUpdateAvailable = async (version: string, notes?: string): Pr
 export const routeOf = (notification: Notifications.Notification): string | null => {
   const url = notification.request.content.data?.url
   return typeof url === 'string' && url.startsWith('/') ? url : null
+}
+
+// --- Reminders ------------------------------------------------------------------------------
+
+const REMINDER_PREFIX = 'rem:'
+
+/**
+ * Makes the pending reminders exactly `plan`: anything pending that is not in it is cancelled,
+ * everything in it is (re)scheduled under its fixed id. Called whenever the data a reminder
+ * depends on changes, so a reminder never outlives the reason for it.
+ */
+export const applyReminderPlan = async (plan: PlannedReminder[]): Promise<void> => {
+  const pending = await Notifications.getAllScheduledNotificationsAsync()
+  const wanted = new Set(plan.map(reminder => reminder.id))
+  await Promise.all(
+    pending
+      .filter(n => n.identifier.startsWith(REMINDER_PREFIX) && !wanted.has(n.identifier))
+      .map(n => Notifications.cancelScheduledNotificationAsync(n.identifier))
+  )
+  if (plan.length === 0 || !(await hasPermission())) return
+  for (const reminder of plan) {
+    await Notifications.scheduleNotificationAsync({
+      identifier: reminder.id,
+      content: {
+        title: reminder.title,
+        body: reminder.body,
+        sound: reminder.sound,
+        data: { kind: reminder.kind, url: reminder.url },
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: reminder.at,
+        channelId: reminder.sound === 'water.wav' ? CHANNELS.water : CHANNELS.reminders,
+      },
+    })
+  }
 }

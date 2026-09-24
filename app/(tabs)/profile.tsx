@@ -4,6 +4,7 @@ import { router, useRouter } from 'expo-router'
 import {
   Activity,
   Bookmark,
+  Bell,
   BookOpen,
   ChevronDown,
   ChevronRight,
@@ -183,8 +184,13 @@ const Section: React.FC<{
   icon: React.ReactNode
   subtitle?: string
   defaultOpen?: boolean
-  children: React.ReactNode
-}> = ({ title, icon, subtitle, defaultOpen = false, children }) => {
+  /**
+   * Makes the row a link to its own screen instead of a disclosure. A section that only
+   * expands to reveal one "Open" button costs two taps for what is one decision.
+   */
+  onOpen?: () => void
+  children?: React.ReactNode
+}> = ({ title, icon, subtitle, defaultOpen = false, onOpen, children }) => {
   const theme = useTheme()
   const [open, setOpen] = useState(defaultOpen)
   const Chevron = open ? ChevronDown : ChevronRight
@@ -192,10 +198,10 @@ const Section: React.FC<{
   return (
     <View>
       <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
-        accessibilityLabel={`${title}. ${open ? 'Collapse' : 'Expand'}`}
-        onPress={() => setOpen(v => !v)}
+        accessibilityRole={onOpen ? 'link' : 'button'}
+        accessibilityState={onOpen ? undefined : { expanded: open }}
+        accessibilityLabel={onOpen ? title : `${title}. ${open ? 'Collapse' : 'Expand'}`}
+        onPress={() => (onOpen ? onOpen() : setOpen(v => !v))}
         style={{
           flexDirection: 'row',
           alignItems: 'center',
@@ -227,7 +233,7 @@ const Section: React.FC<{
         <Chevron size={18} color={theme.textMuted} strokeWidth={2} />
       </Pressable>
 
-      {open && (
+      {open && !onOpen && (
         <View
           style={{
             paddingHorizontal: spacing.lg,
@@ -1204,6 +1210,13 @@ export default function ProfileScreen() {
           icon={<BookOpen size={15} color={theme.text} strokeWidth={2} />}
         />
       </Section>
+
+      <Section
+        title="Notifications"
+        icon={<Bell size={16} color={theme.brandText} strokeWidth={2} />}
+        subtitle="Rest timer, reminders and new versions"
+        onOpen={() => router.push('/notifications')}
+      />
 
       {/* Setup you do once. It used to open itself at the top of the screen on every visit,
           pushing everything the user actually came for below the fold. */}
