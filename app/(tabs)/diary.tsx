@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native'
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { router, useGlobalSearchParams } from 'expo-router'
 import * as Haptics from 'expo-haptics'
 import {
@@ -13,6 +13,7 @@ import {
   Trash2,
 } from 'lucide-react-native'
 
+import { appAlert } from '@/components/AppAlert'
 import { Island } from '@/components/Material'
 import { Button, IconButton } from '@/components/Button'
 import { Field, Pill, Screen } from '@/components/Layout'
@@ -600,7 +601,7 @@ const SavedMeals: React.FC<{ date: string }> = ({ date }) => {
                 <IconButton
                   accessibilityLabel={`Delete saved meal ${template.name}`}
                   onPress={() =>
-                    Alert.alert(
+                    appAlert(
                       'Delete saved meal',
                       `"${template.name}" will be removed. The food already logged from it stays where it is.`,
                       [

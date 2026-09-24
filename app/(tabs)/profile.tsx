@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native'
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { router, useRouter } from 'expo-router'
 import {
   Activity,
@@ -60,6 +60,7 @@ import { useLogWeight } from '@/hooks/useLogWeight'
 import { isFullyDenied, missingGrantLabels, openHealthConnectInstall } from '@/lib/healthConnect'
 import { useTheme } from '@/theme/useTheme'
 import { radius, spacing } from '@/theme/tokens'
+import { appAlert } from '@/components/AppAlert'
 import { GlassSurface, Surface } from '@/components/Glass'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
 import { Button, IconButton } from '@/components/Button'
@@ -507,7 +508,7 @@ export default function ProfileScreen() {
       setTargetsNotice('Your accepted coach plan is unchanged. Refresh it on Goals to use your new details.')
       return
     }
-    Alert.alert(
+    appAlert(
       'Update your targets?',
       'Your targets came from your setup answers. Recalculate them from your new details, or keep what you have?',
       [
@@ -651,10 +652,10 @@ export default function ProfileScreen() {
         // A sign-out that could not reach the server leaves the session intact. Saying so is
         // the only honest option: the alternative is a user who believes they are signed out
         // handing the phone over while still signed in.
-        if (result.error) Alert.alert('Still signed in', result.error)
+        if (result.error) appAlert('Still signed in', result.error)
       })
       .catch(() =>
-        Alert.alert(
+        appAlert(
           'Still signed in',
           'Something went wrong signing out. Check your connection and try again.'
         )
@@ -662,7 +663,7 @@ export default function ProfileScreen() {
   }
 
   const confirmResetOnboarding = () => {
-    Alert.alert(
+    appAlert(
       'Re-run setup?',
       "You'll answer the questions your targets are built from again. Your diary, weigh-ins and workouts stay exactly as they are.",
       [
@@ -683,7 +684,7 @@ export default function ProfileScreen() {
     // Captured as the dialog opens: this is exactly what the user is being asked to agree
     // to, and it is what gets passed back to signOut as their consent.
     const warned = hasUnsyncedChanges
-    Alert.alert(
+    appAlert(
       'Sign out?',
       warned
         ? 'Some of what you logged has not reached your account yet, and signing out clears this device. That work would be lost.'
