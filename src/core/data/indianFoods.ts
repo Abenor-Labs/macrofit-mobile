@@ -213,4 +213,154 @@ export const INDIAN_FOOD_DATABASE: Food[] = [
   dish('in122', 'Mysore pak (1)', 'Sweets & Desserts', 30, 'g', 165, 2, 18, 9.5, 0.5, 14, 12, 5.5),
   dish('in123', 'Payasam (1 katori)', 'Sweets & Desserts', 150, 'g', 195, 4, 29, 7, 0.4, 23, 75, 4),
   dish('in124', 'Rava kesari (100 g)', 'Sweets & Desserts', 100, 'g', 300, 3.5, 45, 12, 0.8, 28, 60, 7),
+
+  /*
+    === SOUTH INDIAN, ADDED 2026-09 ===
+
+    The first 124 rows are pan-Indian, and the South Indian everyday table was thin: no
+    kuzhambu, no kootu, no neer or set dosa, no parotta. These fill that gap.
+
+    WHY NOT JUST IMPORT INDB:
+    The Indian Nutrient Databank (Anuvaad / Jaacks et al., 2024) has 1,014 recipes and was the
+    obvious source. It was checked and rejected for bulk import. It is built from home-science
+    cookbooks, so it leans North Indian and institutional (souffles, lasagne, consomme), and
+    its per-serving figures count all the deep-frying oil as eaten: medu vada comes out at
+    588 kcal with 60 g of fat in a 79 g vada, plain appam at 35 g of fat. Shipping that would
+    have put wrong numbers in front of people who trust them.
+
+    These rows use the same method as the rows above: IFCT 2017 ingredient values composed
+    into a typical domestic recipe, with INDB used as a cross-check where its figure is sane.
+    Every row was checked for 4P + 4C + 9F landing within a few percent of the calories.
+
+    Rice gets a plate serving too. A South Indian lunch is two to three katoris of rice, and a
+    one-katori default quietly under-logs the biggest item on the plate.
+  */
+  dish('in125', 'Cooked white rice (1 plate, 3 katori)', 'Grains & Cereals', 450, 'g', 585, 12, 129, 1.2, 1.8, 0.3, 6, 0.3),
+  dish('in126', 'Bisi bele bath (1 katori)', 'Grains & Cereals', 200, 'g', 280, 8, 42, 9, 4, 2, 500, 3.5),
+  dish('in127', 'Vangi bath (1 katori)', 'Grains & Cereals', 150, 'g', 250, 4.5, 38, 9, 2.5, 2, 380, 1.5),
+  dish('in128', 'Coconut rice (1 katori)', 'Grains & Cereals', 150, 'g', 290, 4.5, 40, 12.5, 2.5, 1, 300, 9),
+  dish('in129', 'Tomato rice (1 katori)', 'Grains & Cereals', 150, 'g', 235, 4, 39, 7, 1.8, 2.5, 380, 1.2),
+  dish('in130', 'Kanji / rice gruel (1 bowl)', 'Grains & Cereals', 250, 'g', 110, 2.3, 24, 0.3, 0.3, 0.1, 250, 0.1),
+  dish('in131', 'Kerala parotta (1)', 'Grains & Cereals', 80, 'g', 280, 5.5, 36, 12.5, 1.2, 1, 300, 5.5),
+  dish('in132', 'Egg kothu parotta (1 plate)', 'Fast Food', 300, 'g', 650, 18, 70, 32, 4, 5, 1100, 11),
+  dish('in133', 'Akki roti (1)', 'Grains & Cereals', 80, 'g', 190, 3, 32, 5.5, 1.5, 0.5, 200, 0.8),
+  dish('in134', 'Neer dosa (1)', 'Grains & Cereals', 50, 'g', 85, 1.3, 16, 1.6, 0.3, 0.1, 60, 0.9),
+  dish('in135', 'Set dosa (1)', 'Grains & Cereals', 60, 'g', 130, 2.7, 22, 3.3, 0.8, 0.5, 150, 0.8),
+  dish('in136', 'Ragi dosa (1)', 'Grains & Cereals', 70, 'g', 140, 3, 22, 4.5, 2.5, 0.4, 170, 0.8),
+  dish('in137', 'Pesarattu (1)', 'Grains & Cereals', 90, 'g', 175, 8, 22, 6, 4, 1, 200, 1),
+  dish('in138', 'Adai (1)', 'Grains & Cereals', 90, 'g', 210, 8.5, 27, 7.5, 4.5, 1, 220, 1.2),
+  dish('in139', 'Egg dosa (1)', 'Grains & Cereals', 110, 'g', 230, 9.5, 26, 9.5, 1, 0.6, 300, 2.8),
+  dish('in140', 'Ghee roast dosa (1)', 'Grains & Cereals', 90, 'g', 270, 4, 33, 13.5, 1.3, 0.5, 220, 8),
+  dish('in141', 'Kuzhi paniyaram (4 pieces)', 'Grains & Cereals', 100, 'g', 200, 4, 28, 8, 1.5, 0.5, 250, 1.2),
+  dish('in142', 'Semiya upma (1 katori)', 'Grains & Cereals', 150, 'g', 225, 4.5, 35, 7.5, 1.8, 1.5, 380, 1.2),
+  dish('in143', 'Idli podi with oil (1 tbsp + 1 tsp oil)', 'Condiments', 17, 'g', 90, 2.3, 5, 6.8, 1.5, 0.3, 150, 1),
+  dish('in144', 'Kootu (1 katori)', 'Vegetables', 150, 'g', 150, 6.5, 16, 6.5, 4.5, 2.5, 350, 4),
+  dish('in145', 'Keerai masiyal / greens (1 katori)', 'Vegetables', 100, 'g', 80, 3.5, 6, 4.5, 3, 0.8, 250, 0.6),
+  dish('in146', 'Vatha kuzhambu (1 katori)', 'Vegetables', 150, 'g', 150, 2, 14, 9.5, 2.5, 4, 650, 1.4),
+  dish('in147', 'Mor kuzhambu (1 katori)', 'Dairy', 150, 'g', 120, 4, 8, 8, 1.2, 4, 420, 5),
+  dish('in148', 'Meen kuzhambu / fish kulambu (1 katori)', 'Fish & Seafood', 150, 'g', 190, 16, 7, 11, 1.5, 2.5, 550, 2),
+  dish('in149', 'Chettinad chicken (1 katori)', 'Meat & Poultry', 150, 'g', 280, 22, 6, 19, 1.8, 2, 560, 5),
+  dish('in150', 'Pepper chicken, dry (100 g)', 'Meat & Poultry', 100, 'g', 230, 24, 4, 13, 1, 1, 480, 3),
+  dish('in151', 'Kerala beef fry (100 g)', 'Meat & Poultry', 100, 'g', 260, 24, 5, 16, 1, 1, 500, 5.5),
+  dish('in152', 'Egg roast / mutta roast (2 eggs)', 'Meat & Poultry', 180, 'g', 290, 14, 10, 21, 2, 5, 500, 5),
+  dish('in153', 'Gongura pachadi (1 tbsp)', 'Condiments', 15, 'g', 35, 0.5, 1.5, 3, 0.8, 0.2, 250, 0.4),
+  dish('in154', 'Tomato chutney (2 tbsp)', 'Condiments', 30, 'g', 40, 0.6, 3.5, 2.7, 0.8, 2, 180, 0.4),
+  dish('in155', 'Kosambari (1 katori)', 'Legumes', 100, 'g', 90, 5, 12, 2.5, 3.5, 2, 150, 1.5),
+  dish('in156', 'Ragi malt with milk (1 glass)', 'Beverages', 200, 'ml', 150, 5.5, 22, 4.5, 1.5, 11, 60, 2.8),
+  dish('in157', 'Aloo bonda (2)', 'Snacks', 80, 'g', 230, 4, 24, 13, 2, 1, 300, 2),
+  dish('in158', 'Mirchi bajji (2)', 'Snacks', 90, 'g', 210, 4.5, 18, 13.5, 2.5, 1.5, 350, 2),
+  dish('in159', 'Banana chips (30 g)', 'Snacks', 30, 'g', 160, 0.7, 17, 10, 2, 1, 70, 8.7),
+  dish('in160', 'Sweet pongal / sakkarai pongal (1 katori)', 'Sweets & Desserts', 150, 'g', 330, 5, 55, 10, 1.5, 25, 20, 6),
 ]
+
+/**
+ * What people actually type, keyed by food id.
+ *
+ * Nobody in Chennai searches "cooked white rice"; they search "sadam". The same dish has a
+ * Tamil, Telugu, Kannada and Malayalam name, plus two or three spellings of each, and the
+ * app should find it by any of them. These are matched by `searchFoods` alongside the name.
+ *
+ * Kept out of the Food objects on purpose: a Food is copied whole into every diary entry
+ * and synced, and forty strings of synonyms per logged idli is weight with no reader.
+ */
+export const INDIAN_FOOD_ALIASES: Record<string, readonly string[]> = {
+  in001: ['chapathi', 'chapati', 'phulka', 'roti'],
+  in014: ['annam', 'sadam', 'saadam', 'sadham', 'choru', 'anna', 'bhaat', 'chawal', 'plain rice'],
+  in017: ['thayir sadam', 'thayir saadam', 'thayir sadham', 'perugu annam', 'mosaru anna', 'daddojanam', 'dahi chawal'],
+  in018: ['chitranna', 'elumichai sadam', 'nimmakaya pulihora'],
+  in019: ['puliyogare', 'puliyodharai', 'pulihora', 'puli sadam', 'huli anna'],
+  in021: ['veg biriyani'],
+  in022: ['chicken biriyani', 'hyderabadi biryani', 'dum biryani'],
+  in024: ['kichdi'],
+  in025: ['string hoppers', 'sevai', 'nool puttu', 'noolappam'],
+  in026: ['palappam', 'hoppers'],
+  in028: ['ragi sankati', 'ragi sangati', 'ragi kali', 'ragi ball', 'finger millet'],
+  in029: ['pappu', 'paruppu', 'bele', 'tuvar dal', 'arhar dal', 'dal'],
+  in030: ['pesara pappu', 'pasi paruppu', 'hesaru bele'],
+  in038: ['sambhar', 'sambaar', 'sambar kuzhambu', 'huli'],
+  in039: ['saaru', 'charu', 'chaaru', 'sathumudhu', 'chathamudhu'],
+  in042: ['guggillu', 'usli'],
+  in043: ['idly', 'itli'],
+  in045: ['dosa', 'dosai', 'dosey', 'dose'],
+  in046: ['masala dosai', 'masale dose'],
+  in048: ['uthappam', 'oothappam', 'uttappa'],
+  in049: ['uppittu', 'uppuma', 'khara bath', 'rava upma'],
+  in050: ['pongal', 'khara pongal', 'huggi', 'katte pongali'],
+  in051: ['ulundu vadai', 'uzhunnu vada', 'garelu', 'minapa garelu', 'uddina vade', 'vadai', 'vade'],
+  in053: ['thengai chutney', 'kobbari pachadi', 'kayi chutney', 'chammanthi'],
+  in055: ['avakaya', 'maangai oorugai', 'uppinakayi', 'achar'],
+  in069: ['cabbage thoran', 'cabbage palya', 'cabbage koora', 'cabbage upperi'],
+  in070: ['beans thoran', 'beans palya', 'beans usili'],
+  in071: ['aviyal'],
+  in074: ['kodi kura', 'kozhi kulambu', 'koli saaru', 'chicken kuzhambu'],
+  in079: ['mamsam kura', 'mutton kulambu', 'mutton kuzhambu'],
+  in081: ['meen curry', 'chepala pulusu', 'fish pulusu'],
+  in082: ['meen varuval', 'meen fry', 'chepa vepudu'],
+  in084: ['muttai kuzhambu', 'guddu kura', 'motte saaru'],
+  in087: ['muttai', 'guddu', 'motte', 'mutta'],
+  in101: ['chakli', 'jantikalu', 'chakkuli'],
+  in104: ['poori masala', 'puri masala'],
+  in106: ['thayir', 'perugu', 'mosaru', 'tairu', 'yogurt'],
+  in107: ['majjiga', 'moru', 'majjige', 'neer mor', 'mor'],
+  in110: ['tea', 'chaya'],
+  in111: ['kaapi', 'kapi', 'degree coffee'],
+  in122: ['mysorepak'],
+  in123: ['payasa', 'paayasam', 'kheer'],
+  in124: ['kesari bath', 'kesari', 'sheera'],
+  in125: ['annam', 'sadam', 'saadam', 'choru', 'anna', 'meals', 'rice plate'],
+  in126: ['bisibelebath', 'sambar sadam', 'sambar rice'],
+  in127: ['vangibath', 'brinjal rice', 'eggplant rice'],
+  in128: ['thengai sadam', 'kobbari annam', 'kayi anna'],
+  in129: ['thakkali sadam', 'tomato bath'],
+  in130: ['ganji', 'congee', 'pazhaya soru', 'nombu kanji'],
+  in131: ['porotta', 'barotta', 'parotta', 'malabar parotta'],
+  in132: ['kothu porotta', 'kothu parotta'],
+  in133: ['rice roti'],
+  in134: ['neer dose'],
+  in135: ['set dose'],
+  in136: ['ragi dose', 'ragi dosai', 'finger millet dosa'],
+  in137: ['pesaratu', 'moong dosa', 'green gram dosa'],
+  in138: ['adai dosai'],
+  in139: ['muttai dosai', 'egg dosai'],
+  in140: ['ghee roast', 'nei roast', 'ghee dosa'],
+  in141: ['paniyaram', 'guntha ponganalu', 'paddu', 'gunta punugulu', 'appe'],
+  in142: ['semiya', 'vermicelli upma', 'shavige bath'],
+  in143: ['gunpowder', 'milagai podi', 'karam podi', 'chutney pudi', 'podi'],
+  in144: ['koottu'],
+  in145: ['keerai', 'palak', 'spinach', 'soppu palya', 'aku kura'],
+  in146: ['vathal kuzhambu', 'vatha kulambu', 'kara kuzhambu', 'kara kulambu', 'pulusu'],
+  in147: ['mor kulambu', 'majjige huli', 'majjiga pulusu', 'pulissery', 'moru curry'],
+  in148: ['meen kulambu', 'fish kuzhambu', 'chepala pulusu'],
+  in149: ['chicken chettinad'],
+  in150: ['milagu kozhi', 'chicken pepper fry', 'kodi vepudu'],
+  in151: ['beef ularthiyathu', 'beef fry'],
+  in152: ['mutta roast', 'egg roast', 'muttai roast'],
+  in153: ['gongura', 'pulicha keerai'],
+  in154: ['thakkali chutney', 'tomato pachadi'],
+  in155: ['kosumalli', 'koshambari'],
+  in156: ['ragi java', 'ragi ambli', 'ragi kanji'],
+  in157: ['bonda', 'potato bonda', 'mysore bonda'],
+  in158: ['milagai bajji', 'bajji', 'mirapakaya bajji'],
+  in159: ['kaya varuthathu', 'nendran chips'],
+  in160: ['chakkarai pongal', 'sakkarai pongal', 'sweet pongali', 'sihi pongal'],
+}

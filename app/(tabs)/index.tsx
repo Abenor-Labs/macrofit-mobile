@@ -44,6 +44,7 @@ import { formatNumber } from '@/lib/formatNumber'
 import { useAvailableUpdate } from '@/hooks/useAvailableUpdate'
 import { useActivityFeed } from '@/hooks/useActivityFeed'
 import { WeeklyRecapCard } from '@/components/WeeklyRecapCard'
+import { NextMealCard } from '@/components/NextMealCard'
 import { buildTdeeEstimate } from '@core/utils/tdee'
 import { buildLocalRecommendation } from '@core/utils/localRecommendation'
 import { estimateBodyComposition, latestUsableMeasurement } from '@core/utils/bodyComposition'
@@ -224,6 +225,10 @@ export default function DashboardScreen() {
         date={today}
         hasEntries={day.entries.length > 0}
       />
+
+      {/* Straight under the ring: the ring says what is left, this says what to do with it.
+          Renders nothing when there is no honest idea to offer. */}
+      <NextMealCard />
 
       {/* Second, not first. It is the only line on this screen that asks for a change, and
               it used to sit seventh — but a dashboard that opens on "Stalled" every morning
