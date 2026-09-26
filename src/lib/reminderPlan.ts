@@ -12,6 +12,10 @@ import {
 import type { NotificationPrefs } from '@/store/notificationPrefs'
 import { formatNumber } from './formatNumber'
 import { lastWeekRecap, recapLine } from './activityFeed'
+import { suggestNextMeal } from './nextMeal'
+
+/** "Egg dosa (1)" -> "Egg dosa": the count carries the serving. */
+const shortName = (name: string): string => name.replace(/\s*\([^)]*\)\s*$/, '')
 
 /**
  * Every reminder that should exist over the next week, worked out from the app's own data.
@@ -191,13 +195,24 @@ export const planReminders = (input: PlanInput): PlannedReminder[] => {
     if (prefs.meals) {
       for (const { meal, key } of MEALS) {
         if (day?.entries.some(entry => entry.mealType === meal)) continue
+        const when = at(date, prefs[key] as string)
+        /*
+          The coach's idea for this meal, from what this person usually eats at it, so the
+          nudge is something to act on ("Idli ×3 + Sambar, 330 kcal") rather than a chore.
+          Falls back to the plain wording when there is no history to suggest from.
+        */
+        const idea = suggestNextMeal(diary, goals, when)
+        const body =
+          idea && idea.meal === meal
+            ? `Idea: ${idea.items.map(i => (i.servings === 1 ? shortName(i.food.name) : `${shortName(i.food.name)} ×${i.servings}`)).join(' + ')}, ${formatNumber(idea.calories)} kcal. Log it from Today in one tap.`
+            : 'Snap a photo or search for it. It takes ten seconds.'
         add({
           id: `rem:meal:${meal}:${date}`,
           kind: 'meal',
-          at: at(date, prefs[key] as string),
+          at: when,
           title: `${meal} not logged yet`,
-          body: 'Snap a photo or search for it. It takes ten seconds.',
-          url: `/food-search?meal=${meal}&date=${date}`,
+          body,
+          url: idea && idea.meal === meal && date === today ? '/(tabs)' : `/food-search?meal=${meal}&date=${date}`,
           sound: 'reminder.wav',
         })
       }

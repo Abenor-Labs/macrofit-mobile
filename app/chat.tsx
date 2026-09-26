@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Image,
@@ -16,6 +16,10 @@ import { v4 as uuidv4 } from 'uuid'
 import {
   AlertTriangle,
   Bot,
+  Brain,
+  CalendarCheck,
+  Eraser,
+  Target,
   Camera,
   Check,
   Droplets,
@@ -30,15 +34,21 @@ import {
   X,
 } from 'lucide-react-native'
 
-import type { Food, MealType } from '@core/types'
-import { getDayNutrition, getTodayString, kgToLbs, lbsToKg } from '@core/utils/calculations'
+import type { MealType } from '@core/types'
+import { getTodayString, kgToLbs, lbsToKg } from '@core/utils/calculations'
+import { postAnalyzePhoto, postChat, type ChatMessageParam } from '@/lib/api'
+import { mealForNow } from '@/lib/analyzedFood'
+import { buildChatContext, loggedDaysLastWeek } from '@/lib/coachContext'
+import { buildOpener } from '@/lib/coachOpener'
+import { addEntriesTracked, foodForItem } from '@/lib/coachWrites'
+import { formatNumber } from '@/lib/formatNumber'
 import {
-  postAnalyzePhoto,
-  postChat,
-  type AnalyzedFood,
-  type ChatMessageParam,
-} from '@/lib/api'
-import { analyzedFoodToFood, mealForNow } from '@/lib/analyzedFood'
+  useCoachStore,
+  type ChatEntry,
+  type LoggedAction,
+  type MealOffer,
+  type TargetProposal,
+} from '@/store/coachStore'
 import { capturePhoto, type PhotoSource } from '@/lib/mealPhoto'
 import { appAlert } from '@/components/AppAlert'
 import { PhotoReview, type PhotoReviewSelection } from '@/components/PhotoReview'
@@ -54,7 +64,11 @@ import { ActionSheet } from '@/components/ActionSheet'
 import { EmptyState, Field, Screen } from '@/components/Layout'
 
 /**
- * The nutrition assistant, ported from the web `ChatInterface`.
+ * The coach. Ported from the web `ChatInterface`, then rebuilt around what a coach needs:
+ * it sees two weeks of diary, the weight trend and the plan with every message
+ * (`buildChatContext`), keeps the conversation and what it was told to remember
+ * (`useCoachStore`), opens each day with where things stand and a meal idea
+ * (`buildOpener`), and can put a meal or new targets in front of the user as a card to accept.
  *
  * Same context, same tools, same store mutations. It also owns the meal-photo path, which
  * the web app never shipped a screen for: the camera button in the composer sends an image
@@ -69,56 +83,14 @@ import { EmptyState, Field, Screen } from '@/components/Layout'
  *     was thrown away does not read as a clean success.
  */
 
-const WELCOME_ID = 'welcome'
+/** History turns sent with each message. The server keeps the most recent of these. */
+const HISTORY_TURNS = 24
 
-const WELCOME_TEXT =
-  "Hi! I'm your nutrition assistant. Tell me what you ate, your weight, or your water and I'll log it. Try \"I had 1 cup of oatmeal and 2 eggs for breakfast\" or \"I weighed 84 kg this morning\". You can also photograph a meal with the camera button and I'll read the plate."
+/** A check-in needs about a week since the last one, and a week with something in it. */
+const CHECK_IN_EVERY_MS = 6.5 * 86_400_000
+const CHECK_IN_MIN_DAYS = 3
 
-/** A store mutation that actually landed, echoed back so the user can verify it. */
-interface LoggedAction {
-  type: 'food' | 'weight' | 'water'
-  label: string
-  value: number
-  unit: string
-  /*
-    The food this action created, so the write can be reversed. `addFoodEntry` mints the entry
-    id internally and returns nothing, but every chat-created Food gets a unique `chat_<uuid>`,
-    which is enough to find the entry again in the day it landed in.
-  */
-  foodId?: string
-  macros?: { protein: number; carbs: number; fat: number }
-}
-
-interface ChatEntry {
-  id: string
-  role: 'user' | 'assistant'
-  text: string
-  actions?: LoggedAction[]
-  /** Count of tool calls the client refused as unusable. Non-zero means `text` overclaims. */
-  discarded?: number
-  /** True when this turn failed outright; rendered with the critical status treatment. */
-  failed?: boolean
-  /** The user text that triggered this failed turn, so a retry can re-send it. */
-  retryText?: string
-  /** Local URI of an attached meal photo, shown in place of a text bubble. */
-  photo?: string
-  /**
-   * Vision results awaiting the user's confirmation.
-   *
-   * Cleared when the card's Log button writes them, at which point the same message grows
-   * `actions` instead — so the card becomes the ordinary receipt, with the ordinary Undo.
-   */
-  review?: AnalyzedFood[]
-  /**
-   * Excludes this turn from the history sent to `/api/chat`.
-   *
-   * A photo turn has no text of its own, and `send` maps every surviving message straight
-   * into `{ role, content: m.text }` — so without this flag the next text message would push
-   * an empty user turn at the model. The photo endpoint is stateless and separate, and what a
-   * photo logged still reaches the assistant through `todayEntries`, so nothing is lost.
-   */
-  fromPhoto?: boolean
-}
+const isSameDay = (a: number, b: number) => new Date(a).toDateString() === new Date(b).toDateString()
 
 /**
  * Edge of the attached-photo thumbnail.
@@ -193,6 +165,88 @@ const Avatar: React.FC<{ role: ChatEntry['role']; theme: Theme }> = ({ role, the
   </View>
 )
 
+const baseName = (name: string) => name.replace(/\s*\([^)]*\)\s*$/, '')
+
+/**
+ * A meal the coach suggested, with the app's own totals and one button to log it.
+ *
+ * The numbers here are summed from catalog rows, never taken from the reply text: the model
+ * is told not to state totals, because its arithmetic did not match the diary's.
+ */
+const OfferCard: React.FC<{
+  offer: MealOffer
+  theme: Theme
+  disabled: boolean
+  onLog: () => void
+}> = ({ offer, theme, disabled, onLog }) => {
+  const kcal = offer.items.reduce((sum, item) => sum + item.calories, 0)
+  const protein = offer.items.reduce((sum, item) => sum + item.protein, 0)
+  return (
+    <Surface radius={radius.control} style={{ alignSelf: 'stretch', padding: spacing.md, gap: spacing.sm }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Utensils size={13} color={theme.brandText} strokeWidth={2.2} />
+        <Label style={{ flex: 1, color: theme.brandText }}>{`${offer.meal} idea`}</Label>
+      </View>
+      {offer.items.map((item, index) => (
+        <View key={`${item.foodId}-${index}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          <Body size={15} style={{ flex: 1 }} numberOfLines={1}>
+            {item.servings === 1 ? baseName(item.name) : `${baseName(item.name)} ×${item.servings}`}
+          </Body>
+          <StatValue size={13} tone="secondary">{String(item.calories)}</StatValue>
+          <Body size={11} tone="muted">kcal</Body>
+        </View>
+      ))}
+      <Body size={13} tone="secondary">
+        {`${formatNumber(Math.round(kcal))} kcal · ${Math.round(protein)} g protein`}
+      </Body>
+      {offer.loggedAt ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+          <Check size={12} color={theme.status.good} strokeWidth={2.6} />
+          <Label style={{ color: theme.status.good }}>Logged below</Label>
+        </View>
+      ) : (
+        <Button label="Log this" onPress={onLog} disabled={disabled} haptic />
+      )}
+    </Surface>
+  )
+}
+
+/** New daily targets the coach proposed. Applied only on a tap, and reversible. */
+const ProposalCard: React.FC<{
+  proposal: TargetProposal
+  theme: Theme
+  onApply: () => void
+  onRevert: () => void
+}> = ({ proposal, theme, onApply, onRevert }) => (
+  <Surface radius={radius.control} style={{ alignSelf: 'stretch', padding: spacing.md, gap: spacing.sm }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+      <Target size={13} color={theme.brandText} strokeWidth={2.2} />
+      <Label style={{ flex: 1, color: theme.brandText }}>New daily targets</Label>
+    </View>
+    <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
+      <StatValue size={24}>{formatNumber(proposal.calories)}</StatValue>
+      <Body size={13} tone="secondary">kcal</Body>
+    </View>
+    <Body size={13} tone="secondary">
+      {`Protein ${proposal.protein} g · Carbs ${proposal.carbs} g · Fat ${proposal.fat} g`}
+    </Body>
+    <Body size={13}>{proposal.reason}</Body>
+    {proposal.appliedAt ? (
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+        <Check size={12} color={theme.status.good} strokeWidth={2.6} />
+        <Label style={{ flex: 1, color: theme.status.good }}>Applied</Label>
+        <Pressable accessibilityRole="button" accessibilityLabel="Go back to the previous targets" onPress={onRevert} style={styles.undo}>
+          <Body size={13} weight="semibold" style={{ color: theme.brandText }}>
+            Undo
+          </Body>
+        </Pressable>
+      </View>
+    ) : (
+      <Button label="Apply these targets" onPress={onApply} haptic />
+    )}
+  </Surface>
+)
+
 /**
  * Plain words for a failed request. The raw message used to be printed verbatim, so a lost
  * connection read "Failed: Network request failed" — true, and useless to act on.
@@ -214,9 +268,8 @@ export default function ChatScreen() {
   const goals = useStore(s => s.goals)
   const diary = useStore(s => s.diary)
   const profile = useStore(s => s.profile)
-  const currentWeightKg = useStore(s => s.currentWeightKg)
-  const addFoodEntry = useStore(s => s.addFoodEntry)
   const removeFoodEntry = useStore(s => s.removeFoodEntry)
+  const updateGoals = useStore(s => s.updateGoals)
   const addWeightEntry = useStore(s => s.addWeightEntry)
   const addWater = useStore(s => s.addWater)
   const updateStreak = useStore(s => s.updateStreak)
@@ -225,9 +278,41 @@ export default function ChatScreen() {
   const [loading, setLoading] = useState(false)
   const [photoSheetOpen, setPhotoSheetOpen] = useState(false)
   const keyboardVisible = useKeyboardState(state => state.isVisible)
-  const [messages, setMessages] = useState<ChatEntry[]>([
-    { id: WELCOME_ID, role: 'assistant', text: WELCOME_TEXT },
-  ])
+  const messages = useCoachStore(s => s.messages)
+  const setMessages = useCoachStore(s => s.setMessages)
+  const memory = useCoachStore(s => s.memory)
+  const rememberFact = useCoachStore(s => s.remember)
+  const forgetFact = useCoachStore(s => s.forget)
+  const lastCheckInAt = useCoachStore(s => s.lastCheckInAt)
+  const markCheckIn = useCoachStore(s => s.markCheckIn)
+  const clearConversation = useCoachStore(s => s.clearConversation)
+  const [memorySheetOpen, setMemorySheetOpen] = useState(false)
+
+  const checkInDue = useMemo(
+    () =>
+      (lastCheckInAt === null || Date.now() - lastCheckInAt > CHECK_IN_EVERY_MS) &&
+      loggedDaysLastWeek(diary) >= CHECK_IN_MIN_DAYS,
+    [lastCheckInAt, diary],
+  )
+
+  /*
+    The coach speaks first, once a day. When the last message is not from today (or there is
+    none), the day's opener goes in: where the day stands and, when there is one, a meal idea
+    from this person's own history as a card. Written on the phone, so it costs nothing and
+    appears instantly.
+  */
+  useEffect(() => {
+    if (user === null) return
+    const last = messages[messages.length - 1]
+    if (last?.at !== undefined && isSameDay(last.at, Date.now())) return
+    const opener = buildOpener({ name: profile.name, diary, goals, checkInDue })
+    setMessages(prev => [
+      ...prev,
+      { id: uuidv4(), role: 'assistant', text: opener.text, offer: opener.offer, local: true, at: Date.now() },
+    ])
+    // Once per sign-in: re-running on every diary change would stack openers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user])
 
   const scrollRef = useRef<ScrollView>(null)
   const scrollToEnd = useCallback(() => {
@@ -261,7 +346,10 @@ export default function ChatScreen() {
     const day = useStore.getState().diary[getTodayString()]
 
     for (const action of message.actions ?? []) {
-      if (action.type === 'food' && action.foodId) {
+      if (action.type === 'food' && action.entryIds) {
+        for (const id of action.entryIds) removeFoodEntry(getTodayString(), id)
+      } else if (action.type === 'food' && action.foodId) {
+        // Transcripts saved before entry ids were recorded.
         const entry = day?.entries.find(e => e.food.id === action.foodId)
         if (entry) removeFoodEntry(getTodayString(), entry.id)
       }
@@ -291,90 +379,51 @@ export default function ChatScreen() {
     scrollToEnd()
   }
 
-  const send = async () => {
-    const text = input.trim()
+  const send = async (override?: string, mode: 'chat' | 'checkin' = 'chat') => {
+    const text = (override ?? input).trim()
     if (text.length === 0 || loading) return
 
     const history: ChatMessageParam[] = messages
       // A failed turn is this client's error string, not something the assistant said. Sending
       // it back would tell the model it had replied "Network request failed". A photo turn is
       // skipped for the reason on `fromPhoto`.
-      .filter(m => m.id !== WELCOME_ID && !m.failed && !m.fromPhoto)
+      .filter(m => !m.failed && !m.fromPhoto && m.text.trim().length > 0)
+      .slice(-HISTORY_TURNS)
       .map(m => ({ role: m.role, content: m.text }))
     history.push({ role: 'user', content: text })
 
-    setMessages(prev => [...prev, { id: uuidv4(), role: 'user', text }])
-    setInput('')
+    setMessages(prev => [...prev, { id: uuidv4(), role: 'user', text, at: Date.now() }])
+    if (override === undefined) setInput('')
+    if (mode === 'checkin') markCheckIn(Date.now())
     setLoading(true)
     scrollToEnd()
 
     const today = getTodayString()
 
     try {
-      const day = diary[today]
-      /*
-        Macros travel with every entry, and the day's totals travel alongside them.
-
-        This used to send `{id, name, meal, calories}` and nothing else, so the assistant was
-        answering "how much protein have I got left" from food names alone. It estimated, said
-        so, and was wrong — while `e.food.protein` sat one property away, already exact, already
-        rendered on the dashboard. The model was never the problem; it was never told.
-      */
-      const todayEntries = day
-        ? day.entries.map(e => ({
-            id: e.id,
-            name: e.food.name,
-            meal: e.mealType,
-            calories: Math.round(e.food.calories * e.servings),
-            protein: Math.round(e.food.protein * e.servings),
-            carbs: Math.round(e.food.carbs * e.servings),
-            fat: Math.round(e.food.fat * e.servings),
-          }))
-        : []
-      // The same function the diary and dashboard total with, so all three agree.
-      const totals = getDayNutrition(day ?? { date: today, entries: [], waterIntake: 0, exercises: [] })
-      const todayCalories = totals.calories
-      const displayWeight =
-        profile.weightUnit === 'lbs' ? kgToLbs(currentWeightKg) : currentWeightKg
-
-      const reply = await postChat(history, {
-        goals: {
-          calories: goals.calories,
-          protein: goals.protein,
-          carbs: goals.carbs,
-          fat: goals.fat,
-        },
-        todayCalories: Math.round(todayCalories),
-        consumed: {
-          calories: Math.round(totals.calories),
-          protein: Math.round(totals.protein),
-          carbs: Math.round(totals.carbs),
-          fat: Math.round(totals.fat),
-          fiber: Math.round(totals.fiber),
-        },
-        todayEntries,
-        currentWeight: `${displayWeight.toFixed(1)} ${profile.weightUnit}`,
-        weightUnit: profile.weightUnit,
-      })
+      // Two weeks of diary, weights, energy, plan, usual foods and memory, built fresh from
+      // the store so a food logged a second ago is already in it.
+      const reply = await postChat(
+        history,
+        buildChatContext(useStore.getState(), useCoachStore.getState().memory, mode),
+      )
 
       const logged: LoggedAction[] = []
+      let offer: MealOffer | undefined
+      let proposal: TargetProposal | undefined
+      const memoryNotes: string[] = []
 
       for (const action of reply.actions) {
         if (action.tool === 'log_food') {
           const inp = action.input
-          const food: Food = analyzedFoodToFood(inp, `chat_${uuidv4()}`)
-          addFoodEntry(today, {
-            foodId: food.id,
-            food,
-            servings: inp.servings,
-            mealType: inp.meal,
-          })
+          const { food, servings } = foodForItem(inp, 'chat')
+          const entryIds = addEntriesTracked(today, [{ food, servings, mealType: inp.meal }])
           logged.push({
             type: 'food',
-            label: inp.name,
+            label: inp.servings === 1 ? inp.name : `${inp.name} ×${inp.servings}`,
             value: Math.round(inp.calories),
             unit: 'kcal',
-            foodId: food.id,
+            entryIds,
             macros: { protein: inp.protein, carbs: inp.carbs, fat: inp.fat },
           })
         }
@@ -412,6 +461,19 @@ export default function ChatScreen() {
           addWater(today, ml)
           logged.push({ type: 'water', label: 'Water', value: ml, unit: 'ml' })
         }
+
+        // Offers and proposals are shown, never applied: the person taps to accept.
+        if (action.tool === 'offer_meal') offer = { meal: action.input.meal, items: action.input.items }
+        if (action.tool === 'propose_targets') proposal = { ...action.input }
+
+        if (action.tool === 'remember') {
+          rememberFact(action.input.fact)
+          memoryNotes.push(`Remembered: ${action.input.fact}`)
+        }
+        if (action.tool === 'forget') {
+          forgetFact(action.input.fact)
+          memoryNotes.push(`Forgot: ${action.input.fact}`)
+        }
       }
 
       if (logged.length > 0) updateStreak()
@@ -422,15 +484,19 @@ export default function ChatScreen() {
           id: uuidv4(),
           role: 'assistant',
           text: reply.text.trim().length > 0 ? reply.text : 'Done.',
+          at: Date.now(),
           actions: logged,
           discarded: reply.discardedActions,
+          offer,
+          proposal,
+          memoryNotes: memoryNotes.length > 0 ? memoryNotes : undefined,
         },
       ])
     } catch (err: unknown) {
       const message = friendlyError(err)
       setMessages(prev => [
         ...prev,
-        { id: uuidv4(), role: 'assistant', text: message, failed: true, retryText: text },
+        { id: uuidv4(), role: 'assistant', text: message, failed: true, retryText: text, at: Date.now() },
       ])
     } finally {
       setLoading(false)
@@ -557,8 +623,9 @@ export default function ChatScreen() {
     const logged: LoggedAction[] = []
 
     for (const { food: analyzed, servings } of selection) {
-      const food: Food = analyzedFoodToFood(analyzed, `photo_${uuidv4()}`)
-      addFoodEntry(today, { foodId: food.id, food, servings, mealType: meal })
+      // A catalog match is logged as the catalog food; see foodForItem.
+      const { food } = foodForItem(analyzed, 'photo')
+      const entryIds = addEntriesTracked(today, [{ food, servings, mealType: meal }])
 
       /*
         The receipt reports what was WRITTEN, not what was detected. The stepper can move a
@@ -571,7 +638,7 @@ export default function ChatScreen() {
         label: analyzed.name,
         value: Math.round(analyzed.calories * scale),
         unit: 'kcal',
-        foodId: food.id,
+        entryIds,
         macros: {
           protein: analyzed.protein * scale,
           carbs: analyzed.carbs * scale,
@@ -596,6 +663,73 @@ export default function ChatScreen() {
     )
     scrollToEnd()
   }
+
+  /*
+    Logs a meal the coach offered, then turns the card into a receipt on the same message, so
+    the ordinary Undo covers it and the offer cannot be logged twice.
+  */
+  const logOffer = (messageId: string, offer: MealOffer) => {
+    const today = getTodayString()
+    const logged: LoggedAction[] = []
+    const mealType: MealType = (['Breakfast', 'Lunch', 'Dinner', 'Snacks', 'Pre-Workout', 'Post-Workout'] as const).includes(
+      offer.meal as MealType,
+    )
+      ? (offer.meal as MealType)
+      : mealForNow()
+    for (const item of offer.items) {
+      const { food, servings } = foodForItem(item, 'chat')
+      const entryIds = addEntriesTracked(today, [{ food, servings, mealType }])
+      logged.push({
+        type: 'food',
+        label: item.servings === 1 ? item.name : `${item.name} ×${item.servings}`,
+        value: Math.round(item.calories),
+        unit: 'kcal',
+        entryIds,
+        macros: { protein: item.protein, carbs: item.carbs, fat: item.fat },
+      })
+    }
+    updateStreak()
+    setMessages(prev =>
+      prev.map(message =>
+        message.id === messageId
+          ? { ...message, offer: { ...offer, loggedAt: Date.now() }, actions: [...(message.actions ?? []), ...logged] }
+          : message,
+      ),
+    )
+    scrollToEnd()
+  }
+
+  /** Applies proposed targets, keeping the old ones on the card so the change can be undone. */
+  const applyProposal = (messageId: string, proposal: TargetProposal) => {
+    const previous = { calories: goals.calories, protein: goals.protein, carbs: goals.carbs, fat: goals.fat }
+    updateGoals({ calories: proposal.calories, protein: proposal.protein, carbs: proposal.carbs, fat: proposal.fat })
+    setMessages(prev =>
+      prev.map(message =>
+        message.id === messageId ? { ...message, proposal: { ...proposal, appliedAt: Date.now(), previous } } : message,
+      ),
+    )
+  }
+
+  const revertProposal = (messageId: string, proposal: TargetProposal) => {
+    if (!proposal.previous) return
+    updateGoals(proposal.previous)
+    setMessages(prev =>
+      prev.map(message =>
+        message.id === messageId ? { ...message, proposal: { ...proposal, appliedAt: undefined, previous: undefined } } : message,
+      ),
+    )
+  }
+
+  /*
+    Openers for the next message, chosen for the moment rather than fixed: the check-in when
+    one is due, the next meal, and the question people actually ask a coach.
+  */
+  const starters: { label: string; text: string; mode?: 'checkin' }[] = [
+    ...(checkInDue ? [{ label: 'Weekly check-in', text: 'Weekly check-in', mode: 'checkin' as const }] : []),
+    { label: 'Plan my next meal', text: 'What should I eat for my next meal?' },
+    { label: 'How is my week going?', text: 'How is my week going so far?' },
+    ...(/lose|cut/i.test(profile.goal) ? [{ label: 'Why is my weight stuck?', text: 'Why is my weight not moving?' }] : []),
+  ].slice(0, 3)
 
   /*
     THE ONE FEATURE THAT GENUINELY NEEDS AN ACCOUNT.
@@ -641,12 +775,20 @@ export default function ChatScreen() {
 
   return (
     <Screen
-      title="Assistant"
-      subtitle="Describe a meal or photograph it"
+      title="Coach"
+      subtitle="Knows your diary · remembers what you tell it"
       right={
-        <IconButton accessibilityLabel="Close assistant" onPress={() => router.back()}>
-          <X size={20} color={theme.text} strokeWidth={2} />
-        </IconButton>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <IconButton
+            accessibilityLabel={`What the coach remembers, ${memory.length} ${memory.length === 1 ? 'fact' : 'facts'}`}
+            onPress={() => setMemorySheetOpen(true)}
+          >
+            <Brain size={20} color={theme.text} strokeWidth={2} />
+          </IconButton>
+          <IconButton accessibilityLabel="Close the coach" onPress={() => router.back()}>
+            <X size={20} color={theme.text} strokeWidth={2} />
+          </IconButton>
+        </View>
       }
       scroll={false}
       contentStyle={{ flex: 1, paddingHorizontal: 0, gap: 0 }}
@@ -774,6 +916,33 @@ export default function ChatScreen() {
                       )}
                     </View>
                   )}
+
+                  {message.offer ? (
+                    <OfferCard
+                      offer={message.offer}
+                      theme={theme}
+                      disabled={loading}
+                      onLog={() => logOffer(message.id, message.offer!)}
+                    />
+                  ) : null}
+
+                  {message.proposal ? (
+                    <ProposalCard
+                      proposal={message.proposal}
+                      theme={theme}
+                      onApply={() => applyProposal(message.id, message.proposal!)}
+                      onRevert={() => revertProposal(message.id, message.proposal!)}
+                    />
+                  ) : null}
+
+                  {message.memoryNotes?.map(note => (
+                    <View key={note} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Brain size={12} color={theme.textMuted} strokeWidth={2} />
+                      <Body size={12} tone="muted">
+                        {note}
+                      </Body>
+                    </View>
+                  ))}
 
                   {message.review ? (
                     <View style={{ alignSelf: 'stretch' }}>
@@ -963,17 +1132,44 @@ export default function ChatScreen() {
             style={StyleSheet.absoluteFill}
           />
           <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.glass.overlay }]} />
-          {/* A starter, not furniture: it sat above the composer on every turn, costing a
-              row of the transcript for a prompt most people use once. It shows until the
-              conversation has started. */}
-          {messages.length <= 1 ? (
-            <Button
-              label="Suggest a meal"
-              variant="secondary"
-              onPress={() => setInput('What should I eat to hit my remaining macros today?')}
-              disabled={loading}
-              icon={<Lightbulb size={14} color={theme.text} strokeWidth={2} />}
-            />
+          {/* Quick asks, chosen for the moment (a due check-in comes first). Hidden while typing
+              and while a reply is on its way, so they never compete with the message itself. */}
+          {!loading && input.length === 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ gap: spacing.sm }}
+            >
+              {starters.map(starter => (
+                <Pressable
+                  key={starter.label}
+                  accessibilityRole="button"
+                  accessibilityLabel={starter.label}
+                  onPress={() => void send(starter.text, starter.mode ?? 'chat')}
+                  style={({ pressed }) => ({
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                    minHeight: 36,
+                    paddingHorizontal: 12,
+                    borderRadius: radius.pill,
+                    borderWidth: StyleSheet.hairlineWidth * 2,
+                    borderColor: starter.mode === 'checkin' ? theme.brand : theme.border,
+                    backgroundColor: pressed ? theme.border : 'transparent',
+                  })}
+                >
+                  {starter.mode === 'checkin' ? (
+                    <CalendarCheck size={14} color={theme.brandText} strokeWidth={2} />
+                  ) : (
+                    <Lightbulb size={14} color={theme.textSecondary} strokeWidth={2} />
+                  )}
+                  <Body size={13} weight="medium" style={{ color: starter.mode === 'checkin' ? theme.brandText : theme.textSecondary }}>
+                    {starter.label}
+                  </Body>
+                </Pressable>
+              ))}
+            </ScrollView>
           ) : null}
 
           <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-end' }}>
@@ -995,8 +1191,8 @@ export default function ChatScreen() {
               <Field
                 value={input}
                 onChangeText={setInput}
-                placeholder="What did you eat?"
-                accessibilityLabel="Message the nutrition assistant"
+                placeholder="What did you eat? Ask anything"
+                accessibilityLabel="Message the coach"
                 editable={!loading}
                 // Multiline on purpose: "I had a cup of oatmeal and two eggs for
                 // breakfast" is a normal message and must not scroll off sideways.
@@ -1016,6 +1212,32 @@ export default function ChatScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {/* What the coach remembers, each fact one tap from forgotten, and a way to start over.
+          Shown because a memory nobody can see or correct is a memory nobody should trust. */}
+      <ActionSheet
+        visible={memorySheetOpen}
+        title="What the coach remembers"
+        message={
+          memory.length === 0
+            ? 'Nothing yet. Tell it things like "I\'m vegetarian" or "I train at 7am" and it will keep them.'
+            : 'Tap a fact to forget it.'
+        }
+        onClose={() => setMemorySheetOpen(false)}
+        options={[
+          ...memory.map(fact => ({
+            label: fact,
+            icon: <Brain size={20} color={theme.brandText} strokeWidth={2} />,
+            onPress: () => forgetFact(fact),
+          })),
+          {
+            label: 'Clear the conversation',
+            icon: <Eraser size={20} color={theme.status.critical} strokeWidth={2} />,
+            destructive: true,
+            onPress: () => clearConversation(),
+          },
+        ]}
+      />
 
       <ActionSheet
         visible={photoSheetOpen}

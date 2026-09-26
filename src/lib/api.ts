@@ -88,6 +88,30 @@ export interface ChatContext {
   todayEntries?: ChatContextEntry[]
   currentWeight?: string
   weightUnit?: 'lbs' | 'kg'
+  /** 'checkin' asks for the weekly review. */
+  mode?: 'chat' | 'checkin'
+  /** The coach's data pack: history, weights, energy, plan, usual foods, memory. */
+  coach?: CoachPack
+}
+
+/** See `api/_coach.ts` for how each field is used in the prompt. */
+export interface CoachPack {
+  now?: string
+  profile?: { name?: string; goal?: string; age?: number; gender?: string; heightCm?: number; activityLevel?: string }
+  days?: { date: string; calories: number; protein: number; carbs: number; fat: number; foods: string }[]
+  weights?: { date: string; kg: number }[]
+  energy?: {
+    predictedTdee?: number
+    measuredTdee?: number | null
+    confidence?: string
+    trendKgPerWeek?: number | null
+    daysOfData?: number
+  }
+  plan?: { phase: string; calories: number; protein: number; carbs: number; fat: number; accepted: boolean; ageDays: number } | null
+  alerts?: string[]
+  usualFoods?: { id: string; name: string; meal: string; servings: number }[]
+  memory?: string[]
+  nextMealIdea?: string
 }
 
 /** One food the model estimated, with macros totalled for `servings` servings. */
@@ -104,6 +128,11 @@ export interface AnalyzedFood {
   sugar: number
   sodium: number
   category: FoodCategory
+  /**
+   * Catalog id when the server matched the food to the app's catalog. The numbers are then
+   * the catalog's, and the diary entry should reference the catalog food itself.
+   */
+  foodId?: string
 }
 
 /** `log_food` payload: an analyzed food plus the meal it belongs to. */
@@ -134,6 +163,13 @@ export type ChatAction =
   | { tool: 'log_weight'; input: LogWeightInput }
   | { tool: 'log_water'; input: LogWaterInput }
   | { tool: 'remove_food'; input: RemoveFoodInput }
+  | { tool: 'offer_meal'; input: { meal: MealType; items: (AnalyzedFood & { foodId: string })[] } }
+  | {
+      tool: 'propose_targets'
+      input: { calories: number; protein: number; carbs: number; fat: number; reason: string }
+    }
+  | { tool: 'remember'; input: { fact: string } }
+  | { tool: 'forget'; input: { fact: string } }
 
 export interface ChatResponse {
   /** The assistant's reply. May be empty when the turn was purely tool calls. */
@@ -444,6 +480,7 @@ const parseAnalyzedFood = (value: unknown): AnalyzedFood | null => {
     sugar: nonNegative(value.sugar),
     sodium: nonNegative(value.sodium),
     category: isFoodCategory(value.category) ? value.category : 'Custom',
+    ...(nonEmptyString(value.foodId) ? { foodId: nonEmptyString(value.foodId)! } : {}),
   }
 }
 
@@ -482,6 +519,30 @@ const parseChatAction = (value: unknown): ChatAction | null => {
       const entryId = nonEmptyString(input.entry_id)
       if (entryId === null) return null
       return { tool: 'remove_food', input: { entry_id: entryId } }
+    }
+    case 'offer_meal': {
+      const raw = Array.isArray(input.items) ? input.items : []
+      const items: (AnalyzedFood & { foodId: string })[] = []
+      for (const item of raw) {
+        const food = parseAnalyzedFood(item)
+        if (food?.foodId) items.push({ ...food, foodId: food.foodId })
+      }
+      if (items.length === 0) return null
+      return { tool: 'offer_meal', input: { meal: isMealType(input.meal) ? input.meal : 'Snacks', items } }
+    }
+    case 'propose_targets': {
+      const calories = positiveOr(input.calories)
+      const protein = positiveOr(input.protein)
+      const carbs = nonNegative(input.carbs)
+      const fat = positiveOr(input.fat)
+      const reason = nonEmptyString(input.reason)
+      if (calories === null || protein === null || fat === null || reason === null) return null
+      return { tool: 'propose_targets', input: { calories, protein, carbs, fat, reason } }
+    }
+    case 'remember':
+    case 'forget': {
+      const fact = nonEmptyString(input.fact)
+      return fact === null ? null : { tool: value.tool, input: { fact } }
     }
     default:
       return null
@@ -566,7 +627,10 @@ export const postChat = async (
     throw new Error('The chat service returned an empty response. Try rephrasing.')
   }
 
-  return { text, actions, discardedActions: rawActions.length - actions.length }
+  // The server refuses unusable tool calls itself (unknown food id, targets outside safe
+  // limits) and reports how many; those overclaim in `text` just as client-side drops do.
+  const refused = typeof payload.refused === 'number' && payload.refused > 0 ? payload.refused : 0
+  return { text, actions, discardedActions: rawActions.length - actions.length + refused }
 }
 
 /**
