@@ -186,7 +186,14 @@ export type PhotoPose = 'front' | 'side' | 'back'
 export interface ProgressPhoto {
   id: string
   date: string
-  dataUrl: string   // base64 compressed JPEG
+  /**
+   * Where the photo is, NOT always a loadable URL; show it via resolvePhotoSrc() or
+   * <ProgressPhotoImage>. One of: an inline `data:` base64 JPEG (signed out / upload
+   * failed), a `storage:progress-photos/{userId}/{photoId}.jpg` reference into the private
+   * bucket, or a legacy public bucket URL from before the bucket went private (still
+   * resolved via the path inside it). Named dataUrl for sync compatibility; do not rename.
+   */
+  dataUrl: string
   pose: PhotoPose
   notes?: string
 }
