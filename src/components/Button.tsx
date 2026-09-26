@@ -133,6 +133,14 @@ export const Button: React.FC<ButtonProps> = ({
         tint={tint}
         bordered={variant !== 'ghost'}
         interactive
+        /*
+          Never a shadow on a button. Besides the translucent-fill problem LiquidGlassPane
+          describes, the dimmed state renders the button offscreen (see the note on
+          needsOffscreenAlphaCompositing above) and that layer is clipped to the button's
+          bounds, so the shadow was cut off at the edges and printed pale blocks at both ends
+          of a disabled button: "Forgot password?" on Login before an email is typed.
+        */
+        elevated={false}
         style={{
           minHeight: HIT_SIZE,
           paddingHorizontal: 18,
