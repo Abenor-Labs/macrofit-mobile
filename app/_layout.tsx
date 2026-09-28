@@ -566,6 +566,11 @@ const RootNavigator: React.FC = () => {
               name="reset-password"
               options={{ animation: 'fade', gestureEnabled: false }}
             />
+            {/* Where email links land while the link is exchanged for a session. */}
+            <Stack.Screen
+              name="auth/callback"
+              options={{ animation: 'fade', gestureEnabled: false }}
+            />
             <Stack.Screen
               name="onboarding"
               options={{ animation: 'fade', gestureEnabled: false }}

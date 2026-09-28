@@ -248,6 +248,20 @@ const describeConfirmationError = (code: string | null, description: string | nu
   if (code === 'access_denied') {
     return 'That confirmation link has already been used. Try signing in.'
   }
+  /*
+    A PKCE link can only be redeemed by the install that asked for it, because the matching
+    verifier lives in that install's storage. Opened anywhere else (another phone, a reinstall,
+    or the dev build and the store build sharing the macrofit:// scheme) it fails with a message
+    about a missing code verifier, which tells the user nothing they can act on.
+  */
+  if (
+    code === 'flow_state_not_found' ||
+    code === 'flow_state_expired' ||
+    code === 'pkce_code_verifier_not_found' ||
+    /code.?verifier/i.test(description ?? '')
+  ) {
+    return 'That link was opened in a different app or phone from the one that asked for it. Open it on the same phone, in the same app, or send yourself a new one.'
+  }
   if (description) {
     // GoTrue's own descriptions are written for humans and arrive URL-encoded with plus signs
     // for spaces, which reads as machine output if passed through untouched.
