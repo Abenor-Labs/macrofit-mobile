@@ -54,7 +54,7 @@ import { estimateBodyComposition, latestUsableMeasurement } from '@core/utils/bo
 
 import { useStore } from '@/store/useStore'
 import { useAppearance, type AppearanceMode } from '@/store/appearance'
-import { useAuth } from '@/lib/AuthProvider'
+import { useAuth, useSyncStatus } from '@/lib/AuthProvider'
 import { useHealthSync } from '@/hooks/useHealthSync'
 import { useLogWeight } from '@/hooks/useLogWeight'
 import { isFullyDenied, missingGrantLabels, openHealthConnectInstall } from '@/lib/healthConnect'
@@ -384,9 +384,10 @@ const heightRangeMessage = (unit: UserProfile['heightUnit']): string => {
   return `Height should be between ${low.feet} ft ${low.inches} in and ${high.feet} ft ${high.inches} in.`
 }
 
-export default function ProfileScreen() {
+function ProfileScreen() {
   const theme = useTheme()
-  const { user, signOut, syncStatus, syncBlocked, hasUnsyncedChanges } = useAuth()
+  const { user, signOut, syncBlocked } = useAuth()
+  const { syncStatus, hasUnsyncedChanges } = useSyncStatus()
   const router = useRouter()
 
   const profile = useStore(s => s.profile)
@@ -1538,3 +1539,10 @@ export default function ProfileScreen() {
     </Screen>
   )
 }
+
+/*
+  Memoised: the router re-renders every tab screen when focus moves, and this screen has no
+  props, so without the guard it redrew in full on each tab switch (measured with a React
+  Profiler on a OnePlus 10T). It still re-renders on its own store and context changes.
+*/
+export default React.memo(ProfileScreen)

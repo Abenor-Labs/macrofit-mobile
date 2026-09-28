@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { View, type LayoutChangeEvent } from 'react-native'
 import Svg, { Circle, Line, Path, Rect } from 'react-native-svg'
 import { useGlobalSearchParams, useRouter } from 'expo-router'
@@ -928,7 +928,33 @@ const isTabKey = (value: string | undefined): value is TabKey =>
 const isRangeKey = (value: string | undefined): value is RangeKey =>
   value !== undefined && Object.prototype.hasOwnProperty.call(RANGE_DAYS, value)
 
-export default function ProgressScreen() {
+/*
+  LINK PARAMS, READ IN ISOLATION. Links from Today ("see your weight", "this day's intake")
+  arrive as ?metric= and ?range= on this tab. They have to be read from the global params (a
+  tab screen stays mounted, so its local params do not update for a later link), but the
+  global params change on EVERY navigation anywhere in the app, and reading them in the screen
+  re-rendered all of Progress on each tab switch. This child is the only thing that reads
+  them; it applies a param once and clears both in a single setParams (two separate calls were
+  two extra navigations, each re-rendering everything listening to the route).
+*/
+const ProgressParamSync: React.FC<{
+  onMetric: (metric: TabKey) => void
+  onRange: (range: RangeKey) => void
+}> = ({ onMetric, onRange }) => {
+  const params = useGlobalSearchParams<{ metric?: string; range?: string }>()
+  const router = useRouter()
+  useEffect(() => {
+    const metric = isTabKey(params.metric) ? params.metric : null
+    const range = isRangeKey(params.range) ? params.range : null
+    if (metric === null && range === null) return
+    if (metric !== null) onMetric(metric)
+    if (range !== null) onRange(range)
+    router.setParams({ metric: undefined, range: undefined })
+  }, [params.metric, params.range, onMetric, onRange, router])
+  return null
+}
+
+function ProgressScreen() {
   const theme = useTheme()
   /*
     The metric can arrive as a param so cards elsewhere can open the one they are about — the
@@ -942,9 +968,12 @@ export default function ProgressScreen() {
     dashboard changed the URL and this screen never heard about it. The metric arrived, the tab
     did not move, and the link looked like it did nothing.
   */
-  const params = useGlobalSearchParams<{ metric?: string; range?: string }>()
-  const [tab, setTab] = useState<TabKey>(isTabKey(params.metric) ? params.metric : 'calories')
+  const [tab, setTab] = useState<TabKey>('calories')
   const [range, setRange] = useState<RangeKey>('7d')
+  const applyRange = useCallback((next: RangeKey) => {
+    setRange(next)
+    if (next === 'day') setDay(getTodayString())
+  }, [])
   /*
     Which day the Day range is showing. Separate from `range` because moving the cursor must not
     reset the span, and switching to Week and back should return to the day you were on.
@@ -958,33 +987,6 @@ export default function ProgressScreen() {
   const weightUnit = useStore(s => s.profile.weightUnit)
 
   const router = useRouter()
-
-  /*
-    The initial state above only runs once, and a tab screen stays mounted for the life of the
-    app — so without this, the first card to send someone here would decide the metric forever
-    and every later link would be silently ignored.
-
-    The param is cleared once applied. Otherwise it keeps applying: pick Weight by hand, leave
-    via the tab bar, come back the same way, and a stale `metric=calories` from an hour ago
-    would drag you off the tab you chose.
-  */
-  useEffect(() => {
-    if (!isTabKey(params.metric)) return
-    setTab(params.metric)
-    router.setParams({ metric: undefined })
-  }, [params.metric, router])
-
-  /*
-    The span can arrive as a param too, so the dashboard's Intake ring lands on the day it was
-    showing rather than on whatever span this screen was last left in. Cleared once applied, for
-    the same reason the metric is: a stale param must not drag the user off a span they chose.
-  */
-  useEffect(() => {
-    if (!isRangeKey(params.range)) return
-    setRange(params.range)
-    if (params.range === 'day') setDay(getTodayString())
-    router.setParams({ range: undefined })
-  }, [params.range, router])
 
   /*
     Each tab offers only the spans it can draw (see TAB_RANGES). Day on any tab but Calories
@@ -1608,6 +1610,7 @@ export default function ProgressScreen() {
         </IconButton>
       }
     >
+      <ProgressParamSync onMetric={setTab} onRange={applyRange} />
       <View style={{ gap: spacing.md }}>
         <Segmented options={TABS} value={tab} onChange={setTab} />
         {/* Full width, and the only statement of the period on the screen. */}
@@ -1631,3 +1634,10 @@ export default function ProgressScreen() {
     </Screen>
   )
 }
+
+/*
+  Memoised: the router re-renders every tab screen when focus moves, and this screen has no
+  props, so without the guard it redrew in full on each tab switch (measured with a React
+  Profiler on a OnePlus 10T). It still re-renders on its own store and context changes.
+*/
+export default React.memo(ProgressScreen)

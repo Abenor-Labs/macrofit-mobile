@@ -92,7 +92,7 @@ const QUICK_ADD_ML = [150, 250, 350, 500] as const
 
 type MealTotals = Record<string, { calories: number; count: number }>
 
-export default function DashboardScreen() {
+function DashboardScreen() {
   const theme = useTheme()
 
   /*
@@ -104,9 +104,6 @@ export default function DashboardScreen() {
   */
   const today = getTodayString()
   const storedDay = useStore(s => s.diary[today])
-  // The whole diary, for the week strip. Today's row is selected separately above so the rest
-  // of the screen keeps re-rendering only on changes to today.
-  const diary = useStore(s => s.diary)
   const goals = useStore(s => s.goals)
   const streak = useStore(s => s.streak)
   const recommendation = useStore(s => s.recommendation)
@@ -118,11 +115,6 @@ export default function DashboardScreen() {
   // Null until the launch check finds something newer, so the header carries the icon only
   // while there is an update to take — never a permanent "check for updates" affordance.
   const update = useAvailableUpdate()
-  const { unread, recap } = useActivityFeed()
-  const weightUnit = useStore(s => s.profile.weightUnit)
-  // Monday to Wednesday: after that, last week is old news on the home screen (it stays in
-  // Activity).
-  const showRecap = recap !== null && [1, 2, 3].includes(new Date().getDay())
   const day = useMemo<DiaryDay>(
     () => storedDay ?? { date: today, entries: [], waterIntake: 0, exercises: [] },
     [storedDay, today]
@@ -171,28 +163,7 @@ export default function DashboardScreen() {
           ) : null}
           {/* Activity: records, milestones and the weekly recap. The dot means something new
               since you last looked — the only badge in the app, so it still means something. */}
-          <IconButton
-            accessibilityLabel={unread > 0 ? `Activity, ${unread} new` : 'Activity'}
-            onPress={() => router.push('/activity')}
-          >
-            <Bell size={20} color={theme.brandText} strokeWidth={2} />
-            {unread > 0 ? (
-              <View
-                pointerEvents="none"
-                style={{
-                  position: 'absolute',
-                  top: 11,
-                  right: 11,
-                  width: 9,
-                  height: 9,
-                  borderRadius: radius.pill,
-                  borderWidth: 1.5,
-                  backgroundColor: theme.brand,
-                  borderColor: theme.canvas,
-                }}
-              />
-            ) : null}
-          </IconButton>
+          <ActivityBell />
           <IconButton
             accessibilityLabel="Open the assistant"
             onPress={() => router.push('/chat')}
@@ -213,7 +184,7 @@ export default function DashboardScreen() {
         menu. The card was the only one of the three that cost a slot above the day's numbers
         to advertise what the other two already offered.
       */}
-      {showRecap && recap ? <WeeklyRecapCard recap={recap} unit={weightUnit} /> : null}
+      <RecapSlot />
 
       <MacroCard
         theme={theme}
@@ -239,7 +210,6 @@ export default function DashboardScreen() {
               claim, and what you average and how often you hit protein is why. */}
           <WeekCard
             theme={theme}
-            diary={diary}
             today={today}
             goalCalories={goals.calories}
             proteinGoal={goals.protein}
@@ -833,16 +803,64 @@ const BAR_MAX = 52
  * say what it means. That verdict is the most useful thing on this screen precisely because it
  * does not make anyone read a graph, and this follows it rather than competing with it.
  */
+/*
+  THE ACTIVITY FEED IS READ BY THE TWO THINGS THAT SHOW IT, NOT BY THE SCREEN. The feed
+  subscribes to the diary, workout log, goals, weights and plan, and it used to be called at
+  the top of this screen, so every food logged from search or the coach, and every set typed
+  in Training, re-rendered all of Today underneath (measured ~60 ms a time on a OnePlus 10T).
+  Now only the bell and the recap card re-render.
+*/
+const ActivityBell: React.FC = () => {
+  const theme = useTheme()
+  const router = useRouter()
+  const { unread } = useActivityFeed()
+  return (
+    <IconButton
+      accessibilityLabel={unread > 0 ? `Activity, ${unread} new` : 'Activity'}
+      onPress={() => router.push('/activity')}
+    >
+      <Bell size={20} color={theme.brandText} strokeWidth={2} />
+      {unread > 0 ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: 11,
+            right: 11,
+            width: 9,
+            height: 9,
+            borderRadius: radius.pill,
+            borderWidth: 1.5,
+            backgroundColor: theme.brand,
+            borderColor: theme.canvas,
+          }}
+        />
+      ) : null}
+    </IconButton>
+  )
+}
+
+const RecapSlot: React.FC = () => {
+  const { recap } = useActivityFeed()
+  const weightUnit = useStore(s => s.profile.weightUnit)
+  // Monday to Wednesday: after that, last week is old news on the home screen (it stays in
+  // Activity).
+  const showRecap = recap !== null && [1, 2, 3].includes(new Date().getDay())
+  return showRecap && recap ? <WeeklyRecapCard recap={recap} unit={weightUnit} /> : null
+}
+
 const WeekCard: React.FC<{
   theme: Theme
-  diary: Record<string, DiaryDay>
   /** Today's date string. A dependency, not a display value: see the memo below. */
   today: string
   goalCalories: number
   proteinGoal: number
   streakDays: number
-}> = ({ theme, diary, today, goalCalories, proteinGoal, streakDays }) => {
+}> = ({ theme, today, goalCalories, proteinGoal, streakDays }) => {
   const router = useRouter()
+  // The whole diary lives here, not in the screen: it changes on every log anywhere in the
+  // app, and only the week strip needs more than today's row.
+  const diary = useStore(s => s.diary)
 
   const week = useMemo(() => {
     const dates = getLast7Days()
@@ -1013,3 +1031,10 @@ const WeekFigure: React.FC<{
     <Label>{label}</Label>
   </View>
 )
+
+/*
+  Memoised: the router re-renders every tab screen when focus moves, and this screen has no
+  props, so without the guard it redrew in full on each tab switch (measured with a React
+  Profiler on a OnePlus 10T). It still re-renders on its own store and context changes.
+*/
+export default React.memo(DashboardScreen)

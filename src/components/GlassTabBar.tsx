@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useRef, useEffect, useState } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
 import Animated, {
   useAnimatedStyle,
@@ -73,15 +73,34 @@ export const GlassTabBar: React.FC<GlassTabBarProps> = ({ state, navigation, ite
   const tabWidth = state.routes.length > 0 ? barWidth / state.routes.length : 0
   const indicatorX = useSharedValue(0)
 
-  useEffect(() => {
+  const moveIndicatorTo = (index: number) => {
     if (tabWidth === 0) return
-    const target = state.index * tabWidth + (tabWidth - INDICATOR_WIDTH) / 2
+    const target = index * tabWidth + (tabWidth - INDICATOR_WIDTH) / 2
     indicatorX.value = reduced
       ? target
       : // Short and strongly decelerated: the finger has already arrived, so the indicator is
         // catching up rather than leading. Anything slower reads as lag.
         withTiming(target, { duration: ENTER_MS, easing: enterEasing })
+  }
+
+  useEffect(() => {
+    moveIndicatorTo(state.index)
+    // moveIndicatorTo only closes over these same values.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.index, tabWidth, indicatorX, reduced])
+
+  /*
+    FEEDBACK ON TOUCH, NOT ON ARRIVAL. The indicator used to move in the effect above, which
+    runs only after the new screen has rendered and committed, and the haptic fired on
+    release. So while the JS thread was busy opening a tab, the tap produced no response at
+    all, and the app felt as slow as its slowest screen. Now the indicator starts sliding and
+    the haptic fires the moment the finger lands; both run without waiting for the screen.
+    If the press turns out not to be a tab switch (a launcher like Workout, or a drag that
+    cancels it) the indicator goes back to the real tab.
+  */
+  const stateIndexRef = useRef(state.index)
+  stateIndexRef.current = state.index
+  const switchedRef = useRef(false)
 
   const indicatorStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: indicatorX.value }],
@@ -161,6 +180,18 @@ export const GlassTabBar: React.FC<GlassTabBarProps> = ({ state, navigation, ite
               accessibilityRole="tab"
               accessibilityState={{ selected: focused }}
               accessibilityLabel={label}
+              onPressIn={() => {
+                if (focused) return
+                switchedRef.current = false
+                moveIndicatorTo(index)
+                void Haptics.selectionAsync()
+              }}
+              onPressOut={() => {
+                // onPress runs right after this on a real tap; a frame later we know.
+                requestAnimationFrame(() => {
+                  if (!switchedRef.current) moveIndicatorTo(stateIndexRef.current)
+                })
+              }}
               onPress={() => {
                 // A launcher item leaves this navigator instead of switching tab.
                 if (onPressItem?.(route.name)) return
@@ -170,7 +201,7 @@ export const GlassTabBar: React.FC<GlassTabBarProps> = ({ state, navigation, ite
                   canPreventDefault: true,
                 })
                 if (!focused && !event.defaultPrevented) {
-                  void Haptics.selectionAsync()
+                  switchedRef.current = true
                   navigation.navigate(route.name)
                 }
               }}

@@ -64,7 +64,6 @@ interface AuthContextValue {
   signOut: (options?: { warnedAboutUnsyncedChanges?: boolean }) => Promise<{
     error: string | null
   }>
-  syncStatus: SyncStatus
   /**
    * A background fetch of the user's saved data is in flight.
    *
@@ -102,11 +101,6 @@ interface AuthContextValue {
   resolveUnclaimed: (choice: 'keep' | 'discard') => Promise<void>
   /** Retry the failed load. Unblocks saving if it succeeds. */
   retrySync: () => Promise<void>
-  /**
-   * This device holds edits the server has never accepted. They are safe locally, but a
-   * sign-out wipes the device — so anything offering to sign out has to say this first.
-   */
-  hasUnsyncedChanges: boolean
   /**
    * Set when the session ended without the user asking — an expired or revoked refresh
    * token. The login screen reads it so the user is told why they are looking at a form
@@ -1214,9 +1208,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const clearRecoveryPending = useCallback(() => setRecoveryPending(false), [])
 
   /**
-   * Memoised because `syncStatus` cycles saving → saved → idle on every autosave, and
-   * every consumer of this context (the root navigator, the entry gate, Profile) would
-   * otherwise re-render three times per cycle — several times a minute while logging.
+   * Memoised, and deliberately WITHOUT the save status. `syncStatus` cycles saving → saved →
+   * idle on every autosave and `hasUnsyncedChanges` flips on every edit; while they were in
+   * this value (and its deps) the memo could not hold, so the root navigator, the entry gate
+   * and every useAuth() caller re-rendered three times per edit, 1.5-3.5 s after each tap,
+   * often right as the next tap landed. They live in SyncStatusContext below, read only by
+   * the one row that shows them (Profile).
    */
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -1229,7 +1226,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       requestPasswordReset,
       updatePassword,
       signOut,
-      syncStatus,
       hydrating,
       hydrationOutcome,
       // Read-only mode needs a local copy to be read-only *of*. Without one there is
@@ -1240,7 +1236,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       unclaimedConflict,
       resolveUnclaimed,
       retrySync,
-      hasUnsyncedChanges,
       sessionEndedReason,
       clearSessionEndedReason,
       confirming,
@@ -1259,7 +1254,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       requestPasswordReset,
       updatePassword,
       signOut,
-      syncStatus,
       hydrating,
       hydrationOutcome,
       hasLoadedAccount,
@@ -1267,7 +1261,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       unclaimedConflict,
       resolveUnclaimed,
       retrySync,
-      hasUnsyncedChanges,
       sessionEndedReason,
       clearSessionEndedReason,
       confirming,
@@ -1277,5 +1270,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     ]
   )
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+  const syncValue = useMemo<SyncStatusValue>(
+    () => ({ syncStatus, hasUnsyncedChanges }),
+    [syncStatus, hasUnsyncedChanges]
+  )
+
+  return (
+    <AuthContext.Provider value={value}>
+      <SyncStatusContext.Provider value={syncValue}>{children}</SyncStatusContext.Provider>
+    </AuthContext.Provider>
+  )
 }
+
+/** Save progress, kept apart from AuthContext so it only re-renders what displays it. */
+export interface SyncStatusValue {
+  syncStatus: SyncStatus
+  /**
+   * This device holds edits the server has never accepted. They are safe locally, but a
+   * sign-out wipes the device — so anything offering to sign out has to say this first.
+   */
+  hasUnsyncedChanges: boolean
+}
+
+const SyncStatusContext = createContext<SyncStatusValue>({ syncStatus: 'idle', hasUnsyncedChanges: false })
+
+export const useSyncStatus = (): SyncStatusValue => useContext(SyncStatusContext)

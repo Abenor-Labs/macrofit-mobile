@@ -544,6 +544,9 @@ const RootNavigator: React.FC = () => {
               headerShown: false,
               contentStyle: { backgroundColor: theme.canvas },
               animation: 'slide_from_right',
+              // Screens underneath (the whole tab navigator, under search or the coach) stop
+              // re-rendering while covered; see TAB_SCREEN_OPTIONS in (tabs)/_layout.tsx.
+              freezeOnBlur: true,
             }}
           >
             <Stack.Screen name="(tabs)" />
