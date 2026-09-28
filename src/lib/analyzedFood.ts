@@ -57,6 +57,9 @@ export const mealForNow = (now: Date = new Date()): MealType => {
   const hour = now.getHours()
   if (hour < 11) return 'Breakfast'
   if (hour < 16) return 'Lunch'
-  if (hour < 21) return 'Dinner'
+  // 4 to 7 pm is tiffin and evening coffee in an Indian day, not dinner. The Today card's
+  // next-meal slots (src/lib/nextMeal.ts) use the same boundaries, so the two never disagree.
+  if (hour < 19) return 'Snacks'
+  if (hour < 23) return 'Dinner'
   return 'Snacks'
 }

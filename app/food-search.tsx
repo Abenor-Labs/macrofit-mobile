@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  BackHandler,
   FlatList,
   Pressable,
+  ScrollView,
   StyleSheet,
   TextInput,
   View,
@@ -10,7 +12,18 @@ import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboa
 import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
-import { ArrowLeft, Check, Minus, Plus, Search, TriangleAlert, X } from 'lucide-react-native'
+import {
+  ArrowLeft,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Minus,
+  Plus,
+  Search,
+  TriangleAlert,
+  Utensils,
+  X,
+} from 'lucide-react-native'
 
 import { GlassSurface, Surface } from '@/components/Glass'
 import { Button, IconButton } from '@/components/Button'
@@ -18,6 +31,10 @@ import { EmptyState, Field, Pill } from '@/components/Layout'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
 import { useStore } from '@/store/useStore'
 import { formatNumber } from '@/lib/formatNumber'
+import { mealForNow } from '@/lib/analyzedFood'
+import { addEntriesTracked } from '@/lib/coachWrites'
+import { appAlert } from '@/components/AppAlert'
+import { useSnackbar } from '@/components/Snackbar'
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, fonts, radius, spacing } from '@/theme/tokens'
 import type { Food, MealType } from '@core/types'
@@ -38,6 +55,22 @@ const MEAL_TYPES: readonly MealType[] = [
 ]
 
 const HAIRLINE = StyleSheet.hairlineWidth * 2
+
+/**
+ * One food waiting on the plate, at the amount chosen for it.
+ *
+ * THE PLATE EXISTS BECAUSE A MEAL IS SEVERAL FOODS. Logging used to be one food per trip:
+ * pick roti, set 4, "Add to Lunch", and the screen closed, so rice, sambar and poriyal each
+ * meant opening search again. Now each food goes onto the plate, the plate shows what the
+ * meal adds up to, and one tap logs the lot to the meal chosen on the plate.
+ */
+interface PlateItem {
+  key: string
+  food: Food
+  servings: number
+}
+
+const plateName = (food: Food) => food.name.replace(/\s*\([^)]*\)\s*$/, '')
 
 /** Below two characters the remote endpoints return thousands of useless matches. */
 const REMOTE_MIN_QUERY = 2
@@ -428,12 +461,16 @@ export default function FoodSearchScreen() {
 
   const date = isISODate(params.date) ? params.date : getTodayString()
 
-  const addFoodEntry = useStore(s => s.addFoodEntry)
   const updateStreak = useStore(s => s.updateStreak)
   const customFoods = useStore(s => s.customFoods)
   const recentFoodIds = useStore(s => s.recentFoodIds)
 
-  const [meal, setMeal] = useState<MealType>(isMealType(params.meal) ? params.meal : 'Snacks')
+  // The meal row that opened search wins; otherwise the clock decides (4 pm is snack time,
+  // not dinner). Either way it is one tap to change on the plate.
+  const [meal, setMeal] = useState<MealType>(isMealType(params.meal) ? params.meal : mealForNow())
+  const [plate, setPlate] = useState<PlateItem[]>([])
+  const [plateOpen, setPlateOpen] = useState(false)
+  const snackbar = useSnackbar()
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
   const [remote, setRemote] = useState<RemoteState>({ status: 'idle' })
@@ -649,18 +686,83 @@ export default function FoodSearchScreen() {
     setQuantity(next === 'serving' ? '1' : formatAmount(selected.servingSize))
   }
 
-  const logFood = () => {
+  /** Puts the chosen amount on the plate and goes back to search for the next food. */
+  const addToPlate = () => {
     if (selected === null || !quantityValid || servings <= 0) return
-    addFoodEntry(date, {
-      foodId: selected.id,
-      food: selected,
-      servings: round4(servings),
-      mealType: meal,
+    const amount = round4(servings)
+    setPlate(prev => {
+      // The same food twice is one line with more of it, not two lines to reconcile.
+      const existing = prev.find(item => item.food.id === selected.id)
+      if (existing) {
+        return prev.map(item =>
+          item === existing ? { ...item, servings: round4(item.servings + amount) } : item
+        )
+      }
+      return [...prev, { key: `${selected.id}-${Date.now()}`, food: selected, servings: amount }]
     })
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    setSelected(null)
+  }
+
+  const removeFromPlate = (key: string) => {
+    setPlate(prev => {
+      const next = prev.filter(item => item.key !== key)
+      if (next.length === 0) setPlateOpen(false)
+      return next
+    })
+  }
+
+  /** Logs everything on the plate to the chosen meal, with one Undo for the lot. */
+  const logPlate = () => {
+    if (plate.length === 0) return
+    const ids = addEntriesTracked(
+      date,
+      plate.map(item => ({ food: item.food, servings: item.servings, mealType: meal }))
+    )
     updateStreak()
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+    const count = plate.length
+    const removeFoodEntry = useStore.getState().removeFoodEntry
+    snackbar.show(`${count === 1 ? '1 item' : `${count} items`} added to ${meal}`, {
+      label: 'Undo',
+      onPress: () => ids.forEach(id => removeFoodEntry(date, id)),
+    })
+    setPlate([])
     router.back()
   }
+
+  /** Leaving with food on the plate throws it away, so it asks first. */
+  const confirmLeave = () => {
+    if (plate.length === 0) {
+      router.back()
+      return
+    }
+    appAlert('Discard this plate?', `${plate.length === 1 ? '1 item is' : `${plate.length} items are`} not logged yet.`, [
+      { text: 'Keep adding', style: 'cancel' },
+      { text: 'Discard', style: 'destructive', onPress: () => router.back() },
+    ])
+  }
+
+  // Android back: out of the amount step first, then the same question as the close button.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (selected !== null) {
+        setSelected(null)
+        return true
+      }
+      if (plate.length > 0) {
+        confirmLeave()
+        return true
+      }
+      return false
+    })
+    return () => sub.remove()
+    // confirmLeave reads plate, which is in the deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, plate])
+
+  const plateKcal = Math.round(plate.reduce((sum, item) => sum + item.food.calories * item.servings, 0))
+  const plateProtein = Math.round(plate.reduce((sum, item) => sum + item.food.protein * item.servings, 0))
 
   // --- Render ---------------------------------------------------------------
 
@@ -690,7 +792,7 @@ export default function FoodSearchScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
           <IconButton
             accessibilityLabel={selected === null ? 'Close food search' : 'Back to search results'}
-            onPress={() => (selected === null ? router.back() : setSelected(null))}
+            onPress={() => (selected === null ? confirmLeave() : setSelected(null))}
             style={{ marginLeft: -spacing.md }}
           >
             {selected === null ? (
@@ -863,21 +965,6 @@ export default function FoodSearchScreen() {
           </Surface>
 
           <Surface style={{ padding: spacing.lg, gap: spacing.md }}>
-            <Label>Meal</Label>
-            <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }}>
-              {MEAL_TYPES.map(option => (
-                <ChoiceChip
-                  key={option}
-                  label={option}
-                  selected={option === meal}
-                  accessibilityLabel={`Log this as ${option}`}
-                  onPress={() => setMeal(option)}
-                />
-              ))}
-            </View>
-          </Surface>
-
-          <Surface style={{ padding: spacing.lg, gap: spacing.md }}>
             <Label>Adds to your day</Label>
             {quantityValid ? (
               <>
@@ -937,10 +1024,10 @@ export default function FoodSearchScreen() {
             }}
           >
             <Button
-              label={`Add to ${meal}`}
+              label={plate.length === 0 ? 'Add to plate' : `Add to plate (${plate.length} on it)`}
               full
               disabled={!quantityValid}
-              onPress={logFood}
+              onPress={addToPlate}
               icon={<Plus size={16} color={theme.brandOn} strokeWidth={2.4} />}
             />
           </View>
@@ -963,7 +1050,8 @@ export default function FoodSearchScreen() {
         // section headings carry the spacing between groups instead.
         contentContainerStyle={{
           paddingHorizontal: spacing.lg,
-          paddingBottom: insets.bottom + spacing.xxl,
+          // Clear of the plate bar when there is one, so the last result is still tappable.
+          paddingBottom: (plate.length > 0 ? footerHeight : insets.bottom) + spacing.xxl,
         }}
         ListFooterComponent={
           hasResults || remote.status === 'loading' ? null : (
@@ -979,6 +1067,95 @@ export default function FoodSearchScreen() {
           )
         }
       />
+
+      {plate.length > 0 ? (
+        <KeyboardStickyView
+          offset={{ opened: insets.bottom }}
+          style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}
+        >
+          <View
+            onLayout={event => setFooterHeight(event.nativeEvent.layout.height)}
+            style={{
+              paddingHorizontal: spacing.lg,
+              paddingTop: spacing.md,
+              paddingBottom: insets.bottom + spacing.md,
+              gap: spacing.md,
+              borderTopWidth: HAIRLINE,
+              borderTopColor: theme.hairline,
+              backgroundColor: theme.canvas,
+            }}
+          >
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: plateOpen }}
+              accessibilityLabel={`Your plate: ${plate.length} ${plate.length === 1 ? 'item' : 'items'}, ${plateKcal} kilocalories. ${plateOpen ? 'Hide' : 'Show'} items`}
+              onPress={() => setPlateOpen(open => !open)}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 32 }}
+            >
+              <Utensils size={16} color={theme.brandText} strokeWidth={2.2} />
+              <Body weight="semibold" style={{ flex: 1 }} numberOfLines={1}>
+                {`Plate · ${plate.length} ${plate.length === 1 ? 'item' : 'items'}`}
+              </Body>
+              <Body size={13} tone="secondary">
+                {`${formatNumber(plateKcal)} kcal · ${plateProtein} g protein`}
+              </Body>
+              {plateOpen ? (
+                <ChevronDown size={18} color={theme.textMuted} strokeWidth={2} />
+              ) : (
+                <ChevronUp size={18} color={theme.textMuted} strokeWidth={2} />
+              )}
+            </Pressable>
+
+            {plateOpen
+              ? plate.map(item => (
+                  <View key={item.key} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                    <Body size={15} style={{ flex: 1 }} numberOfLines={1}>
+                      {item.servings === 1 ? plateName(item.food) : `${plateName(item.food)} ×${formatAmount(item.servings)}`}
+                    </Body>
+                    <StatValue size={13} tone="secondary">
+                      {formatNumber(Math.round(item.food.calories * item.servings))}
+                    </StatValue>
+                    <Body size={11} tone="muted">
+                      kcal
+                    </Body>
+                    <IconButton
+                      accessibilityLabel={`Remove ${plateName(item.food)} from the plate`}
+                      onPress={() => removeFromPlate(item.key)}
+                    >
+                      <X size={16} color={theme.textMuted} strokeWidth={2.2} />
+                    </IconButton>
+                  </View>
+                ))
+              : null}
+
+            {/* The meal is chosen once, for the whole plate, where the decision is made. */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ gap: spacing.sm }}
+            >
+              {MEAL_TYPES.map(option => (
+                <ChoiceChip
+                  key={option}
+                  label={option}
+                  selected={option === meal}
+                  accessibilityLabel={`Log this plate as ${option}`}
+                  onPress={() => setMeal(option)}
+                />
+              ))}
+            </ScrollView>
+
+            <Button
+              label={`Add to ${meal}`}
+              full
+              haptic
+              onPress={logPlate}
+              icon={<Check size={16} color={theme.brandOn} strokeWidth={2.4} />}
+            />
+          </View>
+        </KeyboardStickyView>
+      ) : null}
     </LiquidGlassScene>
   )
 }
