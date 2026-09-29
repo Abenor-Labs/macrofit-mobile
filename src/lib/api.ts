@@ -11,6 +11,7 @@ import type {
 } from '@core/types'
 import { isAuthRetryableFetchError } from '@supabase/supabase-js'
 import { requireApiUrl } from './env'
+import type { Activity } from './activity'
 import { supabase } from './supabase'
 
 /**
@@ -119,6 +120,8 @@ export interface CoachPack {
   usualFoods?: { id: string; name: string; meal: string; servings: number }[]
   memory?: string[]
   nextMealIdea?: string
+  /** Today's water, steps and the last week of training. See api/_coach.ts renderActivity. */
+  activity?: Activity
 }
 
 /** One food the model estimated, with macros totalled for `servings` servings. */
