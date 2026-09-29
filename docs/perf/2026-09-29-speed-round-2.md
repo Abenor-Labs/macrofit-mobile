@@ -20,9 +20,15 @@ the runs' output:
 | Memo icons (kept) | 613 ms | 142 ms | 350 ms | 18.5 ms | 72 ms [54-120] | 742 MB |
 | Memo date bar (kept) | 602 ms | 140 ms | 348 ms | 20.5 ms | 58 ms [46-116] | 736 MB |
 | Pre-built tabs (kept) | 612 ms | 16 ms update (+94) | nothing to render | — | — | 752 MB |
+| Today below the fold a frame later (kept) | 367 ms | — | — | — | — | — |
 
 Pre-built tabs: Diary builds in the background ~0.5 s after Today (117-124 ms) and Profile ~2 s after
 (346-363 ms), once nothing is animating; a tap landing on that moment waits for it.
+
+Today card costs at launch (before deferring): RecapSlot 30, MacroCard 24, NextMealCard 34 | below the
+fold: WeightVerdict 67, WeekCard 20, CoachCard 10, MealsCard 32, WaterCard 17, StepsCard 15,
+WeightTargetCard 79 (240 ms together). About 280 ms of the first render is outside the cards. Deferred
+cards arrive ~0.9 s after the first render (other launch work runs in between), below the fold.
 
 Targets: Diary day content ≤ 50 ms; first visits instant; Today first render ≤ 300 ms; late frames during
 a day change ≤ 10%.
