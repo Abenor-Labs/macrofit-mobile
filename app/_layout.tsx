@@ -2,7 +2,14 @@ import 'react-native-get-random-values'
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
-import { Stack, useRouter, useSegments } from 'expo-router'
+import {
+  DarkTheme,
+  DefaultTheme,
+  Stack,
+  ThemeProvider as NavigationThemeProvider,
+  useRouter,
+  useSegments,
+} from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import * as SplashScreen from 'expo-splash-screen'
 import * as Application from 'expo-application'
@@ -493,6 +500,31 @@ const RootNavigator: React.FC = () => {
   )
 
   /*
+    THE NAVIGATORS' OWN COLOURS. Without a theme, React Navigation paints every scene and
+    container in its light default (#F2F2F2). Nothing showed it while screens swapped in one
+    frame, but anything translucent in between let it through: a tab fading in, a screen sliding
+    over another. On this dark app that was a grey flash across the whole screen on every
+    navigation. The navigators now use the app's own canvas, surface and text colours, in
+    whichever mode the app is in.
+  */
+  const navigationTheme = useMemo(() => {
+    const base = theme.mode === 'dark' ? DarkTheme : DefaultTheme
+    return {
+      ...base,
+      dark: theme.mode === 'dark',
+      colors: {
+        ...base.colors,
+        primary: theme.brand,
+        background: theme.canvas,
+        card: theme.surface,
+        text: theme.text,
+        border: theme.border,
+        notification: theme.brand,
+      },
+    }
+  }, [theme])
+
+  /*
     After every hook. The wall is for one narrow case: an account we could not read, on a
     device holding nothing to show.
 
@@ -539,6 +571,7 @@ const RootNavigator: React.FC = () => {
           {/* Inside BlurTargetProvider so a toast renders above the tab bar rather than
               beneath it, and above the Stack so any screen can raise one. */}
           <SnackbarProvider>
+          <NavigationThemeProvider value={navigationTheme}>
           <Stack
             screenOptions={{
               headerShown: false,
@@ -608,6 +641,7 @@ const RootNavigator: React.FC = () => {
               options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
             />
           </Stack>
+          </NavigationThemeProvider>
           </SnackbarProvider>
         </BlurTargetProvider>
       </SafeAreaInsetsContext.Provider>
