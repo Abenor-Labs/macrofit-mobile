@@ -48,11 +48,15 @@ export const shiftISODate = (iso: string, days: number): string => {
  * "Jump to today" only appears off-today. On today it would be a button that does nothing,
  * and the relative label underneath already says where you are.
  */
-export const DateNavigator: React.FC<{
+/*
+  Memoised: Diary's deferred pass (the one that renders the new day's content) re-rendered this
+  with identical props, ~10 ms each time. `onChange` is a state setter, so it is stable.
+*/
+export const DateNavigator = React.memo<{
   date: string
   today: string
   onChange: (next: string) => void
-}> = ({ date, today, onChange }) => {
+}>(function DateNavigator({ date, today, onChange }) {
   const theme = useTheme()
   const isToday = date === today
   /*
@@ -128,4 +132,4 @@ export const DateNavigator: React.FC<{
       )}
     </Surface>
   )
-}
+})
