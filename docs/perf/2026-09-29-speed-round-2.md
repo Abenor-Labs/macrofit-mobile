@@ -30,6 +30,17 @@ fold: WeightVerdict 67, WeekCard 20, CoachCard 10, MealsCard 32, WaterCard 17, S
 WeightTargetCard 79 (240 ms together). About 280 ms of the first render is outside the cards. Deferred
 cards arrive ~0.9 s after the first render (other launch work runs in between), below the fold.
 
+Today's first render after deferring (367 ms), broken down: Screen header with the blur and the
+Today header 55-66 ms (the activity bell 35-54 of it); the keyboard-aware scroll view and blur target
+105-130 ms beyond their cards; DashboardScreen's own hooks ~100 ms; the three visible cards ~100 ms.
+Drawing the bell first and its unread dot a frame later did not move the total (359-402 ms) and was
+reverted.
+
+Caveat on launch and first-mount numbers: the measuring build serves plain JS that Hermes compiles on
+the phone as each function first runs; the release APK ships precompiled bytecode. First renders are
+therefore slower here than in release. Repeat paths (day changes, tab switches) run already-compiled
+code and compare fairly.
+
 Targets: Diary day content ≤ 50 ms; first visits instant; Today first render ≤ 300 ms; late frames during
 a day change ≤ 10%.
 
