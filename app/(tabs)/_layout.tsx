@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { InteractionManager, Pressable, StyleSheet, View } from 'react-native'
+import { Easing as RNEasing, InteractionManager, Pressable, StyleSheet, View } from 'react-native'
 import Animated, {
+  useReducedMotion,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -29,7 +30,7 @@ import { useTheme } from '@/theme/useTheme'
 import { Body } from '@/components/Text'
 import { GlassTabBar, type GlassTabBarProps } from '@/components/GlassTabBar'
 import { PERF, PerfProbe } from '@/lib/perf'
-import { HIT_SIZE, radius, shadow, spacing } from '@/theme/tokens'
+import { HIT_SIZE, motion, radius, shadow, spacing } from '@/theme/tokens'
 
 /*
   FROZEN WHEN HIDDEN. A tab navigator keeps every visited tab mounted, and without a freeze
@@ -41,7 +42,37 @@ import { HIT_SIZE, radius, shadow, spacing } from '@/theme/tokens'
   when it is shown again. Measured again at production speed after the change: a switch to
   an already-open tab commits 20-32 ms after the tap.
 */
-const TAB_SCREEN_OPTIONS = { headerShown: false, freezeOnBlur: true } as const
+const STILL_TAB_OPTIONS = { headerShown: false, freezeOnBlur: true } as const
+
+/*
+  FADE-THROUGH BETWEEN TABS. A plain cross-fade shows both screens at half opacity midway, two
+  pages of figures printed over each other. Instead the outgoing tab is gone by 40% of the way,
+  the incoming one appears from 40% on, and it settles from 98% scale: Material's fade-through,
+  the transition for peers that are not a sequence (a slide would claim Diary comes "after"
+  Today). The `select` motion token, 200 ms, and on the native driver, so a busy JS thread
+  cannot stutter it. Reduce Motion gets the instant switch.
+*/
+const TAB_SCREEN_OPTIONS = {
+  ...STILL_TAB_OPTIONS,
+  animation: 'fade',
+  transitionSpec: {
+    animation: 'timing',
+    config: { duration: motion.select.duration, easing: RNEasing.bezier(...motion.select.bezier) },
+  },
+  sceneStyleInterpolator: ({ current }) => ({
+    sceneStyle: {
+      opacity: current.progress.interpolate({
+        inputRange: [-1, -0.6, 0, 0.6, 1],
+        outputRange: [0, 0, 1, 0, 0],
+      }),
+      transform: [
+        { scale: current.progress.interpolate({ inputRange: [-1, 0, 1], outputRange: [0.98, 1, 0.98] }) },
+      ],
+    },
+  }),
+} satisfies TabScreenOptions
+
+type TabScreenOptions = Extract<NonNullable<React.ComponentProps<typeof Tabs>['screenOptions']>, object>
 
 type TabBarProps = Parameters<NonNullable<React.ComponentProps<typeof Tabs>['tabBar']>>[0]
 
@@ -331,6 +362,7 @@ export default function TabsLayout() {
   // '(tabs)' is what the segment reads as on the index route, which has no name of its own.
   const onHome = active === '(tabs)' || active === 'index'
   const router = useRouter()
+  const reduceMotion = useReducedMotion()
 
   /*
     FIRST VISITS WITHOUT A BUILD. Opening Diary or Profile for the first time mounted the whole
@@ -377,7 +409,11 @@ export default function TabsLayout() {
 
   return (
     <View style={{ flex: 1 }}>
-      <Tabs screenLayout={PERF_SCREEN_LAYOUT} screenOptions={TAB_SCREEN_OPTIONS} tabBar={renderTabBar}>
+      <Tabs
+        screenLayout={PERF_SCREEN_LAYOUT}
+        screenOptions={reduceMotion ? STILL_TAB_OPTIONS : TAB_SCREEN_OPTIONS}
+        tabBar={renderTabBar}
+      >
         <Tabs.Screen name="index" />
         <Tabs.Screen name="diary" />
         <Tabs.Screen name="workout" />
