@@ -1,19 +1,22 @@
 # Speed round 2: measurements
 
 OnePlus 10T (CPH2401, Android 14), debug app at production JS speed with the profiling renderer,
-`node scripts/perf-run.mjs`, two runs per step, the second kept. Read from each run's output:
+`node scripts/perf-run.mjs`, two runs per step, **pooled**: one run holds only three day changes, and
+run-to-run noise on the phone is about ±15%, too much to judge a 10% change from one run. Read from
+the runs' output:
 
 - **Today first render:** the first `[perf] index` line at launch (render ms).
 - **First visit:** the `mount` line after the first `diary` / `profile` press (render ms; on screen = the `+ms after`).
 - **Diary day urgent / content:** after each `date-back` press, the first `diary` render (the date label)
-  and the largest `diary` render within a second of it (the day's content). Median of three; the
-  content range in brackets.
+  and the largest `diary` render within a second of it (the day's content). Median over both runs'
+  day changes; the content range in brackets. Launch and first visits: mean of the two runs.
 - **Open-tab switches** commit with no render large enough to log (they were 20-32 ms to commit when
   measured on 2026-09-28), so they are not tracked row by row.
 
 | Step | Today first render | First visit Diary | First visit Profile | Diary day urgent | Diary day content | PSS |
 |---|---|---|---|---|---|---|
-| Baseline (2026-09-29) | 664 ms | 157 ms (+243) | 379 ms (+419) | 22 ms (+25-46) | 90 ms [60-146] (+140-195) | 754 MB |
+| Baseline (2026-09-29) | 666 ms | 177 ms | 399 ms | 22 ms | 85 ms [60-146] | 748 MB |
+| Shared theme (kept) | 606 ms | 142 ms | 401 ms | 23 ms | 70 ms [52-120] | 742 MB |
 
 Targets: Diary day content ≤ 50 ms; first visits instant; Today first render ≤ 300 ms; late frames during
 a day change ≤ 10%.

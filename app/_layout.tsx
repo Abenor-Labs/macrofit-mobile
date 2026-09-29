@@ -21,7 +21,7 @@ import { Figtree_400Regular } from '@expo-google-fonts/figtree/400Regular'
 import { Figtree_500Medium } from '@expo-google-fonts/figtree/500Medium'
 import { Figtree_600SemiBold } from '@expo-google-fonts/figtree/600SemiBold'
 
-import { useTheme } from '@/theme/useTheme'
+import { ThemeProvider, useTheme } from '@/theme/useTheme'
 import { useStore, useStoreHydrated } from '@/store/useStore'
 import { AuthProvider, useAuth } from '@/lib/AuthProvider'
 import {
@@ -690,6 +690,7 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider>
       <SafeAreaProvider>
         {/*
           Keyboard handling for the whole app. The window used to pan when the keyboard
@@ -716,6 +717,7 @@ export default function RootLayout() {
         <AppAlertHost />
         </KeyboardProvider>
       </SafeAreaProvider>
+      </ThemeProvider>
     </GestureHandlerRootView>
   )
 }
