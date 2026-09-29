@@ -91,6 +91,7 @@ export const useNotifications = (): void => {
           workoutLog: state.workoutLog,
           activeWorkoutId: state.activeWorkoutId,
           program: state.trainingPrograms.find(p => p.id === state.activeProgramId) ?? null,
+          customLifts: state.customLifts,
           weightUnit: state.profile.weightUnit,
           prefs: getNotificationPrefs(),
         })

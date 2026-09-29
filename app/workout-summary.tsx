@@ -35,6 +35,7 @@ import { Button } from '@/components/Button'
 import { WeekProgressCard } from '@/features/training/WeekProgress'
 import { formatElapsed, fromKg, groupDigits, weightUnitLabel } from '@/features/training/format'
 import { weekdayOf } from '@/features/training/liftNames'
+import { programDayLabel } from '@/lib/programDayLabel'
 
 const EASE_OUT = enterEasing
 
@@ -243,7 +244,7 @@ const SummaryBody: React.FC = () => {
                 <Body weight="semibold">
                   {upNext.day.rest
                     ? `Rest, ${weekdayOf(upNext.date)}`
-                    : `${upNext.day.name}, ${upNext.date === today ? 'today' : weekdayOf(upNext.date)}`}
+                    : `${programDayLabel(upNext.day, upNext.index)}, ${upNext.date === today ? 'today' : weekdayOf(upNext.date)}`}
                 </Body>
               </View>
             </Surface>
