@@ -45,12 +45,17 @@ import { HIT_SIZE, motion, radius, shadow, spacing } from '@/theme/tokens'
 const STILL_TAB_OPTIONS = { headerShown: false, freezeOnBlur: true } as const
 
 /*
-  FADE-THROUGH BETWEEN TABS. A plain cross-fade shows both screens at half opacity midway, two
-  pages of figures printed over each other. Instead the outgoing tab is gone by 40% of the way,
-  the incoming one appears from 40% on, and it settles from 98% scale: Material's fade-through,
-  the transition for peers that are not a sequence (a slide would claim Diary comes "after"
-  Today). The `select` motion token, 200 ms, and on the native driver, so a busy JS thread
-  cannot stutter it. Reduce Motion gets the instant switch.
+  A DISSOLVE BETWEEN TABS. The navigator draws the incoming tab on top, so it fades in over the
+  outgoing one, which stays mostly solid underneath until it is covered: at the midpoint both are
+  at 75%, and the dark canvas behind never shows through. The first version was a Material
+  fade-through, both tabs near zero in the middle, and on this dark theme that dip read as a
+  blink. Opacity only: scaling the whole screen, header included, reads as jitter. The `select`
+  motion token, 200 ms, on the native driver so a busy JS thread cannot stutter it. Reduce
+  Motion gets the instant switch.
+
+  With any animation on, this navigator no longer freezes hidden tabs (its freeze check never
+  matches while a scene's state is animated). The tab screens are memoised, so a switch still
+  re-renders each of them for under a millisecond.
 */
 const TAB_SCREEN_OPTIONS = {
   ...STILL_TAB_OPTIONS,
@@ -62,12 +67,9 @@ const TAB_SCREEN_OPTIONS = {
   sceneStyleInterpolator: ({ current }) => ({
     sceneStyle: {
       opacity: current.progress.interpolate({
-        inputRange: [-1, -0.6, 0, 0.6, 1],
-        outputRange: [0, 0, 1, 0, 0],
+        inputRange: [-1, -0.5, 0, 0.5, 1],
+        outputRange: [0, 0.75, 1, 0.75, 0],
       }),
-      transform: [
-        { scale: current.progress.interpolate({ inputRange: [-1, 0, 1], outputRange: [0.98, 1, 0.98] }) },
-      ],
     },
   }),
 } satisfies TabScreenOptions
