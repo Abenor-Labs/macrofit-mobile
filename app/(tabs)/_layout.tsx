@@ -1,5 +1,5 @@
-import React, { useCallback, useRef, useState } from 'react'
-import { Pressable, StyleSheet, View } from 'react-native'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { InteractionManager, Pressable, StyleSheet, View } from 'react-native'
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -331,6 +331,25 @@ export default function TabsLayout() {
   // '(tabs)' is what the segment reads as on the index route, which has no name of its own.
   const onHome = active === '(tabs)' || active === 'index'
   const router = useRouter()
+
+  /*
+    FIRST VISITS WITHOUT A BUILD. Opening Diary or Profile for the first time mounted the whole
+    screen on the tap: 140 ms and 350 ms of JS at production speed. Once Today has drawn and
+    nothing is animating, both are built in the background, a second apart so neither competes
+    with the other, and freezeOnBlur freezes each as soon as it has mounted. A later tap only
+    shows it.
+  */
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const task = InteractionManager.runAfterInteractions(() => {
+      router.prefetch('/diary')
+      timer = setTimeout(() => router.prefetch('/profile'), 1000)
+    })
+    return () => {
+      task.cancel()
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }, [router])
 
   /*
     Workout is a launcher, not a tab. Training is its own app — own tab bar, own colours,

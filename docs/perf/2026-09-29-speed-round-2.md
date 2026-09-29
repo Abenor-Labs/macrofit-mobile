@@ -19,6 +19,10 @@ the runs' output:
 | Shared theme (kept) | 606 ms | 142 ms | 401 ms | 23 ms | 70 ms [52-120] | 742 MB |
 | Memo icons (kept) | 613 ms | 142 ms | 350 ms | 18.5 ms | 72 ms [54-120] | 742 MB |
 | Memo date bar (kept) | 602 ms | 140 ms | 348 ms | 20.5 ms | 58 ms [46-116] | 736 MB |
+| Pre-built tabs (kept) | 612 ms | 16 ms update (+94) | nothing to render | — | — | 752 MB |
+
+Pre-built tabs: Diary builds in the background ~0.5 s after Today (117-124 ms) and Profile ~2 s after
+(346-363 ms), once nothing is animating; a tap landing on that moment waits for it.
 
 Targets: Diary day content ≤ 50 ms; first visits instant; Today first render ≤ 300 ms; late frames during
 a day change ≤ 10%.
