@@ -21,6 +21,7 @@ the runs' output:
 | Memo date bar (kept) | 602 ms | 140 ms | 348 ms | 20.5 ms | 58 ms [46-116] | 736 MB |
 | Pre-built tabs (kept) | 612 ms | 16 ms update (+94) | nothing to render | — | — | 752 MB |
 | Today below the fold a frame later (kept) | 367 ms | — | — | — | — | — |
+| Recycled Diary rows (kept) | 359 ms | — | — | 19 ms | 46 ms [44-105] | 783 MB |
 
 Pre-built tabs: Diary builds in the background ~0.5 s after Today (117-124 ms) and Profile ~2 s after
 (346-363 ms), once nothing is animating; a tap landing on that moment waits for it.
@@ -40,6 +41,22 @@ Caveat on launch and first-mount numbers: the measuring build serves plain JS th
 the phone as each function first runs; the release APK ships precompiled bytecode. First renders are
 therefore slower here than in release. Repeat paths (day changes, tab switches) run already-compiled
 code and compare fairly.
+
+## Late frames: trace
+
+Perfetto over 12 s with six Diary day changes (gfx, view, sched), read with the trace processor.
+The phone runs at 120 Hz, so a frame has 8.3 ms.
+
+- Before: 95 frames, 30 late by the app (32%). The UI thread's "animation" phase, where Fabric
+  mounts native views, took 2.7 s of the 12: each day change destroyed every entry row and created
+  its views again, 343 text views (~1 ms each) and 386 plain views in all, 526 ms of mountViews.
+  The blur behind the header and tab bar was not the cause (solid chrome changed nothing visible;
+  it did save ~76 MB, which is noted for later).
+- Fix: entry rows keyed by position, so a day change updates the rows on screen instead of
+  rebuilding them; the row's editor state is keyed to the entry so it cannot carry over.
+- After: 98 frames, 22 late (22%); 76 text and 84 plain views created, 322 ms of mountViews.
+  Target (10%) not yet met: the rest is text re-layout in the recycled rows and cards switching
+  between their empty and filled forms.
 
 Targets: Diary day content ≤ 50 ms; first visits instant; Today first render ≤ 300 ms; late frames during
 a day change ≤ 10%.
