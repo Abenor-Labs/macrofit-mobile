@@ -1,6 +1,6 @@
 import React from 'react'
 import { View } from 'react-native'
-import { ChevronLeft, ChevronRight } from 'lucide-react-native'
+import { ChevronLeft, ChevronRight } from '@/components/icons'
 
 import { formatDate, getDateString } from '@core/utils/calculations'
 import { useTheme } from '@/theme/useTheme'

@@ -3,7 +3,7 @@ import { AppState, Linking, Platform, Pressable, StyleSheet, Switch, View } from
 import { router } from 'expo-router'
 import * as Notifications from 'expo-notifications'
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker'
-import { BellOff, ChevronRight } from 'lucide-react-native'
+import { BellOff, ChevronRight } from '@/components/icons'
 
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'

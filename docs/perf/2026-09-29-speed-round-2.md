@@ -17,6 +17,7 @@ the runs' output:
 |---|---|---|---|---|---|---|
 | Baseline (2026-09-29) | 666 ms | 177 ms | 399 ms | 22 ms | 85 ms [60-146] | 748 MB |
 | Shared theme (kept) | 606 ms | 142 ms | 401 ms | 23 ms | 70 ms [52-120] | 742 MB |
+| Memo icons (kept) | 613 ms | 142 ms | 350 ms | 18.5 ms | 72 ms [54-120] | 742 MB |
 
 Targets: Diary day content ≤ 50 ms; first visits instant; Today first render ≤ 300 ms; late frames during
 a day change ≤ 10%.

@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, TextInput, View } from 'react-native'
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { ArrowDown, ArrowUp, Moon, Plus, Trash2, X } from 'lucide-react-native'
+import { ArrowDown, ArrowUp, Moon, Plus, Trash2, X } from '@/components/icons'
 
 import { useStore } from '@/store/useStore'
 import { ThemeScope } from '@/theme/ThemeScope'

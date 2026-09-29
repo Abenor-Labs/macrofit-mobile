@@ -10,7 +10,7 @@ import Animated, {
   withDelay,
   withTiming,
 } from 'react-native-reanimated'
-import { ArrowRight, Award, Check, Moon, Trophy } from 'lucide-react-native'
+import { ArrowRight, Award, Check, Moon, Trophy } from '@/components/icons'
 
 import { formatDate, getTodayString } from '@core/utils/calculations'
 import { resolveUpNext } from '@core/utils/trainingProgram'

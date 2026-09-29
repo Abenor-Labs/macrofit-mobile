@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import * as Haptics from 'expo-haptics'
-import { Camera, Check, Minus, Plus } from 'lucide-react-native'
+import { Camera, Check, Minus, Plus } from '@/components/icons'
 
 import { Island, Row } from '@/components/Material'
 import { Button, IconButton } from '@/components/Button'

@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { router } from 'expo-router'
-import { Check, ChevronRight, Moon, Play, Plus, Repeat, SkipForward } from 'lucide-react-native'
+import { Check, ChevronRight, Moon, Play, Plus, Repeat, SkipForward } from '@/components/icons'
 
 import type { TrainingProgram } from '@core/types'
 import { getTodayString } from '@core/utils/calculations'

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Pressable, View } from 'react-native'
 import { Tabs } from 'expo-router'
-import { CalendarDays, ChevronRight, Dumbbell, History, Trophy } from 'lucide-react-native'
+import { CalendarDays, ChevronRight, Dumbbell, History, Trophy } from '@/components/icons'
 
 import { useStore } from '@/store/useStore'
 import { ThemeScope } from '@/theme/ThemeScope'

@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Pressable, StyleSheet, TextInput, View } from 'react-native'
 import { router } from 'expo-router'
-import { CheckCircle2, ChevronRight, Moon, Plus, Trash2 } from 'lucide-react-native'
+import { CheckCircle2, ChevronRight, Moon, Plus, Trash2 } from '@/components/icons'
 
 import type { TrainingProgram, TrainingStyle } from '@core/types'
 import { getTodayString } from '@core/utils/calculations'

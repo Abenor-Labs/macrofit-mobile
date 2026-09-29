@@ -10,7 +10,7 @@ import {
   Download,
   Flame,
   TriangleAlert,
-} from 'lucide-react-native'
+} from '@/components/icons'
 
 import { useStore } from '@/store/useStore'
 import { useHealthSync } from '@/hooks/useHealthSync'

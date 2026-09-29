@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { ActivityIndicator, View } from 'react-native'
 import { useRouter } from 'expo-router'
-import { AlertTriangle } from 'lucide-react-native'
+import { AlertTriangle } from '@/components/icons'
 
 import { useAuth } from '@/lib/AuthProvider'
 import { landAt } from '@/lib/landAt'

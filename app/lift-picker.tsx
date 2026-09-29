@@ -12,7 +12,7 @@ import Animated, { FadeInDown, FadeOutDown, useReducedMotion } from 'react-nativ
 import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
-import { Check, Dumbbell, History, Plus, Search, X } from 'lucide-react-native'
+import { Check, Dumbbell, History, Plus, Search, X } from '@/components/icons'
 
 import type { Lift, LiftEquipment, MuscleGroup } from '@core/types'
 import { LIFT_DATABASE, searchLifts } from '@core/data/exerciseDatabase'

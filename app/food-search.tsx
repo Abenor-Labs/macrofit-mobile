@@ -23,7 +23,7 @@ import {
   TriangleAlert,
   Utensils,
   X,
-} from 'lucide-react-native'
+} from '@/components/icons'
 
 import { GlassSurface, Surface } from '@/components/Glass'
 import { Button, IconButton } from '@/components/Button'

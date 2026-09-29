@@ -11,7 +11,7 @@ import {
   Plus,
   Sparkles,
   Trash2,
-} from 'lucide-react-native'
+} from '@/components/icons'
 
 import { appAlert } from '@/components/AppAlert'
 import { Island } from '@/components/Material'

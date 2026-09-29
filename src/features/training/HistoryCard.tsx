@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
-import { AlertTriangle, ChevronDown, Repeat, Trash2 } from 'lucide-react-native'
+import { AlertTriangle, ChevronDown, Repeat, Trash2 } from '@/components/icons'
 
 import type { WorkoutExercise, WorkoutSession } from '@core/types'
 import { formatDate } from '@core/utils/calculations'

@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
 import { router } from 'expo-router'
-import { ChevronRight, Trophy } from 'lucide-react-native'
+import { ChevronRight, Trophy } from '@/components/icons'
 
 import { formatDate } from '@core/utils/calculations'
 import { getPersonalRecords } from '@core/utils/workoutMath'

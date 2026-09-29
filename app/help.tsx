@@ -9,7 +9,7 @@ import {
   Scale,
   Search,
   Target,
-} from 'lucide-react-native'
+} from '@/components/icons'
 
 import { useTheme, type Theme } from '@/theme/useTheme'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'

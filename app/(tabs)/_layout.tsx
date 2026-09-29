@@ -20,7 +20,7 @@ import {
   TrendingUp,
   User,
   Utensils,
-} from 'lucide-react-native'
+} from '@/components/icons'
 
 import { getTodayString } from '@core/utils/calculations'
 import { useStore } from '@/store/useStore'

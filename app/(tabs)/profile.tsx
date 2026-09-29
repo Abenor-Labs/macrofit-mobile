@@ -23,7 +23,7 @@ import {
   Trash2,
   TriangleAlert,
   User as UserIcon,
-} from 'lucide-react-native'
+} from '@/components/icons'
 
 import type {
   ActivityLevel,

@@ -32,7 +32,7 @@ import {
   User,
   Utensils,
   X,
-} from 'lucide-react-native'
+} from '@/components/icons'
 
 import type { MealType } from '@core/types'
 import { getTodayString, kgToLbs, lbsToKg } from '@core/utils/calculations'

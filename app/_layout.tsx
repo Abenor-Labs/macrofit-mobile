@@ -14,7 +14,7 @@ import {
   useSafeAreaInsets,
 } from 'react-native-safe-area-context'
 import { useFonts } from 'expo-font'
-import { CloudOff } from 'lucide-react-native'
+import { CloudOff } from '@/components/icons'
 import { Fraunces_600SemiBold } from '@expo-google-fonts/fraunces/600SemiBold'
 import { Fraunces_700Bold } from '@expo-google-fonts/fraunces/700Bold'
 import { Figtree_400Regular } from '@expo-google-fonts/figtree/400Regular'

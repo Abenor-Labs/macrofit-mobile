@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { router, useLocalSearchParams } from 'expo-router'
 import Svg, { Circle, Line, Polyline } from 'react-native-svg'
-import { History } from 'lucide-react-native'
+import { History } from '@/components/icons'
 
 import type { WorkoutSession } from '@core/types'
 import { formatDate } from '@core/utils/calculations'

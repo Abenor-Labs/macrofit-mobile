@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 import { View } from 'react-native'
-import { History } from 'lucide-react-native'
+import { History } from '@/components/icons'
 
 import { sessionVolume } from '@core/utils/workoutMath'
 

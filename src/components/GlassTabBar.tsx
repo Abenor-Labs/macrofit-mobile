@@ -9,7 +9,7 @@ import Animated, {
 import type { Tabs } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
-import { Circle } from 'lucide-react-native'
+import { Circle } from '@/components/icons'
 
 import { Glass } from './Material'
 import { Body } from './Text'

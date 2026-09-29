@@ -29,7 +29,7 @@ import {
   Sunrise,
   Target,
   Bell,
-} from 'lucide-react-native'
+} from '@/components/icons'
 
 import type { DiaryDay, MealType, NutritionSummary, PhaseType, Recommendation } from '@core/types'
 import {

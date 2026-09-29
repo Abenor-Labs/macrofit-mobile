@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Pressable, View } from 'react-native'
 import * as Application from 'expo-application'
-import { Download, RefreshCw } from 'lucide-react-native'
+import { Download, RefreshCw } from '@/components/icons'
 
 import { checkForUpdate, downloadAndInstall, type AvailableRelease } from '@/lib/appUpdate'
 import { publishAvailableUpdate } from '@/hooks/useAvailableUpdate'

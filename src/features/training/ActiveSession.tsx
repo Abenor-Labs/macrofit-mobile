@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Pressable, TextInput, View, type TextStyle } from 'react-native'
 import { router } from 'expo-router'
 import * as Haptics from 'expo-haptics'
-import { Check, Dumbbell, Flame, Gauge, MoreHorizontal, Plus, Trash2, Trophy } from 'lucide-react-native'
+import { Check, Dumbbell, Flame, Gauge, MoreHorizontal, Plus, Trash2, Trophy } from '@/components/icons'
 
 import type { WorkoutExercise, WorkoutSession, WorkoutSet } from '@core/types'
 import {
