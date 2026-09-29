@@ -23,6 +23,7 @@ import { useSnackbar } from '@/components/Snackbar'
 import { useStore } from '@/store/useStore'
 import { formatNumber } from '@/lib/formatNumber'
 import { DateNavigator } from '@/components/DateNavigator'
+import { PerfProbe } from '@/lib/perf'
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
 import type { DiaryDay, FoodEntry, MealType } from '@core/types'
@@ -695,15 +696,21 @@ function DiaryScreen() {
         </IconButton>
       }
     >
-      <DateNavigator date={date} today={today} onChange={setDate} />
-      <DayTotals day={day} />
+      <PerfProbe id="diary:nav">
+        <DateNavigator date={date} today={today} onChange={setDate} />
+      </PerfProbe>
+      <PerfProbe id="diary:totals">
+        <DayTotals day={day} />
+      </PerfProbe>
 
       {/*
         One instance, always above the cards. It used to sit at the bottom when empty and jump
         to the top on the first save — which fires from inside a meal card, so the page moved
         under the finger that had just tapped it.
       */}
-      <SavedMeals date={shownDate} />
+      <PerfProbe id="diary:saved">
+        <SavedMeals date={shownDate} />
+      </PerfProbe>
 
       {/* Pre- and Post-Workout only once they hold something. Six cards on a rest day was
           two of them permanently empty, each with its own Add button; food search still
@@ -713,18 +720,19 @@ function DiaryScreen() {
           (meal !== 'Pre-Workout' && meal !== 'Post-Workout') ||
           (byMeal.get(meal)?.length ?? 0) > 0
       ).map((meal, index) => (
-        <MealCard
-          key={meal}
-          meal={meal}
-          date={shownDate}
-          entries={byMeal.get(meal) ?? []}
-          /*
-            First card, and only on a day with nothing in it at all. Keyed on the whole day
-            rather than on this card being empty, so someone who logs lunch before breakfast
-            is not told how to log food they have plainly already worked out how to log.
-          */
-          teach={index === 0 && day.entries.length === 0 && isNewUser}
-        />
+        <PerfProbe key={meal} id={`diary:${meal}`}>
+          <MealCard
+            meal={meal}
+            date={shownDate}
+            entries={byMeal.get(meal) ?? []}
+            /*
+              First card, and only on a day with nothing in it at all. Keyed on the whole day
+              rather than on this card being empty, so someone who logs lunch before breakfast
+              is not told how to log food they have plainly already worked out how to log.
+            */
+            teach={index === 0 && day.entries.length === 0 && isNewUser}
+          />
+        </PerfProbe>
       ))}
     </Screen>
   )

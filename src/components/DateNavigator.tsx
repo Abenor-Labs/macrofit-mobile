@@ -8,6 +8,7 @@ import { spacing } from '@/theme/tokens'
 import { Surface } from './Glass'
 import { Body, SectionTitle } from './Text'
 import { Button, IconButton } from './Button'
+import { markPress } from '@/lib/perf'
 
 const WEEKDAYS = [
   'Sunday',
@@ -80,7 +81,10 @@ export const DateNavigator: React.FC<{
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <IconButton
           accessibilityLabel="Show the previous day"
-          onPress={() => onChange(shiftISODate(date, -1))}
+          onPress={() => {
+            markPress('date-back')
+            onChange(shiftISODate(date, -1))
+          }}
         >
           <ChevronLeft size={22} color={theme.text} strokeWidth={2} />
         </IconButton>
@@ -103,6 +107,7 @@ export const DateNavigator: React.FC<{
               : 'Show the next day'
           }
           onPress={() => {
+            markPress('date-forward')
             const next = shiftISODate(date, 1)
             // Recomputed at press time, not read from the prop, so a screen left open across
             // midnight resolves to the real today rather than to the value it rendered with.

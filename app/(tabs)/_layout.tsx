@@ -28,6 +28,7 @@ import { useStore } from '@/store/useStore'
 import { useTheme } from '@/theme/useTheme'
 import { Body } from '@/components/Text'
 import { GlassTabBar, type GlassTabBarProps } from '@/components/GlassTabBar'
+import { PERF, PerfProbe } from '@/lib/perf'
 import { HIT_SIZE, radius, shadow, spacing } from '@/theme/tokens'
 
 /*
@@ -307,6 +308,13 @@ const QuickLogButton: React.FC = () => {
   )
 }
 
+/** Only in a measuring build: wraps each tab in a Profiler. Undefined otherwise, so nothing wraps. */
+const PERF_SCREEN_LAYOUT = PERF
+  ? ({ children, route }: { children: React.ReactNode; route: { name: string } }) => (
+      <PerfProbe id={route.name}>{children}</PerfProbe>
+    )
+  : undefined
+
 export default function TabsLayout() {
   /*
     A real View, not a fragment. `AssistantButton` positions itself absolutely, and a
@@ -350,7 +358,7 @@ export default function TabsLayout() {
 
   return (
     <View style={{ flex: 1 }}>
-      <Tabs screenOptions={TAB_SCREEN_OPTIONS} tabBar={renderTabBar}>
+      <Tabs screenLayout={PERF_SCREEN_LAYOUT} screenOptions={TAB_SCREEN_OPTIONS} tabBar={renderTabBar}>
         <Tabs.Screen name="index" />
         <Tabs.Screen name="diary" />
         <Tabs.Screen name="workout" />
