@@ -11,6 +11,7 @@ import Animated, {
 } from 'react-native-reanimated'
 
 import { useTheme } from '@/theme/useTheme'
+import { enterEasing } from '@/theme/motion'
 import { HIT_SIZE, radius as R, spacing } from '@/theme/tokens'
 import { LiquidGlassPane } from './LiquidGlass'
 import { Body } from './Text'
@@ -85,13 +86,13 @@ export function Segmented<T extends string>({
       // Short and strongly decelerated. The tap has already happened, so the thumb is
       // catching up to a decision the user has made rather than leading them to it.
       duration: 300,
-      easing: Easing.bezier(0.23, 1, 0.32, 1),
+      easing: enterEasing,
     })
     // Lead with the leading edge, then settle. Peaks while the thumb is mid-flight, which is
     // why the stretch is shorter than the travel.
     stretch.value = withSequence(
       withTiming(1.08, { duration: 130, easing: Easing.out(Easing.quad) }),
-      withTiming(1, { duration: 220, easing: Easing.bezier(0.23, 1, 0.32, 1) })
+      withTiming(1, { duration: 220, easing: enterEasing })
     )
   }, [index, thumbWidth, offset, stretch, reduced])
 

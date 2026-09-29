@@ -43,6 +43,8 @@ import { HIT_SIZE, spacing } from '@/theme/tokens'
 import { configureFoodApis } from '@core/utils/foodApiConfig'
 import { USDA_API_KEY } from '@/lib/env'
 import { useNotifications } from '@/hooks/useNotifications'
+import { landAt } from '@/lib/landAt'
+import { KeyboardProvider } from 'react-native-keyboard-controller'
 // Defines the background update check at module scope: Android can start the JS runtime just
 // to run it, with no screen mounted, and the task has to be defined by then.
 import '@/lib/updateTask'
@@ -408,7 +410,7 @@ const RootNavigator: React.FC = () => {
         }
         // Login stays reachable: a guest tapping "sign in" from Profile must not be bounced
         // straight back out of it.
-        if (onWelcome) router.replace('/(tabs)')
+        if (onWelcome) landAt('/(tabs)')
         return
       }
 
@@ -446,10 +448,11 @@ const RootNavigator: React.FC = () => {
     }
 
     if (needsSetup) {
-      if (!onOnboarding) router.replace('/onboarding')
+      if (!onOnboarding) landAt('/onboarding')
       return
     }
-    if (onLoginScreen || onOnboarding || onWelcome || onResetPassword) router.replace('/(tabs)')
+    // Every way into the app from here is a one-way door: back must never reach sign-in again.
+    if (onLoginScreen || onOnboarding || onWelcome || onResetPassword) landAt('/(tabs)')
   }, [
     user,
     loading,
@@ -541,6 +544,9 @@ const RootNavigator: React.FC = () => {
               headerShown: false,
               contentStyle: { backgroundColor: theme.canvas },
               animation: 'slide_from_right',
+              // Screens underneath (the whole tab navigator, under search or the coach) stop
+              // re-rendering while covered; see TAB_SCREEN_OPTIONS in (tabs)/_layout.tsx.
+              freezeOnBlur: true,
             }}
           >
             <Stack.Screen name="(tabs)" />
@@ -558,6 +564,11 @@ const RootNavigator: React.FC = () => {
                 the password is saved, so an edge swipe would fight the redirect and lose. */}
             <Stack.Screen
               name="reset-password"
+              options={{ animation: 'fade', gestureEnabled: false }}
+            />
+            {/* Where email links land while the link is exchanged for a session. */}
+            <Stack.Screen
+              name="auth/callback"
               options={{ animation: 'fade', gestureEnabled: false }}
             />
             <Stack.Screen
@@ -680,6 +691,13 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
+        {/*
+          Keyboard handling for the whole app. The window used to pan when the keyboard
+          opened, which slid headers (chat's title and close button among them) off the top
+          of the screen. Now nothing pans: fixed layouts avoid the keyboard and scroll views
+          bring the focused field into view, frame-synced with the keyboard's own animation.
+        */}
+        <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
         {/* Above everything, including the pane-local copies of the backdrop. One set of
             drift clocks for the whole app rather than three per Aurora instance — see the
             note in Aurora.tsx. */}
@@ -696,6 +714,7 @@ export default function RootLayout() {
         {/* Above everything, including the screens that replace the navigator (sync
             conflict, sync unavailable), which raise confirmations of their own. */}
         <AppAlertHost />
+        </KeyboardProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   )

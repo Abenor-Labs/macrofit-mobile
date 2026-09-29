@@ -12,6 +12,7 @@ import Animated, {
 } from 'react-native-reanimated'
 
 import { useTheme } from '@/theme/useTheme'
+import { enterEasing } from '@/theme/motion'
 import { fonts, jade, radius, spacing, stone } from '@/theme/tokens'
 import { Aurora } from './Aurora'
 import { LiquidGlassScene } from './LiquidGlass'
@@ -133,7 +134,7 @@ export const LaunchScreen: React.FC = () => {
     // After the mark has essentially arrived, not alongside it.
     follow.value = withDelay(
       260,
-      withTiming(1, { duration: 300, easing: Easing.bezier(0.23, 1, 0.32, 1) })
+      withTiming(1, { duration: 300, easing: enterEasing })
     )
   }, [settle, follow, reduced])
 
@@ -203,7 +204,7 @@ export const LaunchScreen: React.FC = () => {
         </Animated.View>
 
         <Animated.View needsOffscreenAlphaCompositing style={belowStyle}>
-          <Body size={34} style={{ fontFamily: fonts.displayBold, color: theme.text }}>
+          <Body size={30} style={{ fontFamily: fonts.displayBold, color: theme.text }}>
             MacroFit
           </Body>
         </Animated.View>

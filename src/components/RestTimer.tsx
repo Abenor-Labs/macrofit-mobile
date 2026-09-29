@@ -23,6 +23,11 @@ const format = (total: number): string => {
 export interface RestTimerProps {
   /** Changes whenever a working set is completed; that is what starts the countdown. */
   triggerKey: number
+  /**
+   * The set waiting after this rest, used as the notification's body. Read when the rest
+   * starts and reused by +/-30s, so moving the notification never loses what it says.
+   */
+  nextLabel?: string
   onDismiss: () => void
 }
 
@@ -34,7 +39,7 @@ export interface RestTimerProps {
  * rest by several seconds over a long set. Recomputing from `Date.now()` stays correct
  * even if the interval fires late or the screen sleeps.
  */
-export const RestTimer: React.FC<RestTimerProps> = ({ triggerKey, onDismiss }) => {
+export const RestTimer: React.FC<RestTimerProps> = ({ triggerKey, nextLabel, onDismiss }) => {
   const theme = useTheme()
   const [target, setTarget] = useState(DEFAULT_REST_SECONDS)
   const [remaining, setRemaining] = useState(DEFAULT_REST_SECONDS)
@@ -53,7 +58,7 @@ export const RestTimer: React.FC<RestTimerProps> = ({ triggerKey, onDismiss }) =
       silent, so the in-app buzz is still the only signal. Dismissing the timer, or the
       workout ending, unmounts this and takes the notification with it.
     */
-    void scheduleRestOver(target)
+    void scheduleRestOver(target, nextLabel)
     return () => {
       void cancelRestOver()
     }
@@ -84,7 +89,7 @@ export const RestTimer: React.FC<RestTimerProps> = ({ triggerKey, onDismiss }) =
     setRemaining(left)
     firedRef.current = false
     // Same identifier, so this moves the pending notification rather than adding one.
-    if (left > 0) void scheduleRestOver(left)
+    if (left > 0) void scheduleRestOver(left, nextLabel)
     else void cancelRestOver()
   }
 
@@ -110,7 +115,7 @@ export const RestTimer: React.FC<RestTimerProps> = ({ triggerKey, onDismiss }) =
         <IconButton accessibilityLabel="Take 30 seconds off the rest" onPress={() => adjust(-STEP_SECONDS)}>
           <Minus size={16} color={theme.textSecondary} strokeWidth={2.2} />
         </IconButton>
-        <StatValue size={22} accessibilityLabel={`${format(remaining)} of rest remaining`}>
+        <StatValue size={20} accessibilityLabel={`${format(remaining)} of rest remaining`}>
           {format(remaining)}
         </StatValue>
         <IconButton accessibilityLabel="Add 30 seconds to the rest" onPress={() => adjust(STEP_SECONDS)}>

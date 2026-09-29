@@ -26,6 +26,7 @@ export interface NotificationPrefs {
   weighIn: boolean
   weighInTime: string
   water: boolean
+  weeklyRecap: boolean
   updates: boolean
 }
 
@@ -50,6 +51,8 @@ export const DEFAULT_PREFS: NotificationPrefs = {
   weighIn: false,
   weighInTime: '08:00',
   water: false,
+  // On by default: one message a week, about what the user did, not what they didn't.
+  weeklyRecap: true,
   updates: true,
 }
 

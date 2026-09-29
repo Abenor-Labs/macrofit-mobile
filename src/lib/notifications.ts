@@ -117,15 +117,19 @@ const hasPermission = async (): Promise<boolean> =>
  * Fires when the rest countdown ends — the one that matters when the phone is locked in a
  * pocket between sets. Rescheduling replaces the previous one (same identifier), so +30s and
  * -30s on the timer simply move it.
+ *
+ * `next` names the set waiting ("Next: Bench Press · 80 kg × 8"), so the lock screen answers
+ * the only question anyone has at that moment without unlocking the phone. Without one it
+ * falls back to the generic line.
  */
-export const scheduleRestOver = async (seconds: number): Promise<void> => {
+export const scheduleRestOver = async (seconds: number, next?: string): Promise<void> => {
   if (seconds < 1 || !getNotificationPrefs().restOver) return
   if (!(await ensureNotificationPermission())) return
   await Notifications.scheduleNotificationAsync({
     identifier: IDS.restOver,
     content: {
       title: 'Rest is over',
-      body: 'Time for your next set.',
+      body: next !== undefined && next !== '' ? next : 'Time for your next set.',
       sound: 'rest_over.wav',
       data: { kind: 'rest' satisfies Kind, url: '/training' },
     },

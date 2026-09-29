@@ -137,7 +137,7 @@ const Cell: React.FC<{ children: React.ReactNode; theme: Theme; grow?: boolean }
 )
 
 const Dot: React.FC<{ color: string }> = ({ color }) => (
-  <View style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: color }} />
+  <View style={{ width: 8, height: 8, borderRadius: radius.pill, backgroundColor: color }} />
 )
 
 /** Label, then the figure with its unit. Every figure here is real store data. */
@@ -161,7 +161,7 @@ const FigureCell: React.FC<{
     </View>
     <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}>
       <StatValue
-        size={22}
+        size={20}
         color={color}
         tone={muted ? 'muted' : 'primary'}
         accessibilityLabel={valueLabel}
@@ -251,7 +251,7 @@ const AlertRow: React.FC<{ alert: CoachAlert; theme: Theme }> = ({ alert, theme 
           )}
         </View>
         <View style={{ flex: 1, gap: 4 }}>
-          <Body size={14} weight="semibold" style={{ color: warning ? accent : theme.text }}>
+          <Body size={15} weight="semibold" style={{ color: warning ? accent : theme.text }}>
             {warning ? 'Warning: ' : 'Note: '}
             {alert.title}
           </Body>
@@ -295,7 +295,7 @@ const PresetCell: React.FC<{
       gap: 3,
     })}
   >
-    <StatValue size={18}>{fmtInt(value)}</StatValue>
+    <StatValue size={17}>{fmtInt(value)}</StatValue>
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
       {active ? (
         <Check size={12} color={theme.brandText} strokeWidth={2.4} />
@@ -520,7 +520,7 @@ export default function GoalsScreen() {
 
             {/* The one number the whole card exists for. */}
             <View style={{ gap: 4 }}>
-              <StatValue size={56} accessibilityLabel={`${fmtInt(rec.calories)} kilocalories per day`}>
+              <StatValue size={40} accessibilityLabel={`${fmtInt(rec.calories)} kilocalories per day`}>
                 {fmtInt(rec.calories)}
               </StatValue>
               <Label>kcal per day</Label>
@@ -721,7 +721,7 @@ export default function GoalsScreen() {
         <View style={{ flexDirection: 'row', gap: spacing.md }}>
           <View style={{ flex: 1, gap: 4 }}>
             <Label>Days of data</Label>
-            <StatValue size={18}>{String(coach.tdee.daysOfData)}</StatValue>
+            <StatValue size={17}>{String(coach.tdee.daysOfData)}</StatValue>
           </View>
           <View style={{ flex: 1, gap: 4 }}>
             <Label>Weight trend</Label>
@@ -732,7 +732,7 @@ export default function GoalsScreen() {
                 Not enough weigh-ins
               </Body>
             ) : (
-              <StatValue size={18}>
+              <StatValue size={17}>
                 {`${coach.tdee.weightTrendKgPerWeek > 0 ? '+' : ''}${coach.tdee.weightTrendKgPerWeek.toFixed(2)} kg/wk`}
               </StatValue>
             )}

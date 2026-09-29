@@ -50,7 +50,7 @@ const numberInputStyle = (theme: Theme, flat: boolean): TextStyle => ({
   paddingVertical: 0,
   textAlign: 'center',
   fontFamily: fonts.display,
-  fontSize: 16,
+  fontSize: 15,
   // No tabular-nums: Android's TextInput re-measures on every keystroke with it set on the
   // display face, and the field jumps and drops the cursor mid-edit. See Field in Layout.tsx.
 })
@@ -75,6 +75,59 @@ type SetValues = { weightKg: number; reps: number }
 
 const formatSetValues = (values: SetValues, unit: WeightUnit): string =>
   values.weightKg > 0 ? `${fromKg(values.weightKg, unit)} × ${values.reps}` : `${values.reps} reps`
+
+/**
+ * What the set at `position` will be logged as on a single tick: the nearest earlier set of
+ * the same exercise with reps in it, else the progressive-overload target. Shared by the row
+ * placeholders and the rest notification so the two can never name different numbers.
+ */
+const placeholderFor = (
+  sets: WorkoutSet[],
+  position: number,
+  suggestion: SetValues | null
+): SetValues | null => {
+  for (let i = position - 1; i >= 0; i--) {
+    const earlier = sets[i]
+    if (earlier.reps > 0) return { weightKg: earlier.weightKg, reps: earlier.reps }
+  }
+  return suggestion
+}
+
+/**
+ * The line the rest-over notification carries: the next unticked set of this exercise, else
+ * the first unticked set of a later one, with the weight and reps it will be logged as —
+ * typed if the user typed them, otherwise the row's prefill.
+ *
+ * `exercises` must already include the set that was just ticked, since ticking an empty row
+ * commits its prefill and the next row's prefill is read from it.
+ */
+const describeNextSet = (
+  exercises: WorkoutExercise[],
+  fromExercise: number,
+  suggestions: Map<string, SetValues | null>,
+  unit: WeightUnit
+): string => {
+  for (let e = fromExercise; e < exercises.length; e++) {
+    const exercise = exercises[e]
+    const sets = exercise.sets ?? []
+    const suggestion = suggestions.get(exercise.liftId) ?? null
+    const position = sets.findIndex(entry => !entry.completed)
+    // A lift added with no rows yet is still next; it just has nothing typed to quote.
+    if (position === -1 && sets.length > 0) continue
+    const target = position === -1 ? null : sets[position]
+    const values =
+      target && target.reps > 0
+        ? { weightKg: target.weightKg, reps: target.reps }
+        : placeholderFor(sets, Math.max(0, position), suggestion)
+    if (values === null || values.reps <= 0) return `Next: ${exercise.lift.name}`
+    const load =
+      values.weightKg > 0
+        ? `${fromKg(values.weightKg, unit)} ${weightUnitLabel(unit)} × ${values.reps}`
+        : `${values.reps} reps`
+    return `Next: ${exercise.lift.name} · ${load}`
+  }
+  return "Finish your workout when you're ready."
+}
 
 // ---------------------------------------------------------------------------
 // Set row
@@ -423,26 +476,13 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
   const unitLabel = weightUnitLabel(unit)
   const sets = exercise.sets ?? []
 
-  /**
-   * What the next set will be logged as on a single tick: the previous set of this
-   * exercise, else the progressive-overload target. Shown as placeholder text, and written
-   * to state only when the user actually ticks the row.
-   */
-  const placeholderFor = (position: number): SetValues | null => {
-    for (let i = position - 1; i >= 0; i--) {
-      const earlier = sets[i]
-      if (earlier.reps > 0) return { weightKg: earlier.weightKg, reps: earlier.reps }
-    }
-    return suggestion
-  }
-
   return (
     <Surface style={{ padding: spacing.md, gap: spacing.sm }}>
       {/* The lift's name is the accent, as in Hevy: in a long session it is what the eye scans
           for, and the only other lime on the card is a ticked set. */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingLeft: ROW_PADDING }}>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Body size={16} weight="semibold" numberOfLines={1} style={{ color: theme.brandText }}>
+          <Body size={15} weight="semibold" numberOfLines={1} style={{ color: theme.brandText }}>
             {exercise.lift.name}
           </Body>
           <Body size={12} tone="muted" numberOfLines={1}>
@@ -493,7 +533,7 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
             index={position + 1}
             unit={unit}
             showRpe={showRpe}
-            suggestion={placeholderFor(position)}
+            suggestion={placeholderFor(sets, position, suggestion)}
             previous={previousSets[position] ?? null}
             isPR={prSetIds.has(set.id)}
             onChange={patch => onChangeSet(set.id, patch)}
@@ -551,7 +591,7 @@ const ElapsedTimer: React.FC<{ startedAt: number }> = ({ startedAt }) => {
   }, [])
 
   return (
-    <StatValue size={18} color={theme.brandText}>
+    <StatValue size={17} color={theme.brandText}>
       {formatElapsed(Math.max(0, now - startedAt))}
     </StatValue>
   )
@@ -695,7 +735,7 @@ export const ActiveWorkout: React.FC<{
             paddingHorizontal: 0,
             paddingVertical: 0,
             fontFamily: fonts.displayBold,
-            fontSize: 22,
+            fontSize: 20,
             color: theme.text,
           }}
         />
@@ -704,12 +744,12 @@ export const ActiveWorkout: React.FC<{
             <ElapsedTimer startedAt={session.startedAt} />
           </SessionStat>
           <SessionStat label="Volume">
-            <StatValue size={18} numberOfLines={1}>
+            <StatValue size={17} numberOfLines={1}>
               {`${groupDigits(fromKg(volumeKg, unit))} ${unitLabel}`}
             </StatValue>
           </SessionStat>
           <SessionStat label="Sets">
-            <StatValue size={18}>{setCount}</StatValue>
+            <StatValue size={17}>{setCount}</StatValue>
           </SessionStat>
         </View>
       </Surface>
@@ -732,7 +772,7 @@ export const ActiveWorkout: React.FC<{
           />
         </Surface>
       ) : (
-        exercises.map(exercise => (
+        exercises.map((exercise, exerciseIndex) => (
           <ExerciseCard
             key={exercise.id}
             exercise={exercise}
@@ -746,7 +786,17 @@ export const ActiveWorkout: React.FC<{
               // weight or reps, must not reset the clock mid-set.
               const target = exercise.sets.find(entry => entry.id === setId)
               if (patch.completed === true && target && !target.isWarmup) {
-                startRest()
+                // The store write above has not re-rendered this list yet, so the tick is
+                // applied to a copy before reading what comes next from it.
+                const ticked = exercises.map((entry, i) =>
+                  i === exerciseIndex
+                    ? {
+                        ...entry,
+                        sets: entry.sets.map(row => (row.id === setId ? { ...row, ...patch } : row)),
+                      }
+                    : entry
+                )
+                startRest(describeNextSet(ticked, exerciseIndex, suggestions, unit))
               }
             }}
             onRemoveSet={setId => removeSet(session.id, exercise.id, setId)}

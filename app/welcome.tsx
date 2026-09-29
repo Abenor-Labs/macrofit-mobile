@@ -3,7 +3,6 @@ import { ScrollView, View, type StyleProp, type ViewStyle } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Animated, {
-  Easing,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
@@ -22,6 +21,7 @@ import { BrandMark } from '@/components/BrandMark'
 import { Body } from '@/components/Text'
 import { Button } from '@/components/Button'
 import { useTheme } from '@/theme/useTheme'
+import { ENTER_MS, enterEasing } from '@/theme/motion'
 import { enterGuestMode, markWelcomeSeen } from '@/lib/welcomeSeen'
 import { fonts, radius, spacing } from '@/theme/tokens'
 
@@ -80,7 +80,7 @@ const Rise: React.FC<{
       delay,
       // Strong ease-out. The built-in curves are too weak to read as deceleration at this
       // duration, and an entrance must never ease in.
-      withTiming(1, { duration: 280, easing: Easing.bezier(0.23, 1, 0.32, 1) })
+      withTiming(1, { duration: ENTER_MS, easing: enterEasing })
     )
   }, [delay, progress, reduced])
 

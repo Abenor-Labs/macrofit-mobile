@@ -4,7 +4,6 @@ import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
 import Animated, {
-  Easing,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
@@ -28,6 +27,7 @@ import {
 import { useStore } from '@/store/useStore'
 import { ThemeScope } from '@/theme/ThemeScope'
 import { useTheme } from '@/theme/useTheme'
+import { enterEasing } from '@/theme/motion'
 import { radius, spacing, workoutTheme } from '@/theme/tokens'
 import { Surface } from '@/components/Glass'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
@@ -36,7 +36,7 @@ import { WeekProgressCard } from '@/features/training/WeekProgress'
 import { formatElapsed, fromKg, groupDigits, weightUnitLabel } from '@/features/training/format'
 import { weekdayOf } from '@/features/training/liftNames'
 
-const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1)
+const EASE_OUT = enterEasing
 
 /**
  * The moment after Finish.
@@ -123,7 +123,7 @@ const SummaryBody: React.FC = () => {
             style={{
               width: 88,
               height: 88,
-              borderRadius: 44,
+              borderRadius: radius.pill,
               alignItems: 'center',
               justifyContent: 'center',
               backgroundColor: theme.brand,
@@ -136,7 +136,7 @@ const SummaryBody: React.FC = () => {
             )}
           </View>
           <Label style={{ color: theme.brandText, marginTop: spacing.sm }}>Workout complete</Label>
-          <StatValue size={32} style={{ textAlign: 'center' }}>
+          <StatValue size={30} style={{ textAlign: 'center' }}>
             {session.name}
           </StatValue>
           <Body size={13} tone="muted">
@@ -174,17 +174,17 @@ const SummaryBody: React.FC = () => {
             <View style={{ flexDirection: 'row', gap: spacing.md }}>
               <View style={{ flex: 1, gap: 2 }}>
                 <Label>Duration</Label>
-                <StatValue size={22}>{formatElapsed(stats.durationMs)}</StatValue>
+                <StatValue size={20}>{formatElapsed(stats.durationMs)}</StatValue>
               </View>
               <View style={{ flex: 1.3, gap: 2 }}>
                 <Label>Volume</Label>
-                <StatValue size={22} numberOfLines={1}>
+                <StatValue size={20} numberOfLines={1}>
                   {`${groupDigits(fromKg(stats.volumeKg, unit))} ${unitLabel}`}
                 </StatValue>
               </View>
               <View style={{ flex: 0.7, gap: 2 }}>
                 <Label>Sets</Label>
-                <StatValue size={22}>{stats.sets}</StatValue>
+                <StatValue size={20}>{stats.sets}</StatValue>
               </View>
             </View>
             {comparison ? (

@@ -5,6 +5,7 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 import { createAppState } from '@core/store/appState'
 import type { AppState } from '@core/store/appState'
+import { useCoachStore } from './coachStore'
 
 // Every action and every slice comes from the web app's creator, unchanged. Only the
 // storage layer is native: AsyncStorage instead of localStorage.
@@ -93,6 +94,8 @@ export const resetStore = async (): Promise<void> => {
   // goes directly. Either interleaving is safe: if persist's write for the setState above
   // lands after this, it writes the defaults we just installed.
   await AsyncStorage.removeItem(STORAGE_KEY)
+  // What the last person told the coach, and their conversation, leave with their data.
+  useCoachStore.getState().reset()
 }
 
 const subscribeHydration = (onStoreChange: () => void) => {

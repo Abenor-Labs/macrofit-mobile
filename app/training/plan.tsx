@@ -59,7 +59,7 @@ const ProgramEditor: React.FC<{ program: TrainingProgram; active: boolean }> = (
             minHeight: HIT_SIZE,
             paddingVertical: 0,
             fontFamily: fonts.displayBold,
-            fontSize: 22,
+            fontSize: 20,
             color: theme.text,
           }}
         />

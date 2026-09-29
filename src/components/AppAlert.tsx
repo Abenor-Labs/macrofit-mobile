@@ -1,10 +1,11 @@
 import React from 'react'
 import { Modal, Pressable, StyleSheet, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import Animated, { Easing, FadeIn, SlideInDown, useReducedMotion } from 'react-native-reanimated'
+import Animated, { FadeIn, SlideInDown, useReducedMotion } from 'react-native-reanimated'
 import { create } from 'zustand'
 
 import { useTheme } from '@/theme/useTheme'
+import { ENTER_MS, enterEasing } from '@/theme/motion'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
 import { Body } from './Text'
 
@@ -95,7 +96,7 @@ export const AppAlertHost: React.FC = () => {
             entering={
               reduced
                 ? FadeIn.duration(150)
-                : SlideInDown.duration(260).easing(Easing.bezier(0.23, 1, 0.32, 1))
+                : SlideInDown.duration(ENTER_MS).easing(enterEasing)
             }
             style={{ margin: spacing.md, marginBottom: insets.bottom + spacing.md, gap: spacing.sm }}
           >
@@ -113,7 +114,7 @@ export const AppAlertHost: React.FC = () => {
                   {current.title}
                 </Body>
                 {current.message ? (
-                  <Body size={14} tone="secondary">
+                  <Body size={15} tone="secondary">
                     {current.message}
                   </Body>
                 ) : null}

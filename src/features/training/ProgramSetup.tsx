@@ -59,7 +59,7 @@ export const ProgramSetup: React.FC<{
       <View style={{ gap: spacing.md }}>
         <View style={{ gap: 4 }}>
           <SectionTitle>How do you train?</SectionTitle>
-          <Body size={14} tone="secondary">
+          <Body size={15} tone="secondary">
             Pick one to get a ready-made schedule. You can add the other later.
           </Body>
         </View>
@@ -93,7 +93,7 @@ export const ProgramSetup: React.FC<{
                   <Icon size={28} color={theme.brandText} strokeWidth={2} />
                 </View>
                 <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                  <Body size={18} weight="semibold">
+                  <Body size={17} weight="semibold">
                     {title}
                   </Body>
                   <Body size={13} tone="secondary">

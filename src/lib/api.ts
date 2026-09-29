@@ -9,7 +9,9 @@ import type {
   TdeeEstimate,
   UserProfile,
 } from '@core/types'
+import { isAuthRetryableFetchError } from '@supabase/supabase-js'
 import { requireApiUrl } from './env'
+import { supabase } from './supabase'
 
 /**
  * Typed client for the AI endpoints in `../../api/`.
@@ -21,6 +23,11 @@ import { requireApiUrl } from './env'
  * an LLM produced, and a NaN or Infinity written into the diary is permanent corruption
  * the user has to hunt down by hand — so each reply is validated field by field, and
  * anything unusable is dropped rather than rendered.
+ *
+ * Every call carries the signed-in user's access token. The endpoints are billed per call
+ * and now answer only a verified Supabase user, within a per-user rate limit
+ * (`api/_auth.ts` in the web repo). A guest sends no token and gets a 401, which reads as
+ * "needs an account" rather than as an error.
  */
 
 // --- Timeouts ---------------------------------------------------------------
@@ -88,6 +95,30 @@ export interface ChatContext {
   todayEntries?: ChatContextEntry[]
   currentWeight?: string
   weightUnit?: 'lbs' | 'kg'
+  /** 'checkin' asks for the weekly review. */
+  mode?: 'chat' | 'checkin'
+  /** The coach's data pack: history, weights, energy, plan, usual foods, memory. */
+  coach?: CoachPack
+}
+
+/** See `api/_coach.ts` for how each field is used in the prompt. */
+export interface CoachPack {
+  now?: string
+  profile?: { name?: string; goal?: string; age?: number; gender?: string; heightCm?: number; activityLevel?: string }
+  days?: { date: string; calories: number; protein: number; carbs: number; fat: number; foods: string }[]
+  weights?: { date: string; kg: number }[]
+  energy?: {
+    predictedTdee?: number
+    measuredTdee?: number | null
+    confidence?: string
+    trendKgPerWeek?: number | null
+    daysOfData?: number
+  }
+  plan?: { phase: string; calories: number; protein: number; carbs: number; fat: number; accepted: boolean; ageDays: number } | null
+  alerts?: string[]
+  usualFoods?: { id: string; name: string; meal: string; servings: number }[]
+  memory?: string[]
+  nextMealIdea?: string
 }
 
 /** One food the model estimated, with macros totalled for `servings` servings. */
@@ -104,6 +135,11 @@ export interface AnalyzedFood {
   sugar: number
   sodium: number
   category: FoodCategory
+  /**
+   * Catalog id when the server matched the food to the app's catalog. The numbers are then
+   * the catalog's, and the diary entry should reference the catalog food itself.
+   */
+  foodId?: string
 }
 
 /** `log_food` payload: an analyzed food plus the meal it belongs to. */
@@ -134,6 +170,13 @@ export type ChatAction =
   | { tool: 'log_weight'; input: LogWeightInput }
   | { tool: 'log_water'; input: LogWaterInput }
   | { tool: 'remove_food'; input: RemoveFoodInput }
+  | { tool: 'offer_meal'; input: { meal: MealType; items: (AnalyzedFood & { foodId: string })[] } }
+  | {
+      tool: 'propose_targets'
+      input: { calories: number; protein: number; carbs: number; fat: number; reason: string }
+    }
+  | { tool: 'remember'; input: { fact: string } }
+  | { tool: 'forget'; input: { fact: string } }
 
 export interface ChatResponse {
   /** The assistant's reply. May be empty when the turn was purely tool calls. */
@@ -276,6 +319,7 @@ export interface ApiFailure {
  * reading.
  */
 const messageForStatus = (status: number): string => {
+  // Our own 429s always carry a sentence (see describeFailure); this is for anyone else's.
   if (status === 429) return 'Too many requests just now. Wait a minute and try again.'
   if (status === 502 || status === 503 || status === 504) {
     return 'The service is taking too long to answer right now. Try again in a moment.'
@@ -286,26 +330,55 @@ const messageForStatus = (status: number): string => {
   return 'Something went wrong. Try again.'
 }
 
+/** A 401 for a caller with no session at all: a guest, or a session that could not be read. */
+const NEEDS_ACCOUNT_MESSAGE = 'The coach needs an account. Sign in to use it.'
+
+/** A 401 for a caller who had a session: it was signed out, revoked, or its refresh was refused. */
+const SESSION_EXPIRED_MESSAGE = 'Your sign-in has expired. Sign in again to keep using the coach.'
+
+/** A daily-limit 429 whose body lost its sentence; the server's own wording is preferred. */
+const DAILY_LIMIT_MESSAGE = "You've reached today's limit for the coach. Try again tomorrow."
+
 /**
  * Splits a non-2xx reply into what the user reads and what a developer needs.
  *
  * The handler's own `{ error }` string wins when there is one: `api/*.ts` writes those for
  * humans. Anything else — an HTML error page, a platform timeout, a proxy's plain text —
  * gets the mapped message above, because it was not written for this user.
+ *
+ * A 401 is the exception, and is always worded here: only this side knows whether the
+ * person had a session, and "sign in again" to someone who never signed in is wrong. A 429 keeps the
+ * server's sentence, which is the only one that knows whether the wait is a minute (the
+ * per-minute ceiling) or until tomorrow (the daily one).
  */
-const describeFailure = (path: string, status: number, raw: string): ApiFailure => {
+const describeFailure = (
+  path: string,
+  status: number,
+  raw: string,
+  hadSession: boolean,
+): ApiFailure => {
   const detail = `${path} failed (HTTP ${status}): ${snippet(raw)}`
 
   let handlerMessage: string | null = null
+  let dailyLimit = false
   try {
     const parsed: unknown = JSON.parse(raw)
-    if (isRecord(parsed)) handlerMessage = nonEmptyString(parsed.error)
+    if (isRecord(parsed)) {
+      handlerMessage = nonEmptyString(parsed.error)
+      dailyLimit = parsed.limit === 'day'
+    }
   } catch {
     // Not JSON. Whatever this is, it did not come from one of our handlers.
   }
 
+  let message: string
+  if (status === 401) message = hadSession ? SESSION_EXPIRED_MESSAGE : NEEDS_ACCOUNT_MESSAGE
+  else if (handlerMessage !== null) message = handlerMessage
+  else if (status === 429 && dailyLimit) message = DAILY_LIMIT_MESSAGE
+  else message = messageForStatus(status)
+
   return {
-    message: handlerMessage ?? messageForStatus(status),
+    message,
     detail,
     status,
     reachedServer: true,
@@ -335,15 +408,68 @@ export class ApiError extends Error {
 export const isOffline = (error: unknown): boolean =>
   error instanceof ApiError && !error.failure.reachedServer
 
+/** What the session lookup found, which decides whether and how a request goes out. */
+type SessionToken =
+  | { kind: 'token'; token: string }
+  /** No session at all: a guest, or storage that could not be read. */
+  | { kind: 'none' }
+  /** The refresh token was refused: the session ended underneath the user. */
+  | { kind: 'ended' }
+  /** The refresh failed on the network. Still signed in; just not right now. */
+  | { kind: 'unreachable' }
+
+/**
+ * Returns the signed-in user's access token, or why there is none.
+ *
+ * getSession() refreshes an access token that has expired or is about to. That matters more
+ * here than on the web: the refresh timer is suspended while the app is backgrounded (see
+ * ./supabase), so the stored token is often stale when the app comes back to the chat.
+ *
+ * That same moment, back from the background on a weak signal, is when the refresh is most
+ * likely to fail on the network. supabase-js then answers { session: null, error } but KEEPS
+ * the session, because the refresh can still succeed. Reading only `session` would send the
+ * request with no token and tell a signed-in user "the coach needs an account"; the error
+ * is what says they are signed in and only offline. A refresh token the server refused is
+ * different: that session really is over.
+ *
+ * Never throws. A lookup that throws (unreadable storage) is treated as no session.
+ */
+const sessionToken = async (): Promise<SessionToken> => {
+  try {
+    const { data, error } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    if (token) return { kind: 'token', token }
+    if (error === null) return { kind: 'none' }
+    return isAuthRetryableFetchError(error) ? { kind: 'unreachable' } : { kind: 'ended' }
+  } catch {
+    return { kind: 'none' }
+  }
+}
+
+/**
+ * Rejects once `signal` aborts. Raced against the session lookup, because a token refresh
+ * is a network call too, and one stalled on a dead radio must be bounded by the same
+ * timeout as the request it is for rather than hanging the spinner indefinitely.
+ */
+const whenAborted = (signal: AbortSignal): Promise<never> =>
+  new Promise((_, reject) => {
+    if (signal.aborted) reject(new Error('aborted'))
+    else signal.addEventListener('abort', () => reject(new Error('aborted')))
+  })
+
 /** Performs the request and drains the body. Split out so the timer guards both halves. */
 const performPost = async (
   url: string,
   body: unknown,
+  token: string | null,
   signal: AbortSignal,
 ): Promise<{ status: number; raw: string }> => {
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token === null ? {} : { Authorization: `Bearer ${token}` }),
+    },
     body: JSON.stringify(body),
     signal,
   })
@@ -367,9 +493,22 @@ const postJson = async (path: string, body: unknown, timeoutMs: number): Promise
   }, timeoutMs)
 
   let result: { status: number; raw: string }
+  let hadSession = false
   try {
-    result = await performPost(url, body, controller.signal)
-  } catch {
+    const session = await Promise.race([sessionToken(), whenAborted(controller.signal)])
+    if (session.kind === 'unreachable') {
+      // Sent without a token it would only come back 401 and read as signed out.
+      throw new ApiError({
+        message: 'Could not refresh your sign-in. Check your connection and try again.',
+        detail: `${path} not sent: the session refresh failed on the network`,
+        status: 0,
+        reachedServer: false,
+      })
+    }
+    hadSession = session.kind !== 'none'
+    result = await performPost(url, body, session.kind === 'token' ? session.token : null, controller.signal)
+  } catch (error) {
+    if (error instanceof ApiError) throw error
     // Neither of these reached a server, so both are genuinely offline-ish and callers are
     // right to say so. Everything past this point did reach one, and must not.
     if (timedOut) {
@@ -395,7 +534,7 @@ const postJson = async (path: string, body: unknown, timeoutMs: number): Promise
   }
 
   if (result.status < 200 || result.status >= 300) {
-    throw new ApiError(describeFailure(path, result.status, result.raw))
+    throw new ApiError(describeFailure(path, result.status, result.raw, hadSession))
   }
 
   try {
@@ -444,6 +583,7 @@ const parseAnalyzedFood = (value: unknown): AnalyzedFood | null => {
     sugar: nonNegative(value.sugar),
     sodium: nonNegative(value.sodium),
     category: isFoodCategory(value.category) ? value.category : 'Custom',
+    ...(nonEmptyString(value.foodId) ? { foodId: nonEmptyString(value.foodId)! } : {}),
   }
 }
 
@@ -482,6 +622,30 @@ const parseChatAction = (value: unknown): ChatAction | null => {
       const entryId = nonEmptyString(input.entry_id)
       if (entryId === null) return null
       return { tool: 'remove_food', input: { entry_id: entryId } }
+    }
+    case 'offer_meal': {
+      const raw = Array.isArray(input.items) ? input.items : []
+      const items: (AnalyzedFood & { foodId: string })[] = []
+      for (const item of raw) {
+        const food = parseAnalyzedFood(item)
+        if (food?.foodId) items.push({ ...food, foodId: food.foodId })
+      }
+      if (items.length === 0) return null
+      return { tool: 'offer_meal', input: { meal: isMealType(input.meal) ? input.meal : 'Snacks', items } }
+    }
+    case 'propose_targets': {
+      const calories = positiveOr(input.calories)
+      const protein = positiveOr(input.protein)
+      const carbs = nonNegative(input.carbs)
+      const fat = positiveOr(input.fat)
+      const reason = nonEmptyString(input.reason)
+      if (calories === null || protein === null || fat === null || reason === null) return null
+      return { tool: 'propose_targets', input: { calories, protein, carbs, fat, reason } }
+    }
+    case 'remember':
+    case 'forget': {
+      const fact = nonEmptyString(input.fact)
+      return fact === null ? null : { tool: value.tool, input: { fact } }
     }
     default:
       return null
@@ -566,7 +730,10 @@ export const postChat = async (
     throw new Error('The chat service returned an empty response. Try rephrasing.')
   }
 
-  return { text, actions, discardedActions: rawActions.length - actions.length }
+  // The server refuses unusable tool calls itself (unknown food id, targets outside safe
+  // limits) and reports how many; those overclaim in `text` just as client-side drops do.
+  const refused = typeof payload.refused === 'number' && payload.refused > 0 ? payload.refused : 0
+  return { text, actions, discardedActions: rawActions.length - actions.length + refused }
 }
 
 /**

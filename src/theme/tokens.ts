@@ -216,6 +216,17 @@ export const shadow = {
  *
  * `bezier` tuples feed `Easing.bezier(...)` from Reanimated.
  */
+/**
+ * The only text sizes in the app. Nine steps, from the 11pt label to the 40pt display figure.
+ *
+ * It used to be whatever each screen reached for — nineteen sizes, 14 next to 15 next to 16 —
+ * which is how a set of screens stops looking like one app. 30 is the calorie ring's figure,
+ * sized to what the ring can hold; 40 is for one hero number on a screen, never two.
+ * `Body` and `StatValue` only accept these, so an off-ramp size is a compile error.
+ */
+export const TYPE_RAMP = [11, 12, 13, 15, 17, 20, 24, 30, 40] as const
+export type TypeSize = (typeof TYPE_RAMP)[number]
+
 export const motion = {
   press: { duration: 120, bezier: [0.33, 0, 0.67, 1] },
   select: { duration: 200, bezier: [0.33, 0, 0.67, 1] },
@@ -223,6 +234,12 @@ export const motion = {
   slide: { duration: 300, bezier: [0.25, 1, 0.5, 1] },
   layer: { duration: 350, bezier: [0.16, 1, 0.3, 1] },
   field: { duration: 500, bezier: [0.33, 0, 0, 1] },
+  /**
+   * Something arriving: sheets, the summary, the tab indicator, entrances. A strong ease-out
+   * — the thing lands fast and settles — because the built-in curves are too weak to read as
+   * deliberate, and an ease-in on an entrance reads as lag.
+   */
+  enter: { duration: 260, bezier: [0.23, 1, 0.32, 1] },
 } as const
 
 export const lightTheme: Theme = {

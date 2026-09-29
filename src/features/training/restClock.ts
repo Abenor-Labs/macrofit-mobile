@@ -10,12 +10,18 @@ import { create } from 'zustand'
 interface RestClock {
   /** Bumped by every completed working set; 0 means no rest is running. */
   key: number
-  start: () => void
+  /**
+   * What comes after this rest, e.g. "Next: Bench Press · 80 kg × 8". Carried here because
+   * the set rows know it and the timer that schedules the notification does not.
+   */
+  nextLabel: string
+  start: (nextLabel?: string) => void
   dismiss: () => void
 }
 
 export const useRestClock = create<RestClock>(set => ({
   key: 0,
-  start: () => set(state => ({ key: state.key + 1 })),
-  dismiss: () => set({ key: 0 }),
+  nextLabel: '',
+  start: (nextLabel = '') => set(state => ({ key: state.key + 1, nextLabel })),
+  dismiss: () => set({ key: 0, nextLabel: '' }),
 }))

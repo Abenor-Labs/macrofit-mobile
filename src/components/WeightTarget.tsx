@@ -305,7 +305,7 @@ export const WeightTargetCard: React.FC<{ compact?: boolean }> = ({ compact = fa
                 <Label>Trend</Label>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                   <TrendIcon size={14} color={theme.textSecondary} strokeWidth={2.2} />
-                  <StatValue size={18}>
+                  <StatValue size={17}>
                     {String(toDisplay(Math.abs(progress.trendKgPerWeek)))}
                   </StatValue>
                   <Body size={12} tone="muted">
@@ -316,7 +316,7 @@ export const WeightTargetCard: React.FC<{ compact?: boolean }> = ({ compact = fa
               <View style={{ flex: 1, gap: 2 }}>
                 <Label>Based on</Label>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <StatValue size={18}>{String(progress.daysOfTrend)}</StatValue>
+                  <StatValue size={17}>{String(progress.daysOfTrend)}</StatValue>
                   <Body size={12} tone="muted">
                     days
                   </Body>

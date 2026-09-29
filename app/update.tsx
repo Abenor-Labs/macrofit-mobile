@@ -73,7 +73,7 @@ export default function UpdateScreen() {
       >
         {/* Keyed on the version: opened from the notification on a cold start, the check has
             not finished at first render, and the panel reads `initial` only once. */}
-        <UpdatePanel key={available?.version ?? 'none'} initial={available} />
+        <UpdatePanel key={available?.version ?? 'none'} initial={available} expandNotes />
       </ScrollView>
     </View>
   )

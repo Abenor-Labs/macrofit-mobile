@@ -1,5 +1,5 @@
 import { Food, Exercise, ExerciseCategory } from '../types'
-import { INDIAN_FOOD_DATABASE } from './indianFoods'
+import { INDIAN_FOOD_ALIASES, INDIAN_FOOD_DATABASE } from './indianFoods'
 
 /**
  * Western and generic foods. Indian dishes live in ./indianFoods.ts and are appended to
@@ -154,7 +154,8 @@ export const EXERCISE_DATABASE: Exercise[] = [
 ]
 
 /**
- * How well a food answers the query. Lower is better; -1 means no match at all.
+ * How well a food answers the query. Lower is better; -1 means no match at all. Aliases are
+ * the regional names in `INDIAN_FOOD_ALIASES`.
  *
  * WHY RANKING RATHER THAN FILTER-AND-SLICE:
  * This used to be `filter(...).slice(0, limit)`, which returns matches in array order — so
@@ -169,12 +170,21 @@ export const EXERCISE_DATABASE: Exercise[] = [
  */
 function scoreFood(food: Food, query: string): number {
   const name = food.name.toLowerCase()
+  // A regional name typed in full is as good as the English one: "sadam" IS rice.
+  const aliases = INDIAN_FOOD_ALIASES[food.id]
   if (name === query) return 0
-  if (name.startsWith(query)) return 1
+  if (name.startsWith(query) || aliases?.includes(query)) return 1
   // Matches the start of any word: "curd rice" should rank for "rice", but "American
   // Cheese" should not outrank "Rice" for it.
   if (name.includes(` ${query}`) || name.includes(`(${query}`)) return 2
+  /*
+    A partial alias hit ranks just below the same kind of hit on the name. Without the half
+    step, "dosa" put Adai first: its alias "adai dosai" tied with every "... dosa" name, and
+    the shorter-name tiebreak then picked the dish that is not called dosa at all.
+  */
+  if (aliases?.some(alias => alias.startsWith(query) || alias.includes(` ${query}`))) return 2.5
   if (name.includes(query)) return 3
+  if (aliases?.some(alias => alias.includes(query))) return 3.5
   if (food.brand?.toLowerCase().includes(query)) return 4
   if (food.category.toLowerCase().includes(query)) return 5
   return -1

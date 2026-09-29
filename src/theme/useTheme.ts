@@ -1,5 +1,7 @@
 import { createContext, useContext } from 'react'
+import { useColorScheme } from 'react-native'
 import { useStore } from '@/store/useStore'
+import { useAppearance } from '@/store/appearance'
 import { darkTheme, lightTheme, type Theme } from './tokens'
 
 /**
@@ -12,10 +14,10 @@ export const ThemeOverride = createContext<Theme | undefined>(undefined)
 /**
  * The active theme.
  *
- * Driven by the same persisted `darkMode` flag the web app uses, so the preference
- * follows the user across platforms through cloud sync. Deliberately does NOT read
- * `useColorScheme()`: that would silently disagree with the toggle in Settings and with
- * whatever the user last chose on the web.
+ * Follows the device's Appearance choice: Light and Dark are explicit, System tracks
+ * `useColorScheme()` so the app turns dark with the phone's own schedule. Until that choice
+ * has been read back from storage it falls back to the synced `darkMode` flag, which is what
+ * the theme used to be and what every choice still writes.
  *
  * A ThemeScope above the caller wins. That is how workout mode repaints an entire screen —
  * header, surfaces, buttons, inputs, rest timer — without any of those components knowing
@@ -24,7 +26,17 @@ export const ThemeOverride = createContext<Theme | undefined>(undefined)
 export const useTheme = (): Theme => {
   const override = useContext(ThemeOverride)
   const darkMode = useStore(s => s.darkMode)
-  return override ?? (darkMode ? darkTheme : lightTheme)
+  const mode = useAppearance(s => s.mode)
+  const hydrated = useAppearance(s => s.hydrated)
+  const scheme = useColorScheme()
+
+  if (override) return override
+  const dark = !hydrated
+    ? darkMode
+    : mode === 'system'
+      ? scheme === 'dark'
+      : mode === 'dark'
+  return dark ? darkTheme : lightTheme
 }
 
 export type { Theme }

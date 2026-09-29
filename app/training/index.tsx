@@ -102,7 +102,7 @@ const UpNextCard: React.FC<{ program: TrainingProgram; upNext: UpNext; today: st
           <Moon size={28} color={theme.brandText} strokeWidth={2} />
           <StatValue size={30}>Rest day</StatValue>
         </View>
-        <Body size={14} tone="secondary">
+        <Body size={15} tone="secondary">
           Recovery is where the work turns into strength. The plan moves on by itself tomorrow.
         </Body>
         {nextTraining ? (
@@ -136,7 +136,7 @@ const UpNextCard: React.FC<{ program: TrainingProgram; upNext: UpNext; today: st
   return (
     <Surface style={{ padding: spacing.lg, gap: spacing.md }}>
       <Label style={{ color: theme.brandText }}>{`Today · ${position}`}</Label>
-      <StatValue size={32}>{day.name}</StatValue>
+      <StatValue size={30}>{day.name}</StatValue>
       {lastStats && last ? (
         <Body size={13} tone="secondary">
           {`Last time, ${weekdayOf(last.date)}: ${groupDigits(fromKg(lastStats.volumeKg, unit))} ${weightUnitLabel(unit)} in ${Math.max(1, Math.round(lastStats.durationMs / 60000))} min. Beat it.`}
@@ -144,7 +144,7 @@ const UpNextCard: React.FC<{ program: TrainingProgram; upNext: UpNext; today: st
       ) : null}
 
       {lifts.length === 0 ? (
-        <Body size={14} tone="secondary">
+        <Body size={15} tone="secondary">
           No lifts on this day yet. Add them in Plan, or start and add as you go.
         </Body>
       ) : (
@@ -152,7 +152,7 @@ const UpNextCard: React.FC<{ program: TrainingProgram; upNext: UpNext; today: st
           {lifts.slice(0, LIFT_PREVIEW).map((lift, index) => (
             <View key={`${lift.id}-${index}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
               <View
-                style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: theme.brandText }}
+                style={{ width: 6, height: 6, borderRadius: radius.pill, backgroundColor: theme.brandText }}
               />
               <Body size={15} numberOfLines={1} style={{ flex: 1 }}>
                 {lift.name}
@@ -189,7 +189,7 @@ const UpNextCard: React.FC<{ program: TrainingProgram; upNext: UpNext; today: st
         })}
       >
         <SkipForward size={15} color={theme.textSecondary} strokeWidth={2} />
-        <Body size={14} weight="semibold" tone="secondary">
+        <Body size={15} weight="semibold" tone="secondary">
           Skip to the next day
         </Body>
       </Pressable>
@@ -248,7 +248,7 @@ const WeekStrip: React.FC<{ program: TrainingProgram; today: string }> = ({ prog
               ) : (
                 <View style={{ height: 16, justifyContent: 'center' }}>
                   <View
-                    style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.brandText }}
+                    style={{ width: 8, height: 8, borderRadius: radius.pill, backgroundColor: theme.brandText }}
                   />
                 </View>
               )}

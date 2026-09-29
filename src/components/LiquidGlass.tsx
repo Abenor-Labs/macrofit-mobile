@@ -51,10 +51,20 @@ export const LiquidGlassPane: React.FC<{
   tint?: string
   /** Was: iOS 26 interactive glass, which responded to touch. Accepted and ignored. */
   interactive?: boolean
-}> = ({ children, style, radius = R.card, bordered = true, tint }) => (
+  /** Cast the island shadow. Defaults to on only for an opaque, regular pane; see below. */
+  elevated?: boolean
+}> = ({ children, style, radius = R.card, variant = 'regular', bordered = true, tint, elevated }) => (
   <Island
     radius={radius}
     bordered={bordered}
+    /*
+      NO SHADOW UNDER A SEE-THROUGH FILL. Android draws `elevation` as a shape under the view
+      and a translucent background lets it show through, so a tinted pane printed a box inside
+      itself: a white bar across the selected Segmented thumb (62% white), a faint rectangle
+      inside every primary button (92% brand). A `clear` pane is by definition not a raised
+      object, so it does not cast one either.
+    */
+    elevated={elevated ?? (tint === undefined && variant !== 'clear')}
     style={tint ? [{ backgroundColor: tint }, style] : style}
   >
     {children}

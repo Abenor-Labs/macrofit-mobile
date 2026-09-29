@@ -2,7 +2,7 @@
   "expo": {
     "name": "MacroFit",
     "slug": "macrofit",
-    "version": "1.4.1",
+    "version": "1.4.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "macrofit",
@@ -29,8 +29,8 @@
         "android.permission.SCHEDULE_EXACT_ALARM",
         "android.permission.USE_EXACT_ALARM"
       ],
-      "softwareKeyboardLayoutMode": "pan",
-      "versionCode": 11
+      "softwareKeyboardLayoutMode": "resize",
+      "versionCode": 12
     },
     "web": {
       "favicon": "./assets/favicon.png"

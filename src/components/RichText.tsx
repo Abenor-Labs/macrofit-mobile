@@ -2,6 +2,7 @@ import React from 'react'
 import { View } from 'react-native'
 
 import { spacing } from '@/theme/tokens'
+import type { TypeSize } from '@/theme/tokens'
 import { Body } from './Text'
 
 /**
@@ -36,8 +37,8 @@ import { Body } from './Text'
 export const RichText: React.FC<{
   text: string
   color: string
-  size?: number
-}> = ({ text, color, size = 14 }) => {
+  size?: TypeSize
+}> = ({ text, color, size = 15 }) => {
   const lines: React.ReactNode[] = []
 
   /*

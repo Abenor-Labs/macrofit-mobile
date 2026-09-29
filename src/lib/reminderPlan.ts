@@ -11,6 +11,11 @@ import {
 } from '@core/utils/trainingStats'
 import type { NotificationPrefs } from '@/store/notificationPrefs'
 import { formatNumber } from './formatNumber'
+import { lastWeekRecap, recapLine } from './activityFeed'
+import { suggestNextMeal } from './nextMeal'
+
+/** "Egg dosa (1)" -> "Egg dosa": the count carries the serving. */
+const shortName = (name: string): string => name.replace(/\s*\([^)]*\)\s*$/, '')
 
 /**
  * Every reminder that should exist over the next week, worked out from the app's own data.
@@ -28,6 +33,7 @@ export type ReminderKind =
   | 'meal'
   | 'evening'
   | 'water'
+  | 'recap'
 
 export interface PlannedReminder {
   id: string
@@ -60,7 +66,7 @@ const QUIET_END = 7
 export const DAILY_CAP = 4
 
 /** Earlier in this list wins when a day is over the cap. */
-const PRIORITY: ReminderKind[] = ['training', 'streak', 'weigh-in', 'meal', 'evening', 'water']
+const PRIORITY: ReminderKind[] = ['training', 'streak', 'recap', 'weigh-in', 'meal', 'evening', 'water']
 
 const at = (date: string, time: string): Date => {
   const [y, m, d] = date.split('-').map(Number)
@@ -149,6 +155,26 @@ export const planReminders = (input: PlanInput): PlannedReminder[] => {
     }
   }
 
+  // --- Weekly recap: Monday morning, once a week -------------------------------------------
+  if (prefs.weeklyRecap) {
+    const monday = weekStartOf(today)
+    const next = today === monday ? monday : addDays(monday, 7)
+    // Only this Monday's is known now; next week's body is written when that week is over, by
+    // the reconcile that runs when the app is next opened — until then a plain line stands in.
+    const recap = next === today ? lastWeekRecap({ ...input, program }) : null
+    if (next !== today || recap !== null) {
+      add({
+        id: `rem:recap:${next}`,
+        kind: 'recap',
+        at: at(next, '09:00'),
+        title: 'Your week in review',
+        body: recap ? recapLine(recap, input.weightUnit) : 'See how last week went: workouts, food and weight.',
+        url: '/activity',
+        sound: 'reminder.wav',
+      })
+    }
+  }
+
   for (const date of dates) {
     const day = diary[date]
 
@@ -169,13 +195,24 @@ export const planReminders = (input: PlanInput): PlannedReminder[] => {
     if (prefs.meals) {
       for (const { meal, key } of MEALS) {
         if (day?.entries.some(entry => entry.mealType === meal)) continue
+        const when = at(date, prefs[key] as string)
+        /*
+          The coach's idea for this meal, from what this person usually eats at it, so the
+          nudge is something to act on ("Idli ×3 + Sambar, 330 kcal") rather than a chore.
+          Falls back to the plain wording when there is no history to suggest from.
+        */
+        const idea = suggestNextMeal(diary, goals, when)
+        const body =
+          idea && idea.meal === meal
+            ? `Idea: ${idea.items.map(i => (i.servings === 1 ? shortName(i.food.name) : `${shortName(i.food.name)} ×${i.servings}`)).join(' + ')}, ${formatNumber(idea.calories)} kcal. Log it from Today in one tap.`
+            : 'Snap a photo or search for it. It takes ten seconds.'
         add({
           id: `rem:meal:${meal}:${date}`,
           kind: 'meal',
-          at: at(date, prefs[key] as string),
+          at: when,
           title: `${meal} not logged yet`,
-          body: 'Snap a photo or search for it. It takes ten seconds.',
-          url: `/food-search?meal=${meal}&date=${date}`,
+          body,
+          url: idea && idea.meal === meal && date === today ? '/(tabs)' : `/food-search?meal=${meal}&date=${date}`,
           sound: 'reminder.wav',
         })
       }

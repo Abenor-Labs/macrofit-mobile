@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
 import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -48,11 +48,6 @@ interface SnackbarState {
 }
 
 export const SnackbarProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const theme = useTheme()
-  const insets = useSafeAreaInsets()
-  const segments = useSegments() as string[]
-  const onHome =
-    segments[0] === '(tabs)' && (segments.length === 1 || segments[segments.length - 1] === 'index')
   const [state, setState] = useState<SnackbarState | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const keyRef = useRef(0)
@@ -69,6 +64,8 @@ export const SnackbarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setState({ key: keyRef.current, message, action })
   }, [])
 
+  const dismiss = useCallback(() => setState(null), [])
+
   // Tied to `state`, so tapping the same action twice restarts the countdown rather than
   // letting the first timer dismiss the second message early.
   useEffect(() => {
@@ -78,81 +75,103 @@ export const SnackbarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return clearTimer
   }, [state])
 
+  /*
+    THE VALUE IS MEMOISED AND THE PROVIDER NO LONGER READS THE ROUTE. It used to pass a new
+    `{ show }` object on every render and to call useSegments(), which changes on every
+    navigation, so each tab switch handed every useSnackbar() caller a new context value:
+    Profile's root, every Diary row, the Today cards and food search all re-rendered on every
+    navigation. Context updates go straight past React.memo and freezeOnBlur only defers them,
+    so this was the half-second lag on tab switches (measured with a React Profiler on a
+    OnePlus 10T: Profile ~250 ms, Diary ~100 ms, Today ~60 ms per switch). The route is now
+    read only by the toast itself, which exists only while a message is showing.
+  */
+  const value = useMemo(() => ({ show }), [show])
+
   return (
-    <SnackbarContext.Provider value={{ show }}>
+    <SnackbarContext.Provider value={value}>
       {children}
-
-      {state ? (
-        <Animated.View
-          needsOffscreenAlphaCompositing
-          key={state.key}
-          entering={FadeInDown.duration(180)}
-          exiting={FadeOutDown.duration(140)}
-          // box-none: the bar is tappable, the space around it is not. It sits over the whole
-          // screen and must not swallow taps meant for the content it is floating above.
-          pointerEvents="box-none"
-          style={{
-            position: 'absolute',
-            left: spacing.lg,
-            right: spacing.lg,
-            // Clears the floating tab bar, the same measurement Screen pads its scroll by —
-            // and on Home the quick-log button too, which the "water logged / Undo" toast it
-            // triggers used to land right on top of.
-            bottom: TAB_BAR_SPACE + insets.bottom + (onHome ? QUICK_LOG_CLEARANCE : 0),
-            zIndex: 20,
-          }}
-        >
-          <View
-            accessible
-            accessibilityLiveRegion="polite"
-            accessibilityLabel={
-              state.action ? `${state.message}. ${state.action.label} available.` : state.message
-            }
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: spacing.md,
-              paddingLeft: spacing.lg,
-              paddingRight: state.action ? spacing.xs : spacing.lg,
-              paddingVertical: state.action ? spacing.xs : spacing.md,
-              borderRadius: radius.control,
-              borderWidth: StyleSheet.hairlineWidth * 2,
-              borderColor: theme.glass.border,
-              backgroundColor: theme.surfaceRaised,
-              shadowColor: '#1C1917',
-              shadowOpacity: theme.mode === 'light' ? 0.18 : 0.4,
-              shadowRadius: 12,
-              shadowOffset: { width: 0, height: 6 },
-              elevation: 6,
-            }}
-          >
-            <Body size={14} style={{ flex: 1, color: theme.text }}>
-              {state.message}
-            </Body>
-
-            {state.action ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={state.action.label}
-                onPress={() => {
-                  const run = state.action?.onPress
-                  setState(null)
-                  run?.()
-                }}
-                style={[
-                  styles.action,
-                  { paddingHorizontal: spacing.md, borderRadius: radius.control },
-                ]}
-              >
-                <Body size={14} weight="semibold" style={{ color: theme.brandText }}>
-                  {state.action.label}
-                </Body>
-              </Pressable>
-            ) : null}
-          </View>
-        </Animated.View>
-      ) : null}
+      {state ? <SnackbarToast state={state} onDismiss={dismiss} /> : null}
     </SnackbarContext.Provider>
+  )
+}
+
+/** The visible bar. Mounted only while a message is showing. */
+const SnackbarToast: React.FC<{ state: SnackbarState; onDismiss: () => void }> = ({ state, onDismiss }) => {
+  const theme = useTheme()
+  const insets = useSafeAreaInsets()
+  const segments = useSegments() as string[]
+  const onHome =
+    segments[0] === '(tabs)' && (segments.length === 1 || segments[segments.length - 1] === 'index')
+
+  return (
+    <Animated.View
+      needsOffscreenAlphaCompositing
+      key={state.key}
+      entering={FadeInDown.duration(180)}
+      exiting={FadeOutDown.duration(140)}
+      // box-none: the bar is tappable, the space around it is not. It sits over the whole
+      // screen and must not swallow taps meant for the content it is floating above.
+      pointerEvents="box-none"
+      style={{
+        position: 'absolute',
+        left: spacing.lg,
+        right: spacing.lg,
+        // Clears the floating tab bar, the same measurement Screen pads its scroll by —
+        // and on Home the quick-log button too, which the "water logged / Undo" toast it
+        // triggers used to land right on top of.
+        bottom: TAB_BAR_SPACE + insets.bottom + (onHome ? QUICK_LOG_CLEARANCE : 0),
+        zIndex: 20,
+      }}
+    >
+      <View
+        accessible
+        accessibilityLiveRegion="polite"
+        accessibilityLabel={
+          state.action ? `${state.message}. ${state.action.label} available.` : state.message
+        }
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: spacing.md,
+          paddingLeft: spacing.lg,
+          paddingRight: state.action ? spacing.xs : spacing.lg,
+          paddingVertical: state.action ? spacing.xs : spacing.md,
+          borderRadius: radius.control,
+          borderWidth: StyleSheet.hairlineWidth * 2,
+          borderColor: theme.glass.border,
+          backgroundColor: theme.surfaceRaised,
+          shadowColor: '#1C1917',
+          shadowOpacity: theme.mode === 'light' ? 0.18 : 0.4,
+          shadowRadius: 12,
+          shadowOffset: { width: 0, height: 6 },
+          elevation: 6,
+        }}
+      >
+        <Body size={15} style={{ flex: 1, color: theme.text }}>
+          {state.message}
+        </Body>
+
+        {state.action ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={state.action.label}
+            onPress={() => {
+              const run = state.action?.onPress
+              onDismiss()
+              run?.()
+            }}
+            style={[
+              styles.action,
+              { paddingHorizontal: spacing.md, borderRadius: radius.control },
+            ]}
+          >
+            <Body size={15} weight="semibold" style={{ color: theme.brandText }}>
+              {state.action.label}
+            </Body>
+          </Pressable>
+        ) : null}
+      </View>
+    </Animated.View>
   )
 }
 

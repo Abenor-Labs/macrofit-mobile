@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useCallback, useRef, useState } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
 import Animated, {
   useAnimatedStyle,
@@ -29,6 +29,20 @@ import { useTheme } from '@/theme/useTheme'
 import { Body } from '@/components/Text'
 import { GlassTabBar, type GlassTabBarProps } from '@/components/GlassTabBar'
 import { HIT_SIZE, radius, shadow, spacing } from '@/theme/tokens'
+
+/*
+  FROZEN WHEN HIDDEN. A tab navigator keeps every visited tab mounted, and without a freeze
+  each of them re-rendered on every tab switch: measured on a OnePlus 10T, Profile ~250 ms,
+  Diary ~100 ms and Today ~60 ms of JS for a single tap on a different tab, which is the
+  half-second lag between pressing a tab and seeing it. freezeOnBlur suspends rendering of
+  a screen while it is not focused (react-native-screens / react-freeze), so a switch now
+  renders the screen being opened and nothing else. A frozen screen catches up on its own
+  when it is shown again. Measured again at production speed after the change: a switch to
+  an already-open tab commits 20-32 ms after the tap.
+*/
+const TAB_SCREEN_OPTIONS = { headerShown: false, freezeOnBlur: true } as const
+
+type TabBarProps = Parameters<NonNullable<React.ComponentProps<typeof Tabs>['tabBar']>>[0]
 
 const TAB_ITEMS: GlassTabBarProps['items'] = {
   index: { label: 'Dashboard', icon: Home },
@@ -323,9 +337,20 @@ export default function TabsLayout() {
     return true
   }
 
+  // Stable across renders, so a re-render of this layout (useSegments fires on every
+  // navigation) does not hand the navigator a new tab bar and make it rebuild.
+  const openItemRef = useRef(openItem)
+  openItemRef.current = openItem
+  const renderTabBar = useCallback(
+    (props: TabBarProps) => (
+      <GlassTabBar {...props} items={TAB_ITEMS} onPressItem={name => openItemRef.current(name)} />
+    ),
+    []
+  )
+
   return (
     <View style={{ flex: 1 }}>
-      <Tabs screenOptions={{ headerShown: false }} tabBar={props => <GlassTabBar {...props} items={TAB_ITEMS} onPressItem={openItem} />}>
+      <Tabs screenOptions={TAB_SCREEN_OPTIONS} tabBar={renderTabBar}>
         <Tabs.Screen name="index" />
         <Tabs.Screen name="diary" />
         <Tabs.Screen name="workout" />
@@ -349,7 +374,7 @@ const styles = StyleSheet.create({
   */
   fab: {
     flex: 1,
-    borderRadius: 28,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth * 2,

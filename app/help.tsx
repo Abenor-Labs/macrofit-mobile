@@ -190,7 +190,7 @@ const TopicRow: React.FC<{ topic: Topic; open: boolean; onToggle: () => void }> 
       {open ? (
         <View style={{ gap: spacing.md }}>
           {topic.body.map((paragraph, index) => (
-            <Body key={index} size={14} tone="secondary">
+            <Body key={index} size={15} tone="secondary">
               {paragraph}
             </Body>
           ))}
@@ -240,7 +240,7 @@ export default function HelpScreen() {
           padding: spacing.lg,
         }}
       >
-        <SectionTitle style={{ fontSize: 16 }}>Still stuck?</SectionTitle>
+        <SectionTitle style={{ fontSize: 15 }}>Still stuck?</SectionTitle>
         <Body size={13} tone="secondary">
           Setup can be re-run at any time from Profile. It re-asks the questions your targets are
           built from and recalculates them. Nothing you have logged is touched.

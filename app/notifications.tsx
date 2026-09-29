@@ -171,10 +171,10 @@ export default function NotificationSettings() {
                   backgroundColor: pressed ? theme.border : 'transparent',
                 })}
               >
-                <Body size={14} tone="secondary" style={{ flex: 1 }}>
+                <Body size={15} tone="secondary" style={{ flex: 1 }}>
                   {label}
                 </Body>
-                <Body size={14} weight="semibold" style={{ color: theme.brandText }}>
+                <Body size={15} weight="semibold" style={{ color: theme.brandText }}>
                   {formatTime(prefs[key])}
                 </Body>
                 <ChevronRight size={16} color={theme.textMuted} strokeWidth={2.2} />
@@ -294,6 +294,11 @@ export default function NotificationSettings() {
             title: 'Weigh-in',
             rule: "Skipped on days you've already weighed in.",
             times: [{ key: 'weighInTime', label: 'Remind me at' }],
+          })}
+          {row({
+            k: 'weeklyRecap',
+            title: 'Weekly review',
+            rule: "Monday at 9 am: last week's workouts, food and weight.",
           })}
           {row({
             k: 'updates',
