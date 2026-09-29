@@ -38,7 +38,8 @@ import type { MealType } from '@core/types'
 import { getTodayString, kgToLbs, lbsToKg } from '@core/utils/calculations'
 import { postAnalyzePhoto, postChat, type ChatMessageParam } from '@/lib/api'
 import { mealForNow } from '@/lib/analyzedFood'
-import { buildChatContext, loggedDaysLastWeek } from '@/lib/coachContext'
+import { buildActivity, buildChatContext, loggedDaysLastWeek, type HealthSteps } from '@/lib/coachContext'
+import { useHealthSync } from '@/hooks/useHealthSync'
 import { buildOpener } from '@/lib/coachOpener'
 import { addEntriesTracked, foodForItem } from '@/lib/coachWrites'
 import { formatNumber } from '@/lib/formatNumber'
@@ -288,6 +289,14 @@ export default function ChatScreen() {
   const clearConversation = useCoachStore(s => s.clearConversation)
   const [memorySheetOpen, setMemorySheetOpen] = useState(false)
 
+  /*
+    Steps come from HealthProvider, not the store. Held in a ref so the send callback and the
+    opener read the latest reading without being rebuilt every time it refreshes.
+  */
+  const { todaySteps, weekSteps } = useHealthSync()
+  const healthRef = useRef<HealthSteps>({ todaySteps, weekSteps })
+  healthRef.current = { todaySteps, weekSteps }
+
   const checkInDue = useMemo(
     () =>
       (lastCheckInAt === null || Date.now() - lastCheckInAt > CHECK_IN_EVERY_MS) &&
@@ -305,7 +314,13 @@ export default function ChatScreen() {
     if (user === null) return
     const last = messages[messages.length - 1]
     if (last?.at !== undefined && isSameDay(last.at, Date.now())) return
-    const opener = buildOpener({ name: profile.name, diary, goals, checkInDue })
+    const opener = buildOpener({
+      name: profile.name,
+      diary,
+      goals,
+      checkInDue,
+      activity: buildActivity(useStore.getState(), healthRef.current),
+    })
     setMessages(prev => [
       ...prev,
       { id: uuidv4(), role: 'assistant', text: opener.text, offer: opener.offer, local: true, at: Date.now() },
@@ -405,7 +420,7 @@ export default function ChatScreen() {
       // the store so a food logged a second ago is already in it.
       const reply = await postChat(
         history,
-        buildChatContext(useStore.getState(), useCoachStore.getState().memory, mode),
+        buildChatContext(useStore.getState(), useCoachStore.getState().memory, mode, healthRef.current),
       )
 
       const logged: LoggedAction[] = []

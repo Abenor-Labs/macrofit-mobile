@@ -1,7 +1,8 @@
 import type { DiaryDay, MacroGoals } from '@core/types'
 import { getDayNutrition, getTodayString } from '@core/utils/calculations'
 import { formatNumber } from './formatNumber'
-import { suggestNextMeal } from './nextMeal'
+import { nextSlot, suggestNextMeal } from './nextMeal'
+import { activityLine, type Activity } from './activity'
 import { itemFromFood } from './coachWrites'
 import type { MealOffer } from '@/store/coachStore'
 
@@ -27,6 +28,7 @@ export const buildOpener = (input: {
   diary: Record<string, DiaryDay>
   goals: MacroGoals
   checkInDue: boolean
+  activity?: Activity
   now?: Date
 }): Opener => {
   const now = input.now ?? new Date()
@@ -49,6 +51,17 @@ export const buildOpener = (input: {
   }
 
   if (input.checkInDue) lines.push('Your weekly check-in is ready whenever you are.')
+
+  // Before the meal idea, which has to stay last: it introduces the card under the text.
+  if (input.activity) {
+    const line = activityLine(input.activity, {
+      proteinLeft: Math.round(input.goals.protein - (eaten?.protein ?? 0)),
+      hour: now.getHours(),
+      minute: now.getMinutes(),
+      next: nextSlot(now.getHours()),
+    })
+    if (line) lines.push(line)
+  }
 
   // Last, because it introduces the card that renders under the text.
   const idea = suggestNextMeal(input.diary, input.goals, now)
