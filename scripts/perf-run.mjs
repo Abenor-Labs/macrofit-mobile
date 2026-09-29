@@ -53,6 +53,24 @@ const assertAwake = () => {
   }
 }
 
+/*
+  Screen on through the waits before measuring (Metro, bundling, the app loading), which run
+  longer than a 30-second screen timeout. Without touching settings: OnePlus refuses adb writes
+  to them. Without key events: one sent while the app has no focused window gets it killed. A
+  tap on the status bar goes to System UI, not the app, and counts as user activity. It stops
+  before the measured taps, which keep the screen on by themselves.
+*/
+let keepAlive = null
+const startKeepAlive = () => {
+  keepAlive = setInterval(() => {
+    try { tap([540, 12]) } catch {}
+  }, 8000)
+}
+const stopKeepAlive = () => {
+  if (keepAlive !== null) clearInterval(keepAlive)
+  keepAlive = null
+}
+
 const waitFor = async (test, seconds, what) => {
   for (let i = 0; i < seconds; i++) {
     if (await test()) return
@@ -68,6 +86,7 @@ const metro = spawn(
 )
 
 const cleanup = () => {
+  stopKeepAlive()
   try { adb('shell', `run-as ${PKG} rm -f ${PREFS}`) } catch {}
   try { adb('reverse', '--remove', 'tcp:8081') } catch {}
   if (process.platform === 'win32') {
@@ -82,6 +101,7 @@ const main = async () => {
   if (!adb('shell', 'pm', 'list', 'packages', PKG).includes(PKG)) {
     throw new Error(`${PKG} is not installed. Build it once with: npm run android`)
   }
+  startKeepAlive()
 
   console.log('Starting Metro in production mode with probes...')
   await waitFor(
@@ -107,8 +127,12 @@ const main = async () => {
   adb('shell', 'am', 'force-stop', PKG)
   adb('logcat', '-c')
   adb('shell', 'am', 'start', '-n', ACTIVITY)
-  await waitFor(() => perfLines().some(line => line.startsWith('[perf] index')), 90, 'the first Today render')
+  // The phone downloads the whole production bundle through the adb tunnel before it can run
+  // any of it: 15 s to nearly 2 minutes over wireless adb, depending on the link.
+  console.log('Loading the app on the phone (up to a couple of minutes over wireless adb)...')
+  await waitFor(() => perfLines().some(line => line.startsWith('[perf] index')), 240, 'the first Today render')
   await sleep(4000)
+  stopKeepAlive()
   const results = [{ label: 'launch', lines: perfLines() }]
 
   const run = async (label, taps) => {
