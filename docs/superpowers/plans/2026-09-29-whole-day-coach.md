@@ -700,11 +700,11 @@ Expected: `all 19 passed`, exit 0.
 
 In `package.json`, change:
 ```json
-    "test": "node scripts/check-auth-link.mjs",
+    "test": "node scripts/check-auth-link.mjs && node scripts/check-program-day.mjs",
 ```
 to:
 ```json
-    "test": "node scripts/check-auth-link.mjs && node scripts/check-activity.mjs",
+    "test": "node scripts/check-auth-link.mjs && node scripts/check-program-day.mjs && node scripts/check-activity.mjs",
 ```
 Run: `cd /d/macrofit-mobile && npm test`
 Expected: both scripts pass, exit 0.
