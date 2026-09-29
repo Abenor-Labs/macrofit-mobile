@@ -31,6 +31,7 @@ import { Body } from '@/components/Text'
 import { GlassTabBar, type GlassTabBarProps } from '@/components/GlassTabBar'
 import { PERF, PerfProbe } from '@/lib/perf'
 import { HIT_SIZE, motion, radius, shadow, spacing } from '@/theme/tokens'
+import { useWidgetLaunch } from '@/widgets/hooks'
 
 /*
   FROZEN WHEN HIDDEN. A tab navigator keeps every visited tab mounted, and without a freeze
@@ -361,6 +362,8 @@ export default function TabsLayout() {
   // tab bar's props the way GlassTabBar does.
   const segments = useSegments() as string[]
   const active = segments[segments.length - 1]
+  // A home-screen widget's tap lands here: the tabs mount only once every gate is passed.
+  useWidgetLaunch()
   // '(tabs)' is what the segment reads as on the index route, which has no name of its own.
   const onHome = active === '(tabs)' || active === 'index'
   const router = useRouter()

@@ -14,6 +14,8 @@ export type { AppState }
 // AsyncStorage is asynchronous, so zustand builds the store with defaults first and the
 // persisted state arrives a tick later. `hydrated` tracks that moment for the UI.
 let hydrated = false
+/** Whether that read succeeded. A failed one leaves defaults standing in for the user's data. */
+let hydrationSucceeded = false
 const hydrationListeners = new Set<() => void>()
 
 const markHydrated = () => {
@@ -22,7 +24,7 @@ const markHydrated = () => {
   for (const listener of hydrationListeners) listener()
 }
 
-const STORAGE_KEY = 'macrofit-storage'
+export const STORAGE_KEY = 'macrofit-storage'
 
 export const useStore = create<AppState>()(
   persist(immer(createAppState), {
@@ -30,7 +32,10 @@ export const useStore = create<AppState>()(
     storage: createJSONStorage(() => AsyncStorage),
     // Runs on success *and* on failure. A corrupt or unreadable store must still release
     // the splash screen — the user then starts from defaults rather than a frozen app.
-    onRehydrateStorage: () => () => markHydrated(),
+    onRehydrateStorage: () => (_state, error) => {
+      hydrationSucceeded = !error
+      markHydrated()
+    },
   })
 )
 
@@ -106,6 +111,29 @@ const subscribeHydration = (onStoreChange: () => void) => {
 }
 
 const getHydrated = () => hydrated
+
+/**
+ * Resolves once the persisted state has been read back, with whether it actually was.
+ *
+ * For code that runs without the React tree: a home-screen widget's background task starts
+ * a JS runtime with nothing mounted, so nothing else waits for hydration on its behalf.
+ * `false` means the read failed and the store holds defaults, which must never be written
+ * back over the real data still on disk.
+ */
+export const whenStoreHydrated = (): Promise<boolean> =>
+  new Promise(resolve => {
+    // Not `persist.hasHydrated()`: zustand sets that only after this callback has run.
+    const settle = () => resolve(hydrationSucceeded)
+    if (hydrated) {
+      settle()
+      return
+    }
+    const listener = () => {
+      hydrationListeners.delete(listener)
+      settle()
+    }
+    hydrationListeners.add(listener)
+  })
 
 /**
  * `false` until the persisted state has been read back from AsyncStorage, `true` forever

@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native'
 import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller'
-import { useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { BlurView } from 'expo-blur'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { v4 as uuidv4 } from 'uuid'
@@ -621,6 +621,21 @@ export default function ChatScreen() {
     if (loading) return
     setPhotoSheetOpen(true)
   }
+
+  /*
+    The home-screen widget's Photo button: `?snap=camera` opens the camera on arrival, so the
+    meal is being photographed one tap from the home screen. Acted on once; the param is
+    cleared so returning to this screen does not open the camera again.
+  */
+  const { snap } = useLocalSearchParams<{ snap?: string }>()
+  const snapHandled = useRef(false)
+  useEffect(() => {
+    if (snap !== 'camera' || snapHandled.current) return
+    snapHandled.current = true
+    router.setParams({ snap: undefined })
+    void runPhoto('camera')
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on the param alone
+  }, [snap])
 
   /*
     Writes the items the user kept, then turns the card back into an ordinary receipt.

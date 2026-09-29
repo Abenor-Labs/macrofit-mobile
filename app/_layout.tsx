@@ -50,6 +50,7 @@ import { HIT_SIZE, spacing } from '@/theme/tokens'
 import { configureFoodApis } from '@core/utils/foodApiConfig'
 import { USDA_API_KEY } from '@/lib/env'
 import { useNotifications } from '@/hooks/useNotifications'
+import { useWidgetSync } from '@/widgets/hooks'
 import { landAt } from '@/lib/landAt'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 // Defines the background update check at module scope: Android can start the JS runtime just
@@ -387,6 +388,7 @@ const RootNavigator: React.FC = () => {
   const welcomeSeen = useWelcomeSeen()
   const guest = useGuestMode()
   useNotifications()
+  useWidgetSync()
 
   useEffect(() => {
     // `hydrating` is the fetch that follows a fresh sign-in. Routing before it lands would

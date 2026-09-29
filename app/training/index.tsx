@@ -1,6 +1,6 @@
-import React, { useMemo } from 'react'
+import React, { useEffect, useMemo, useRef } from 'react'
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native'
-import { router } from 'expo-router'
+import { router, useLocalSearchParams } from 'expo-router'
 import { Check, ChevronRight, Moon, Play, Plus, Repeat, SkipForward } from '@/components/icons'
 
 import type { TrainingProgram } from '@core/types'
@@ -287,6 +287,24 @@ export default function TrainingToday() {
 
   const upNext = program ? resolveUpNext(program, today) : null
   const bottomSpace = useLiveStripSpace(true)
+
+  /*
+    The home-screen widget's Start button: `?start=<day id>` begins that day's session on
+    arrival, so the tap on the home screen is the only tap. Acted on once, and only when the
+    day is still the one up next — a widget drawn before the plan moved on must not start a
+    session the user can no longer see on it.
+  */
+  const { start } = useLocalSearchParams<{ start?: string }>()
+  const startProgramDay = useStore(s => s.startProgramDay)
+  const startHandled = useRef(false)
+  useEffect(() => {
+    if (!start || startHandled.current) return
+    startHandled.current = true
+    router.setParams({ start: undefined })
+    if (activeSession || !program || upNext?.status !== 'train' || upNext.day.id !== start) return
+    startProgramDay(program.id, start, today)
+  }, [start, activeSession, program, upNext, startProgramDay, today])
+
   const workoutLog = useStore(s => s.workoutLog)
   const week = useMemo(
     () => weeklyProgress(workoutLog, weeklyGoalFor(program), today),
