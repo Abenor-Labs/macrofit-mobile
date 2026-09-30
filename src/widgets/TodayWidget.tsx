@@ -19,7 +19,8 @@ import { FONT, type WidgetPalette } from './palette'
     tall    — 4×3 and up: all three macros written out.
 
   "Left" rather than the app ring's "eaten of target": the question someone glancing at a home
-  screen is asking is how much of the day remains.
+  screen is asking is how much of the day remains. Because the app counts the other way, the
+  number is captioned before it is read (see Headline).
 
   Every height budget below is the sum of what it holds (text line heights, not font sizes),
   so a layout is only picked when its content fits — nothing overflows into the crop.
@@ -28,6 +29,10 @@ import { FONT, type WidgetPalette } from './palette'
 const PAD = 12
 const BUTTON = 34
 const BUTTON_GAP = 8
+/** The log buttons' row with the gap above it. */
+const ACTION_ROW = BUTTON + 10
+/** An 11pt caption's line, as the app's `Label` sets it above its own figures. */
+const CAPTION = 15
 
 export interface WidgetSize {
   width: number
@@ -77,39 +82,39 @@ const ACTIONS: Action[] = [
 
 type DayModel = Extract<TodayModel, { kind: 'day' }>
 
+/**
+ * The calories left (or over), captioned above rather than after.
+ *
+ * The app's Intake ring counts up — eaten of target — so a big number beside an empty ring
+ * reads as "that much eaten", and a small grey "kcal left" trailing it was read past. A caption
+ * over the figure, the way the app captions its own figures, is read first.
+ */
 const Headline: React.FC<{
   model: DayModel
   palette: WidgetPalette
   size: number
-  /** Stacked under the number, or beside it on one line. */
-  layout: 'stacked' | 'inline'
-}> = ({ model, palette, size, layout }) => {
+  align: 'start' | 'center'
+}> = ({ model, palette, size, align }) => {
   const over = model.eaten > model.goal
   const value = over ? model.eaten - model.goal : Math.max(0, model.goal - model.eaten)
-  const stacked = layout === 'stacked'
   return (
-    <FlexWidget
-      style={{
-        flexDirection: stacked ? 'column' : 'row',
-        alignItems: stacked ? 'center' : 'flex-end',
-      }}
-    >
+    <FlexWidget style={{ alignItems: align === 'center' ? 'center' : 'flex-start' }}>
+      <TextWidget
+        text={over ? 'KCAL OVER' : 'KCAL LEFT'}
+        allowFontScaling={false}
+        maxLines={1}
+        style={{
+          fontFamily: FONT.semibold,
+          fontSize: 11,
+          letterSpacing: 0.8,
+          color: over ? palette.critical : palette.textSecondary,
+        }}
+      />
       <TextWidget
         text={formatNumber(value)}
         allowFontScaling={false}
         maxLines={1}
         style={{ fontFamily: FONT.display, fontSize: size, color: over ? palette.critical : palette.text }}
-      />
-      <TextWidget
-        text={over ? 'kcal over' : 'kcal left'}
-        allowFontScaling={false}
-        maxLines={1}
-        style={{
-          fontFamily: FONT.medium,
-          fontSize: 12,
-          color: palette.textMuted,
-          ...(stacked ? {} : { marginLeft: 5, marginBottom: Math.round(size / 6) }),
-        }}
       />
     </FlexWidget>
   )
@@ -278,12 +283,14 @@ export const TodayWidget: React.FC<{ model: TodayModel; size: WidgetSize; palett
   const water = `${(model.waterMl / 1000).toFixed(1)} of ${(model.waterGoalMl / 1000).toFixed(1)} L`
 
   /*
-    One row high: the 20pt number over its label (26 + 16), and as many round buttons as fit
+    One row high — too short for the ring layout's caption and 22pt number (15 + 27) above its
+    buttons: the caption over the 20pt number (15 + 26), and as many round buttons as fit
     beside it — all three from four cells wide, then water alone (the log that needs no
     screen), then none. The number is the one thing a strip is never without.
   */
-  if (inner.height < 72) {
-    const numberWidth = 64
+  if (inner.height - ACTION_ROW < CAPTION + 27) {
+    // "KCAL LEFT", the wider of the two lines.
+    const numberWidth = 72
     const fit = Math.floor((inner.width - numberWidth + 6) / (BUTTON + 6))
     const shown = fit >= 3 ? ACTIONS : fit >= 1 ? ACTIONS.filter(a => a.key === 'water') : []
     return (
@@ -292,7 +299,7 @@ export const TodayWidget: React.FC<{ model: TodayModel; size: WidgetSize; palett
           style={{ width: inner.width, height: inner.height, flexDirection: 'row', alignItems: 'center' }}
         >
           <FlexWidget style={{ flex: 1 }}>
-            <Headline model={model} palette={palette} size={20} layout="stacked" />
+            <Headline model={model} palette={palette} size={20} align="start" />
           </FlexWidget>
           {shown.length > 0 ? (
             <FlexWidget style={{ flexDirection: 'row', flexGap: 6 }}>
@@ -306,9 +313,9 @@ export const TodayWidget: React.FC<{ model: TodayModel; size: WidgetSize; palett
     )
   }
 
-  // Two cells wide: the ring, and the number under it (6 + 26 + 16).
+  // Two cells wide: the ring, and the captioned number under it (6 + 15 + 26).
   if (inner.width < 176) {
-    const ring = Math.max(40, Math.min(96, inner.width, inner.height - 48))
+    const ring = Math.max(40, Math.min(96, inner.width, inner.height - (6 + CAPTION + 26)))
     return (
       <Shell palette={palette} size={size} accessibilityLabel={label}>
         <FlexWidget
@@ -316,20 +323,28 @@ export const TodayWidget: React.FC<{ model: TodayModel; size: WidgetSize; palett
         >
           <Ring model={model} palette={palette} size={ring} />
           <FlexWidget style={{ marginTop: 6 }}>
-            <Headline model={model} palette={palette} size={20} layout="stacked" />
+            <Headline model={model} palette={palette} size={20} align="center" />
           </FlexWidget>
         </FlexWidget>
       </Shell>
     )
   }
 
-  const actions = BUTTON + 10
-  // Tall: headline (31) + 4 + three macro rows (3 × 16 + 2 × 3) = 89 beside the ring.
-  const tall = inner.height - actions >= 96
-  const top = inner.height - actions
-  const ring = Math.max(44, Math.min(tall ? 110 : 76, top))
+  const top = inner.height - ACTION_ROW
+  // Beside the ring: the caption, the number's line, then macro rows of 16, 3 apart.
+  const column = (numberLine: number, rows: number) =>
+    CAPTION + numberLine + (rows > 0 ? 4 + rows * 16 + (rows - 1) * 3 : 0)
+  // Tall: all three macros under the 26pt number, 15 + 31 + 4 + 54 = 104.
+  const tall = top >= column(31, 3)
+  // Regular: protein under the 22pt number while it fits, then the number alone.
+  const lines = tall
+    ? model.macros
+    : top >= column(27, 1)
+      ? model.macros.filter(m => m.key === 'Protein')
+      : []
+  // The ring gives way before the column does: "Protein  182 / 182 g" needs about 136 across.
+  const ring = Math.max(40, Math.min(tall ? 110 : 76, top, inner.width - 12 - 136))
   const macroColor = { Protein: palette.macro.protein, Carbs: palette.macro.carbs, Fat: palette.macro.fat }
-  const lines = tall ? model.macros : model.macros.filter(m => m.key === 'Protein')
 
   return (
     <Shell palette={palette} size={size} accessibilityLabel={label}>
@@ -337,18 +352,20 @@ export const TodayWidget: React.FC<{ model: TodayModel; size: WidgetSize; palett
         <FlexWidget style={{ width: inner.width, height: top, flexDirection: 'row', alignItems: 'center' }}>
           <Ring model={model} palette={palette} size={ring} />
           <FlexWidget style={{ flex: 1, marginLeft: 12 }}>
-            <Headline model={model} palette={palette} size={tall ? 26 : 22} layout="inline" />
-            <FlexWidget style={{ width: 'match_parent', marginTop: 4, flexGap: 3 }}>
-              {lines.map(m => (
-                <MacroRow
-                  key={m.key}
-                  label={m.key}
-                  value={`${Math.round(m.grams)} / ${Math.round(m.goal)} g`}
-                  color={macroColor[m.key]}
-                  palette={palette}
-                />
-              ))}
-            </FlexWidget>
+            <Headline model={model} palette={palette} size={tall ? 26 : 22} align="start" />
+            {lines.length > 0 ? (
+              <FlexWidget style={{ width: 'match_parent', marginTop: 4, flexGap: 3 }}>
+                {lines.map(m => (
+                  <MacroRow
+                    key={m.key}
+                    label={m.key}
+                    value={`${Math.round(m.grams)} / ${Math.round(m.goal)} g`}
+                    color={macroColor[m.key]}
+                    palette={palette}
+                  />
+                ))}
+              </FlexWidget>
+            ) : null}
           </FlexWidget>
         </FlexWidget>
         <FlexWidget style={{ marginTop: 10 }}>
