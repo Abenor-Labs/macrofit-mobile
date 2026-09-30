@@ -279,6 +279,16 @@ export default function ChatScreen() {
   const [loading, setLoading] = useState(false)
   const [photoSheetOpen, setPhotoSheetOpen] = useState(false)
   const keyboardVisible = useKeyboardState(state => state.isVisible)
+  /*
+    Where the composer's KeyboardAvoidingView starts on screen. It sits under the Coach header,
+    and it works out how far to lift from its layout, which is relative to its parent (y = 0):
+    so it lifted by the keyboard's height minus the header's, 222 of 328 dp on a OnePlus 10T,
+    and the message box and Send stayed under the keys. Its real top, measured in the window,
+    goes in as keyboardVerticalOffset. The library's automaticOffset is meant to do this and
+    silently fell back to the relative layout here.
+  */
+  const kavRef = useRef<View>(null)
+  const [kavTop, setKavTop] = useState(0)
   const messages = useCoachStore(s => s.messages)
   const setMessages = useCoachStore(s => s.setMessages)
   const memory = useCoachStore(s => s.memory)
@@ -826,6 +836,9 @@ export default function ChatScreen() {
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior="padding"
+        ref={kavRef}
+        keyboardVerticalOffset={kavTop}
+        onLayout={() => kavRef.current?.measureInWindow((_x, y) => setKavTop(y))}
       >
         <ScrollView
           ref={scrollRef}
