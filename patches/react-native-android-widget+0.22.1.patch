@@ -1,0 +1,98 @@
+diff --git a/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java b/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java
+index c138d81..afe6bfc 100644
+--- a/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java
++++ b/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java
+@@ -132,6 +132,9 @@ public class RNWidgetProvider extends AppWidgetProvider {
+     private void openUri(Context context, String uri) {
+         try {
+             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(uri));
++            // MacroFit: the widget's links are this app's own. Without a package, any other app
++            // registering the same scheme (a dev build, say) makes Android ask which app to use.
++            intent.setPackage(context.getPackageName());
+             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+             context.startActivity(intent);
+         } catch (Exception e) {
+diff --git a/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetUtil.java b/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetUtil.java
+index 2a34305..bbeaee4 100644
+--- a/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetUtil.java
++++ b/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetUtil.java
+@@ -6,7 +6,10 @@ import android.appwidget.AppWidgetManager;
+ import android.appwidget.AppWidgetProviderInfo;
+ import android.content.ComponentName;
+ import android.content.Context;
++import android.os.Build;
++import android.os.Bundle;
+ import android.util.DisplayMetrics;
++import android.util.SizeF;
+ import android.util.TypedValue;
+ 
+ import com.facebook.react.bridge.Arguments;
+@@ -14,12 +17,15 @@ import com.facebook.react.bridge.ReactApplicationContext;
+ import com.facebook.react.bridge.WritableArray;
+ import com.facebook.react.bridge.WritableMap;
+ 
++import java.util.ArrayList;
+ import java.util.List;
+ 
+ public class RNWidgetUtil {
+     public static int getWidgetWidth(Context context, int widgetId) {
+         boolean isPortrait = context.getResources().getConfiguration().orientation == ORIENTATION_PORTRAIT;
+         if (isPortrait) {
++            SizeF portrait = getPortraitSize(context, widgetId);
++            if (portrait != null) return Math.round(portrait.getWidth());
+             return getWidgetSizeInDp(context, widgetId, AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH);
+         } else {
+             return getWidgetSizeInDp(context, widgetId, AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH);
+@@ -29,12 +35,34 @@ public class RNWidgetUtil {
+     public static int getWidgetHeight(Context context, int widgetId) {
+         boolean isPortrait = context.getResources().getConfiguration().orientation == ORIENTATION_PORTRAIT;
+         if (isPortrait) {
++            SizeF portrait = getPortraitSize(context, widgetId);
++            if (portrait != null) return Math.round(portrait.getHeight());
+             return getWidgetSizeInDp(context, widgetId, AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT);
+         } else {
+             return getWidgetSizeInDp(context, widgetId, AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT);
+         }
+     }
+ 
++    /**
++     * MacroFit: the portrait size from the launcher's own list of layouts (Android 12+), or null.
++     *
++     * MIN_WIDTH x MAX_HEIGHT assumes a launcher's landscape rows are shorter than its portrait
++     * ones. OnePlus's are taller, so MAX_HEIGHT is a landscape height there and the bottom of
++     * the drawing is cropped off. OPTION_APPWIDGET_SIZES holds one size per layout the launcher
++     * can show; the portrait one is the narrowest.
++     */
++    private static SizeF getPortraitSize(Context context, int widgetId) {
++        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null;
++        Bundle options = AppWidgetManager.getInstance(context).getAppWidgetOptions(widgetId);
++        ArrayList<SizeF> sizes = options.getParcelableArrayList(AppWidgetManager.OPTION_APPWIDGET_SIZES);
++        if (sizes == null || sizes.isEmpty()) return null;
++        SizeF portrait = sizes.get(0);
++        for (SizeF size : sizes) {
++            if (size.getWidth() < portrait.getWidth()) portrait = size;
++        }
++        return portrait;
++    }
++
+     public static int dpToPx(Context context, double dpValue) {
+         return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, (float) dpValue, context.getResources().getDisplayMetrics()));
+     }
+diff --git a/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/oss/HeadlessJsTaskWorker.java b/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/oss/HeadlessJsTaskWorker.java
+index 269a75d..1d87c1b 100644
+--- a/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/oss/HeadlessJsTaskWorker.java
++++ b/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/oss/HeadlessJsTaskWorker.java
+@@ -74,7 +74,12 @@ public abstract class HeadlessJsTaskWorker extends ListenableWorker implements H
+         ReactHost reactHost = this.getReactHost();
+         ReactContext reactContext = reactHost.getCurrentReactContext();
+ 
+-        if (reactContext == null) {
++        // MacroFit: a bridgeless context exists from the moment the host starts, before its JS
++        // bundle has loaded, and a task started on it then is dropped with a soft exception.
++        // On a cold start expo-background-task has always started the host first, so every
++        // widget task with the app closed (add, hourly redraw, water) was lost. Both this and
++        // the listeners run on the main thread, so the instance cannot come up in between.
++        if (reactContext == null || !reactContext.hasActiveReactInstance()) {
+             reactHost.addReactInstanceEventListener(new ReactInstanceEventListener() {
+                 public void onReactContextInitialized(ReactContext reactContext) {
+                     HeadlessJsTaskWorker.this.invokeStartTask(reactContext, taskConfig);

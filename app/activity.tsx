@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
 import { router } from 'expo-router'
-import { Award, CalendarCheck, Flame, Target, Trophy } from 'lucide-react-native'
+import { Award, CalendarCheck, Flame, Target, Trophy } from '@/components/icons'
 
 import { formatDate, getTodayString } from '@core/utils/calculations'
 import { addDays } from '@core/utils/trainingProgram'

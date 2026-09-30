@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, TextInput, View } from 'react-native'
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { ArrowDown, ArrowUp, Moon, Plus, Trash2, X } from 'lucide-react-native'
+import { ArrowDown, ArrowUp, Moon, Plus, Trash2, X } from '@/components/icons'
 
 import { useStore } from '@/store/useStore'
 import { ThemeScope } from '@/theme/ThemeScope'
@@ -15,6 +15,7 @@ import { Button, IconButton } from '@/components/Button'
 import { ActionSheet } from '@/components/ActionSheet'
 import { Segmented } from '@/components/Segmented'
 import { findLiftById } from '@/features/training/liftNames'
+import { isUnnamedDay, programDayLabel } from '@/lib/programDayLabel'
 
 const HAIRLINE = StyleSheet.hairlineWidth * 2
 
@@ -133,7 +134,9 @@ const RoutineDayBody: React.FC = () => {
             <View style={{ gap: spacing.xs }}>
               <Label>Name</Label>
               <TextInput
-                value={day.name}
+                // The store's 'New day' placeholder shows as an empty field with the hint, not
+                // as text the user has to delete before typing the real name.
+                value={isUnnamedDay(day.name) ? '' : day.name}
                 onChangeText={name => update({ name })}
                 placeholder="e.g. Chest day"
                 placeholderTextColor={theme.textMuted}
@@ -275,7 +278,7 @@ const RoutineDayBody: React.FC = () => {
 
       <ActionSheet
         visible={confirmDelete}
-        title={`Delete ${day.rest ? 'this rest day' : day.name}?`}
+        title={`Delete ${day.rest ? 'this rest day' : programDayLabel(day, index)}?`}
         message="Workouts you already logged from it stay in History."
         onClose={() => setConfirmDelete(false)}
         options={[

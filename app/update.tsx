@@ -2,7 +2,7 @@ import React from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
 import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { X } from 'lucide-react-native'
+import { X } from '@/components/icons'
 
 import { GlassSurface } from '@/components/Glass'
 import { IconButton } from '@/components/Button'

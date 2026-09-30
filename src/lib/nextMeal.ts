@@ -54,6 +54,15 @@ const SLOTS: { meal: MealType; until: number; share: number | 'snack' }[] = [
 ]
 
 /**
+ * The day-part that comes next at `hour`, or null once the last one has ended. Shared with the
+ * coach opener's activity line, so its "at lunch" matches the Today card's idea.
+ */
+export const nextSlot = (hour: number): { meal: MealType; share: number | 'snack' } | null => {
+  const slot = SLOTS.find(s => hour < s.until)
+  return slot ? { meal: slot.meal, share: slot.share } : null
+}
+
+/**
  * South Indian everyday foods for someone with no history yet, so a new user sees an idea on
  * day one rather than an empty card. Ids from the bundled catalog.
  */

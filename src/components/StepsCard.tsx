@@ -1,6 +1,6 @@
 import React from 'react'
 import { View } from 'react-native'
-import { Footprints, Link2, RefreshCw } from 'lucide-react-native'
+import { Footprints, Link2, RefreshCw } from '@/components/icons'
 
 import { useStore } from '@/store/useStore'
 import { formatNumber } from '@/lib/formatNumber'

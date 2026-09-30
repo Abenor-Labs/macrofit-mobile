@@ -1,6 +1,7 @@
-import React, { useCallback, useRef, useState } from 'react'
-import { Pressable, StyleSheet, View } from 'react-native'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { Easing as RNEasing, InteractionManager, Pressable, StyleSheet, View } from 'react-native'
 import Animated, {
+  useReducedMotion,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -20,7 +21,7 @@ import {
   TrendingUp,
   User,
   Utensils,
-} from 'lucide-react-native'
+} from '@/components/icons'
 
 import { getTodayString } from '@core/utils/calculations'
 import { useStore } from '@/store/useStore'
@@ -28,7 +29,9 @@ import { useStore } from '@/store/useStore'
 import { useTheme } from '@/theme/useTheme'
 import { Body } from '@/components/Text'
 import { GlassTabBar, type GlassTabBarProps } from '@/components/GlassTabBar'
-import { HIT_SIZE, radius, shadow, spacing } from '@/theme/tokens'
+import { PERF, PerfProbe } from '@/lib/perf'
+import { HIT_SIZE, motion, radius, shadow, spacing } from '@/theme/tokens'
+import { useWidgetLaunch } from '@/widgets/hooks'
 
 /*
   FROZEN WHEN HIDDEN. A tab navigator keeps every visited tab mounted, and without a freeze
@@ -40,7 +43,39 @@ import { HIT_SIZE, radius, shadow, spacing } from '@/theme/tokens'
   when it is shown again. Measured again at production speed after the change: a switch to
   an already-open tab commits 20-32 ms after the tap.
 */
-const TAB_SCREEN_OPTIONS = { headerShown: false, freezeOnBlur: true } as const
+const STILL_TAB_OPTIONS = { headerShown: false, freezeOnBlur: true } as const
+
+/*
+  A DISSOLVE BETWEEN TABS. The navigator draws the incoming tab on top, so it fades in over the
+  outgoing one, which stays mostly solid underneath until it is covered: at the midpoint both are
+  at 75%, and the dark canvas behind never shows through. The first version was a Material
+  fade-through, both tabs near zero in the middle, and on this dark theme that dip read as a
+  blink. Opacity only: scaling the whole screen, header included, reads as jitter. The `select`
+  motion token, 200 ms, on the native driver so a busy JS thread cannot stutter it. Reduce
+  Motion gets the instant switch.
+
+  With any animation on, this navigator no longer freezes hidden tabs (its freeze check never
+  matches while a scene's state is animated). The tab screens are memoised, so a switch still
+  re-renders each of them for under a millisecond.
+*/
+const TAB_SCREEN_OPTIONS = {
+  ...STILL_TAB_OPTIONS,
+  animation: 'fade',
+  transitionSpec: {
+    animation: 'timing',
+    config: { duration: motion.select.duration, easing: RNEasing.bezier(...motion.select.bezier) },
+  },
+  sceneStyleInterpolator: ({ current }) => ({
+    sceneStyle: {
+      opacity: current.progress.interpolate({
+        inputRange: [-1, -0.5, 0, 0.5, 1],
+        outputRange: [0, 0.75, 1, 0.75, 0],
+      }),
+    },
+  }),
+} satisfies TabScreenOptions
+
+type TabScreenOptions = Extract<NonNullable<React.ComponentProps<typeof Tabs>['screenOptions']>, object>
 
 type TabBarProps = Parameters<NonNullable<React.ComponentProps<typeof Tabs>['tabBar']>>[0]
 
@@ -307,6 +342,13 @@ const QuickLogButton: React.FC = () => {
   )
 }
 
+/** Only in a measuring build: wraps each tab in a Profiler. Undefined otherwise, so nothing wraps. */
+const PERF_SCREEN_LAYOUT = PERF
+  ? ({ children, route }: { children: React.ReactNode; route: { name: string } }) => (
+      <PerfProbe id={route.name}>{children}</PerfProbe>
+    )
+  : undefined
+
 export default function TabsLayout() {
   /*
     A real View, not a fragment. `AssistantButton` positions itself absolutely, and a
@@ -320,9 +362,31 @@ export default function TabsLayout() {
   // tab bar's props the way GlassTabBar does.
   const segments = useSegments() as string[]
   const active = segments[segments.length - 1]
+  // A home-screen widget's tap lands here: the tabs mount only once every gate is passed.
+  useWidgetLaunch()
   // '(tabs)' is what the segment reads as on the index route, which has no name of its own.
   const onHome = active === '(tabs)' || active === 'index'
   const router = useRouter()
+  const reduceMotion = useReducedMotion()
+
+  /*
+    FIRST VISITS WITHOUT A BUILD. Opening Diary or Profile for the first time mounted the whole
+    screen on the tap: 140 ms and 350 ms of JS at production speed. Once Today has drawn and
+    nothing is animating, both are built in the background, a second apart so neither competes
+    with the other, and freezeOnBlur freezes each as soon as it has mounted. A later tap only
+    shows it.
+  */
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const task = InteractionManager.runAfterInteractions(() => {
+      router.prefetch('/diary')
+      timer = setTimeout(() => router.prefetch('/profile'), 1000)
+    })
+    return () => {
+      task.cancel()
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }, [router])
 
   /*
     Workout is a launcher, not a tab. Training is its own app — own tab bar, own colours,
@@ -350,7 +414,11 @@ export default function TabsLayout() {
 
   return (
     <View style={{ flex: 1 }}>
-      <Tabs screenOptions={TAB_SCREEN_OPTIONS} tabBar={renderTabBar}>
+      <Tabs
+        screenLayout={PERF_SCREEN_LAYOUT}
+        screenOptions={reduceMotion ? STILL_TAB_OPTIONS : TAB_SCREEN_OPTIONS}
+        tabBar={renderTabBar}
+      >
         <Tabs.Screen name="index" />
         <Tabs.Screen name="diary" />
         <Tabs.Screen name="workout" />

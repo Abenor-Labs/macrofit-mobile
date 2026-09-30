@@ -3,7 +3,7 @@ import { ScrollView, View } from 'react-native'
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller'
 import { landAt } from '@/lib/landAt'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { AlertTriangle, Clock, MailCheck } from 'lucide-react-native'
+import { AlertTriangle, Clock, MailCheck } from '@/components/icons'
 
 import { useAuth } from '@/lib/AuthProvider'
 import { enterGuestMode } from '@/lib/welcomeSeen'

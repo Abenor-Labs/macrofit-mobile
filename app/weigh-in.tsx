@@ -3,7 +3,7 @@ import { StyleSheet, View } from 'react-native'
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller'
 import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Check, Scale, TriangleAlert, X } from 'lucide-react-native'
+import { Check, Scale, TriangleAlert, X } from '@/components/icons'
 
 import { GlassSurface, Surface } from '@/components/Glass'
 import { Button, IconButton } from '@/components/Button'

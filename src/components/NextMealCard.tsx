@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { View } from 'react-native'
 import * as Haptics from 'expo-haptics'
-import { Utensils } from 'lucide-react-native'
+import { Utensils } from '@/components/icons'
 import { useStore } from '@/store/useStore'
 import { suggestNextMeal, type MealIdeaItem } from '@/lib/nextMeal'
 import { useSnackbar } from '@/components/Snackbar'

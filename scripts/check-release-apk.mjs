@@ -20,8 +20,9 @@
  *   node scripts/check-release-apk.mjs
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
+import { inflateRawSync } from 'node:zlib'
 
 const projectRoot = path.resolve(import.meta.dirname, '..')
 const APK = path.join(projectRoot, 'android/app/build/outputs/apk/release/app-release.apk')
@@ -118,6 +119,68 @@ if (apksigner === null) {
         '        credentials/macrofit-release.keystore is present and that prebuild ran.',
     )
   }
+}
+
+// --- Freshness -------------------------------------------------------------
+/*
+  The home-screen widget fixes (ring from 12 o'clock, the OnePlus crop, the "Open with"
+  chooser) were committed nine minutes after the last release build, and that build was the
+  one waiting to be installed: every fix missing, nothing to say so. As make would have it, a
+  build older than any file that goes into it is stale.
+*/
+const BUILD_INPUTS = ['app', 'src', 'patches', 'plugins', 'assets', 'index.ts', 'app.json', 'package.json', 'package-lock.json']
+const apkTime = statSync(APK).mtimeMs
+const newest = run('git', ['-C', projectRoot, 'ls-files', '--', ...BUILD_INPUTS])
+  .split('\n')
+  .filter(file => file && existsSync(path.join(projectRoot, file)))
+  .reduce(
+    (latest, file) => {
+      const time = statSync(path.join(projectRoot, file)).mtimeMs
+      return time > latest.time ? { file, time } : latest
+    },
+    { file: null, time: 0 },
+  )
+if (newest.time <= apkTime) note('ok    built after its last source change')
+else problems.push(`built before ${newest.file} last changed — rebuild`)
+
+// --- Patches ---------------------------------------------------------------
+/*
+  patches/ reaches the build only through node_modules: postinstall applies it, gradle
+  compiles whatever is there. A build from before a patch was written carries the library as
+  published, silently. Each patch here leaves a string in the dex that only its code contains.
+*/
+const PATCH_MARKERS = [
+  // AppWidgetManager.OPTION_APPWIDGET_SIZES, which javac inlines into getPortraitSize.
+  { patch: 'react-native-android-widget', marker: 'appWidgetSizes' },
+]
+
+/** The APK's entries whose names match `pattern`, uncompressed. An APK is a plain zip. */
+const readZipEntries = (file, pattern) => {
+  const zip = readFileSync(file)
+  let end = zip.length - 22
+  while (end >= 0 && zip.readUInt32LE(end) !== 0x06054b50) end--
+  const count = zip.readUInt16LE(end + 10)
+  let at = zip.readUInt32LE(end + 16)
+  const entries = []
+  for (let i = 0; i < count; i++) {
+    const method = zip.readUInt16LE(at + 10)
+    const size = zip.readUInt32LE(at + 20)
+    const nameLength = zip.readUInt16LE(at + 28)
+    const local = zip.readUInt32LE(at + 42)
+    const name = zip.toString('utf8', at + 46, at + 46 + nameLength)
+    at += 46 + nameLength + zip.readUInt16LE(at + 30) + zip.readUInt16LE(at + 32)
+    if (!pattern.test(name)) continue
+    const start = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28)
+    const data = zip.subarray(start, start + size)
+    entries.push(method === 0 ? data : inflateRawSync(data))
+  }
+  return entries
+}
+
+const dex = readZipEntries(APK, /^classes\d*\.dex$/)
+for (const { patch, marker } of PATCH_MARKERS) {
+  if (dex.some(file => file.includes(marker))) note(`ok    patched ${patch}`)
+  else problems.push(`${patch} is unpatched — run npm install (it applies patches/), then rebuild`)
 }
 
 if (problems.length === 0) {

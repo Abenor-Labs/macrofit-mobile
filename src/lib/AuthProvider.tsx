@@ -16,6 +16,7 @@ import { supabase } from '@/lib/supabase'
 import { parseAuthFragment } from '@/lib/authLink'
 import { describeAuthError, normalizeEmail, type AuthResult } from '@core/utils/authErrors'
 import { getStoreEpoch, resetStore, useStore } from '@/store/useStore'
+import { LOADED_KEY, STORE_OWNER_KEY, UNSYNCED_KEY, licenceFor } from '@/lib/syncKeys'
 
 export type SyncStatus = 'idle' | 'saving' | 'saved' | 'error'
 
@@ -167,12 +168,7 @@ const SAVE_TIMEOUT_MS = 15000
   gating it is how a sign-out came to promise "your data is saved" over work that only
   existed on the device.
 */
-const STORE_OWNER_KEY = 'macrofit-store-owner'
-const LOADED_KEY = 'macrofit-loaded-owner'
-const UNSYNCED_KEY = 'macrofit-unsynced-owner'
-
-/** A publish licence is only valid for the account AND the store contents it was cut for. */
-const licenceFor = (epoch: string, userId: string) => `${epoch}:${userId}`
+// The keys and licence format live in syncKeys.ts, shared with the widget's background task.
 
 /**
  * Where Supabase sends someone after they tap the confirmation link in their email.

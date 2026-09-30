@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
 import * as Haptics from 'expo-haptics'
-import { Minus, Plus, Timer, X } from 'lucide-react-native'
+import { Minus, Plus, Timer, X } from '@/components/icons'
 
 import { useTheme } from '@/theme/useTheme'
 import { radius, spacing } from '@/theme/tokens'

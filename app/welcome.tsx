@@ -9,7 +9,7 @@ import Animated, {
   withDelay,
   withTiming,
 } from 'react-native-reanimated'
-import { BookOpen, Dumbbell, TrendingUp } from 'lucide-react-native'
+import { BookOpen, Dumbbell, TrendingUp } from '@/components/icons'
 
 import { Aurora } from '@/components/Aurora'
 import {

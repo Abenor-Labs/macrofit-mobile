@@ -1,6 +1,6 @@
 import React from 'react'
 import { View } from 'react-native'
-import { ChevronLeft, ChevronRight } from 'lucide-react-native'
+import { ChevronLeft, ChevronRight } from '@/components/icons'
 
 import { formatDate, getDateString } from '@core/utils/calculations'
 import { useTheme } from '@/theme/useTheme'
@@ -8,6 +8,7 @@ import { spacing } from '@/theme/tokens'
 import { Surface } from './Glass'
 import { Body, SectionTitle } from './Text'
 import { Button, IconButton } from './Button'
+import { markPress } from '@/lib/perf'
 
 const WEEKDAYS = [
   'Sunday',
@@ -47,11 +48,15 @@ export const shiftISODate = (iso: string, days: number): string => {
  * "Jump to today" only appears off-today. On today it would be a button that does nothing,
  * and the relative label underneath already says where you are.
  */
-export const DateNavigator: React.FC<{
+/*
+  Memoised: Diary's deferred pass (the one that renders the new day's content) re-rendered this
+  with identical props, ~10 ms each time. `onChange` is a state setter, so it is stable.
+*/
+export const DateNavigator = React.memo<{
   date: string
   today: string
   onChange: (next: string) => void
-}> = ({ date, today, onChange }) => {
+}>(function DateNavigator({ date, today, onChange }) {
   const theme = useTheme()
   const isToday = date === today
   /*
@@ -80,7 +85,10 @@ export const DateNavigator: React.FC<{
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <IconButton
           accessibilityLabel="Show the previous day"
-          onPress={() => onChange(shiftISODate(date, -1))}
+          onPress={() => {
+            markPress('date-back')
+            onChange(shiftISODate(date, -1))
+          }}
         >
           <ChevronLeft size={22} color={theme.text} strokeWidth={2} />
         </IconButton>
@@ -103,6 +111,7 @@ export const DateNavigator: React.FC<{
               : 'Show the next day'
           }
           onPress={() => {
+            markPress('date-forward')
             const next = shiftISODate(date, 1)
             // Recomputed at press time, not read from the prop, so a screen left open across
             // midnight resolves to the real today rather than to the value it rendered with.
@@ -123,4 +132,4 @@ export const DateNavigator: React.FC<{
       )}
     </Surface>
   )
-}
+})

@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { ScrollView, View } from 'react-native'
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { AlertTriangle, MailCheck } from 'lucide-react-native'
+import { AlertTriangle, MailCheck } from '@/components/icons'
 
 import { useAuth } from '@/lib/AuthProvider'
 import { useTheme } from '@/theme/useTheme'

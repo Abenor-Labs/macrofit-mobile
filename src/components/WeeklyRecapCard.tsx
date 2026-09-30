@@ -1,7 +1,7 @@
 import React from 'react'
 import { Pressable, View } from 'react-native'
 import { router } from 'expo-router'
-import { CalendarCheck, X } from 'lucide-react-native'
+import { CalendarCheck, X } from '@/components/icons'
 
 import { addDays } from '@core/utils/trainingProgram'
 import { formatDate } from '@core/utils/calculations'

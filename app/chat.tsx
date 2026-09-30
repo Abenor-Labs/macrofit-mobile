@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native'
 import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller'
-import { useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { BlurView } from 'expo-blur'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { v4 as uuidv4 } from 'uuid'
@@ -32,13 +32,14 @@ import {
   User,
   Utensils,
   X,
-} from 'lucide-react-native'
+} from '@/components/icons'
 
 import type { MealType } from '@core/types'
 import { getTodayString, kgToLbs, lbsToKg } from '@core/utils/calculations'
 import { postAnalyzePhoto, postChat, type ChatMessageParam } from '@/lib/api'
 import { mealForNow } from '@/lib/analyzedFood'
-import { buildChatContext, loggedDaysLastWeek } from '@/lib/coachContext'
+import { buildActivity, buildChatContext, loggedDaysLastWeek, type HealthSteps } from '@/lib/coachContext'
+import { useHealthSync } from '@/hooks/useHealthSync'
 import { buildOpener } from '@/lib/coachOpener'
 import { addEntriesTracked, foodForItem } from '@/lib/coachWrites'
 import { formatNumber } from '@/lib/formatNumber'
@@ -278,6 +279,16 @@ export default function ChatScreen() {
   const [loading, setLoading] = useState(false)
   const [photoSheetOpen, setPhotoSheetOpen] = useState(false)
   const keyboardVisible = useKeyboardState(state => state.isVisible)
+  /*
+    Where the composer's KeyboardAvoidingView starts on screen. It sits under the Coach header,
+    and it works out how far to lift from its layout, which is relative to its parent (y = 0):
+    so it lifted by the keyboard's height minus the header's, 222 of 328 dp on a OnePlus 10T,
+    and the message box and Send stayed under the keys. Its real top, measured in the window,
+    goes in as keyboardVerticalOffset. The library's automaticOffset is meant to do this and
+    silently fell back to the relative layout here.
+  */
+  const kavRef = useRef<View>(null)
+  const [kavTop, setKavTop] = useState(0)
   const messages = useCoachStore(s => s.messages)
   const setMessages = useCoachStore(s => s.setMessages)
   const memory = useCoachStore(s => s.memory)
@@ -287,6 +298,14 @@ export default function ChatScreen() {
   const markCheckIn = useCoachStore(s => s.markCheckIn)
   const clearConversation = useCoachStore(s => s.clearConversation)
   const [memorySheetOpen, setMemorySheetOpen] = useState(false)
+
+  /*
+    Steps come from HealthProvider, not the store. Held in a ref so the send callback and the
+    opener read the latest reading without being rebuilt every time it refreshes.
+  */
+  const { todaySteps, weekSteps } = useHealthSync()
+  const healthRef = useRef<HealthSteps>({ todaySteps, weekSteps })
+  healthRef.current = { todaySteps, weekSteps }
 
   const checkInDue = useMemo(
     () =>
@@ -305,7 +324,13 @@ export default function ChatScreen() {
     if (user === null) return
     const last = messages[messages.length - 1]
     if (last?.at !== undefined && isSameDay(last.at, Date.now())) return
-    const opener = buildOpener({ name: profile.name, diary, goals, checkInDue })
+    const opener = buildOpener({
+      name: profile.name,
+      diary,
+      goals,
+      checkInDue,
+      activity: buildActivity(useStore.getState(), healthRef.current),
+    })
     setMessages(prev => [
       ...prev,
       { id: uuidv4(), role: 'assistant', text: opener.text, offer: opener.offer, local: true, at: Date.now() },
@@ -405,7 +430,7 @@ export default function ChatScreen() {
       // the store so a food logged a second ago is already in it.
       const reply = await postChat(
         history,
-        buildChatContext(useStore.getState(), useCoachStore.getState().memory, mode),
+        buildChatContext(useStore.getState(), useCoachStore.getState().memory, mode, healthRef.current),
       )
 
       const logged: LoggedAction[] = []
@@ -608,6 +633,21 @@ export default function ChatScreen() {
   }
 
   /*
+    The home-screen widget's Photo button: `?snap=camera` opens the camera on arrival, so the
+    meal is being photographed one tap from the home screen. Acted on once; the param is
+    cleared so returning to this screen does not open the camera again.
+  */
+  const { snap } = useLocalSearchParams<{ snap?: string }>()
+  const snapHandled = useRef(false)
+  useEffect(() => {
+    if (snap !== 'camera' || snapHandled.current) return
+    snapHandled.current = true
+    router.setParams({ snap: undefined })
+    void runPhoto('camera')
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on the param alone
+  }, [snap])
+
+  /*
     Writes the items the user kept, then turns the card back into an ordinary receipt.
 
     Replacing `review` with `actions` on the SAME message is what earns the existing Undo:
@@ -796,6 +836,9 @@ export default function ChatScreen() {
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior="padding"
+        ref={kavRef}
+        keyboardVerticalOffset={kavTop}
+        onLayout={() => kavRef.current?.measureInWindow((_x, y) => setKavTop(y))}
       >
         <ScrollView
           ref={scrollRef}

@@ -9,13 +9,14 @@ import Animated, {
 import type { Tabs } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
-import { Circle } from 'lucide-react-native'
+import { Circle } from '@/components/icons'
 
 import { Glass } from './Material'
 import { Body } from './Text'
 import { useTheme } from '@/theme/useTheme'
 import { ENTER_MS, enterEasing } from '@/theme/motion'
 import { HIT_SIZE, radius } from '@/theme/tokens'
+import { markPress } from '@/lib/perf'
 
 /**
  * expo-router bundles its own copy of the bottom-tabs types. Importing them from
@@ -182,6 +183,7 @@ export const GlassTabBar: React.FC<GlassTabBarProps> = ({ state, navigation, ite
               accessibilityLabel={label}
               onPressIn={() => {
                 if (focused) return
+                markPress(route.name)
                 switchedRef.current = false
                 moveIndicatorTo(index)
                 void Haptics.selectionAsync()

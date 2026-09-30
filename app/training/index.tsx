@@ -1,7 +1,7 @@
-import React, { useMemo } from 'react'
+import React, { useEffect, useMemo, useRef } from 'react'
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native'
-import { router } from 'expo-router'
-import { Check, ChevronRight, Moon, Play, Plus, Repeat, SkipForward } from 'lucide-react-native'
+import { router, useLocalSearchParams } from 'expo-router'
+import { Check, ChevronRight, Moon, Play, Plus, Repeat, SkipForward } from '@/components/icons'
 
 import type { TrainingProgram } from '@core/types'
 import { getTodayString } from '@core/utils/calculations'
@@ -33,6 +33,7 @@ import { WeekProgressCard } from '@/features/training/WeekProgress'
 import { exitTraining } from '@/features/training/exitTraining'
 import { useLiveStripSpace } from '@/features/training/useLiveStripSpace'
 import { findLiftById, weekdayOf } from '@/features/training/liftNames'
+import { programDayLabel } from '@/lib/programDayLabel'
 
 const LIFT_PREVIEW = 5
 
@@ -56,6 +57,7 @@ const UpNextCard: React.FC<{ program: TrainingProgram; upNext: UpNext; today: st
 
   const { day, status } = upNext
   const position = `Day ${upNext.index + 1} of ${program.days.length}`
+  const dayLabel = programDayLabel(day, upNext.index)
 
   if (status === 'done') {
     return (
@@ -76,7 +78,7 @@ const UpNextCard: React.FC<{ program: TrainingProgram; upNext: UpNext; today: st
           <View style={{ flex: 1 }}>
             <SectionTitle>Done for today</SectionTitle>
             <Body size={13} tone="secondary">
-              {day.rest ? 'Tomorrow is a rest day.' : `Up next: ${day.name}, ${weekdayOf(upNext.date)}.`}
+              {day.rest ? 'Tomorrow is a rest day.' : `Up next: ${dayLabel}, ${weekdayOf(upNext.date)}.`}
             </Body>
           </View>
         </View>
@@ -136,7 +138,7 @@ const UpNextCard: React.FC<{ program: TrainingProgram; upNext: UpNext; today: st
   return (
     <Surface style={{ padding: spacing.lg, gap: spacing.md }}>
       <Label style={{ color: theme.brandText }}>{`Today · ${position}`}</Label>
-      <StatValue size={30}>{day.name}</StatValue>
+      <StatValue size={30}>{dayLabel}</StatValue>
       {lastStats && last ? (
         <Body size={13} tone="secondary">
           {`Last time, ${weekdayOf(last.date)}: ${groupDigits(fromKg(lastStats.volumeKg, unit))} ${weightUnitLabel(unit)} in ${Math.max(1, Math.round(lastStats.durationMs / 60000))} min. Beat it.`}
@@ -169,7 +171,7 @@ const UpNextCard: React.FC<{ program: TrainingProgram; upNext: UpNext; today: st
       )}
 
       <Button
-        label={`Start ${day.name}`}
+        label={`Start ${dayLabel}`}
         full
         haptic
         onPress={() => startProgramDay(program.id, day.id, today)}
@@ -258,7 +260,7 @@ const WeekStrip: React.FC<{ program: TrainingProgram; today: string }> = ({ prog
                 numberOfLines={2}
                 style={{ color: entry.day.rest ? theme.textMuted : theme.text }}
               >
-                {entry.day.rest ? 'Rest' : entry.day.name}
+                {entry.day.rest ? 'Rest' : programDayLabel(entry.day, entry.index)}
               </Body>
             </View>
           )
@@ -285,6 +287,24 @@ export default function TrainingToday() {
 
   const upNext = program ? resolveUpNext(program, today) : null
   const bottomSpace = useLiveStripSpace(true)
+
+  /*
+    The home-screen widget's Start button: `?start=<day id>` begins that day's session on
+    arrival, so the tap on the home screen is the only tap. Acted on once, and only when the
+    day is still the one up next — a widget drawn before the plan moved on must not start a
+    session the user can no longer see on it.
+  */
+  const { start } = useLocalSearchParams<{ start?: string }>()
+  const startProgramDay = useStore(s => s.startProgramDay)
+  const startHandled = useRef(false)
+  useEffect(() => {
+    if (!start || startHandled.current) return
+    startHandled.current = true
+    router.setParams({ start: undefined })
+    if (activeSession || !program || upNext?.status !== 'train' || upNext.day.id !== start) return
+    startProgramDay(program.id, start, today)
+  }, [start, activeSession, program, upNext, startProgramDay, today])
+
   const workoutLog = useStore(s => s.workoutLog)
   const week = useMemo(
     () => weeklyProgress(workoutLog, weeklyGoalFor(program), today),

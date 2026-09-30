@@ -11,7 +11,7 @@ import {
   Plus,
   Sparkles,
   Trash2,
-} from 'lucide-react-native'
+} from '@/components/icons'
 
 import { appAlert } from '@/components/AppAlert'
 import { Island } from '@/components/Material'
@@ -23,6 +23,7 @@ import { useSnackbar } from '@/components/Snackbar'
 import { useStore } from '@/store/useStore'
 import { formatNumber } from '@/lib/formatNumber'
 import { DateNavigator } from '@/components/DateNavigator'
+import { PerfProbe } from '@/lib/perf'
 import { useTheme } from '@/theme/useTheme'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
 import type { DiaryDay, FoodEntry, MealType } from '@core/types'
@@ -232,7 +233,13 @@ const EntryRow: React.FC<{ entry: FoodEntry; date: string }> = React.memo(({ ent
   const addFoodEntry = useStore(s => s.addFoodEntry)
   const snackbar = useSnackbar()
 
-  const [editing, setEditing] = useState(false)
+  /*
+    Keyed to the entry, not held as a bare boolean: rows are recycled across days (see MealCard),
+    so this row may show a different food after a day change, and an editor opened on
+    Monday's idli must not stay open on Tuesday's dosa.
+  */
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const editing = editingId === entry.id
   const [draft, setDraft] = useState(() => formatAmount(entry.servings))
 
   const kcal = Math.round(entry.food.calories * entry.servings)
@@ -277,7 +284,7 @@ const EntryRow: React.FC<{ entry: FoodEntry; date: string }> = React.memo(({ ent
         } serving controls`}
         onPress={() => {
           setDraft(formatAmount(entry.servings))
-          setEditing(value => !value)
+          setEditingId(current => (current === entry.id ? null : entry.id))
         }}
         style={({ pressed }) => ({
           flexDirection: 'row',
@@ -346,7 +353,7 @@ const EntryRow: React.FC<{ entry: FoodEntry; date: string }> = React.memo(({ ent
               variant="ghost"
               onPress={() => {
                 removeFoodEntry(date, entry.id)
-                setEditing(false)
+                setEditingId(null)
                 snackbar.show(`${entry.food.name} removed`, {
                   label: 'Undo',
                   onPress: () => addFoodEntry(date, {
@@ -444,7 +451,15 @@ const MealCard: React.FC<{
       ) : (
         entries.map((entry, index) => (
           <View
-            key={entry.id}
+            /*
+              Keyed by position, not by entry id, so changing the day recycles the rows that are
+              already on screen. Keyed by id, every day change destroyed each row and built its
+              native views again: a Perfetto trace showed ~150 ms of view creation on the UI
+              thread per change (text views at ~1 ms each), against an 8.3 ms frame at 120 Hz.
+              Now the rows stay and only their text changes. EntryRow keeps its one piece of
+              state keyed to the entry, so nothing carries over to another food.
+            */
+            key={index}
             style={
               index === 0
                 ? undefined
@@ -695,15 +710,21 @@ function DiaryScreen() {
         </IconButton>
       }
     >
-      <DateNavigator date={date} today={today} onChange={setDate} />
-      <DayTotals day={day} />
+      <PerfProbe id="diary:nav">
+        <DateNavigator date={date} today={today} onChange={setDate} />
+      </PerfProbe>
+      <PerfProbe id="diary:totals">
+        <DayTotals day={day} />
+      </PerfProbe>
 
       {/*
         One instance, always above the cards. It used to sit at the bottom when empty and jump
         to the top on the first save — which fires from inside a meal card, so the page moved
         under the finger that had just tapped it.
       */}
-      <SavedMeals date={shownDate} />
+      <PerfProbe id="diary:saved">
+        <SavedMeals date={shownDate} />
+      </PerfProbe>
 
       {/* Pre- and Post-Workout only once they hold something. Six cards on a rest day was
           two of them permanently empty, each with its own Add button; food search still
@@ -713,18 +734,19 @@ function DiaryScreen() {
           (meal !== 'Pre-Workout' && meal !== 'Post-Workout') ||
           (byMeal.get(meal)?.length ?? 0) > 0
       ).map((meal, index) => (
-        <MealCard
-          key={meal}
-          meal={meal}
-          date={shownDate}
-          entries={byMeal.get(meal) ?? []}
-          /*
-            First card, and only on a day with nothing in it at all. Keyed on the whole day
-            rather than on this card being empty, so someone who logs lunch before breakfast
-            is not told how to log food they have plainly already worked out how to log.
-          */
-          teach={index === 0 && day.entries.length === 0 && isNewUser}
-        />
+        <PerfProbe key={meal} id={`diary:${meal}`}>
+          <MealCard
+            meal={meal}
+            date={shownDate}
+            entries={byMeal.get(meal) ?? []}
+            /*
+              First card, and only on a day with nothing in it at all. Keyed on the whole day
+              rather than on this card being empty, so someone who logs lunch before breakfast
+              is not told how to log food they have plainly already worked out how to log.
+            */
+            teach={index === 0 && day.entries.length === 0 && isNewUser}
+          />
+        </PerfProbe>
       ))}
     </Screen>
   )

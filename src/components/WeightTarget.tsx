@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
 import { useRouter } from 'expo-router'
-import { ArrowDown, ArrowUp, CalendarClock, Check, Minus, Scale, TriangleAlert } from 'lucide-react-native'
+import { ArrowDown, ArrowUp, CalendarClock, Check, Minus, Scale, TriangleAlert } from '@/components/icons'
 
 import { getWeightTargetProgress, type TrackStatus } from '@core/utils/weightTarget'
 import { formatDate, getTodayString } from '@core/utils/calculations'

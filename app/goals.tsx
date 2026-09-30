@@ -19,7 +19,7 @@ import {
   TrendingDown,
   TrendingUp,
   WifiOff,
-} from 'lucide-react-native'
+} from '@/components/icons'
 
 import type { CoachAlert, PhaseType, TdeeEstimate } from '@core/types'
 import { calculateBMR, calculateCalorieGoal, calculateTDEE } from '@core/utils/calculations'

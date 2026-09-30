@@ -11,19 +11,22 @@ import {
   Cloud,
   CloudOff,
   Download,
+  Dumbbell,
   Flame,
   Moon,
   Ruler,
   Salad,
   Scale,
   RotateCcw,
+  Smartphone,
   Sparkles,
   Sun,
   Target,
   Trash2,
   TriangleAlert,
   User as UserIcon,
-} from 'lucide-react-native'
+  Utensils,
+} from '@/components/icons'
 
 import type {
   ActivityLevel,
@@ -71,6 +74,7 @@ import { ActionSheet } from '@/components/ActionSheet'
 import { Segmented } from '@/components/Segmented'
 import { useSnackbar } from '@/components/Snackbar'
 import * as Application from 'expo-application'
+import { pinWidget, widgetsAvailable, type WidgetName } from '@/widgets'
 
 const LBS_PER_KG = 2.20462
 
@@ -407,6 +411,7 @@ function ProfileScreen() {
   const deleteMealTemplate = useStore(s => s.deleteMealTemplate)
   const snackbar = useSnackbar()
   const [weighInToRemove, setWeighInToRemove] = useState<{ id: string; date: string } | null>(null)
+  const [widgetSheetOpen, setWidgetSheetOpen] = useState(false)
 
   /*
     Deleting from a list used to be one tap on a red bin, with no confirmation and no way
@@ -1255,6 +1260,17 @@ function ProfileScreen() {
         onOpen={() => router.push('/notifications')}
       />
 
+      {/* Only on a build that carries the widgets: an older install running this bundle would
+          offer a button that can do nothing. */}
+      {widgetsAvailable && (
+        <Section
+          title="Home screen widgets"
+          icon={<Smartphone size={16} color={theme.brandText} strokeWidth={2} />}
+          subtitle="Calories left and your next workout, without opening the app"
+          onOpen={() => setWidgetSheetOpen(true)}
+        />
+      )}
+
       {/* Setup you do once. It used to open itself at the top of the screen on every visit,
           pushing everything the user actually came for below the fold. */}
       {health.availability === 'available' && (
@@ -1513,6 +1529,34 @@ function ProfileScreen() {
         onOpen={guest ? () => router.push('/login') : confirmSignOut}
       />
       </SectionGroup>
+
+      {/* The launcher's own "add to home screen" prompt, so nobody has to find the widget
+          picker. A launcher without one gets the directions instead. */}
+      <ActionSheet
+        visible={widgetSheetOpen}
+        title="Add a widget"
+        message="It goes on your home screen and stays up to date."
+        onClose={() => setWidgetSheetOpen(false)}
+        options={(
+          [
+            { name: 'Today', label: 'Today · calories and macros left', Icon: Utensils },
+            { name: 'Training', label: 'Training · your next session', Icon: Dumbbell },
+          ] as const
+        ).map(({ name, label, Icon }) => ({
+          label,
+          icon: <Icon size={20} color={theme.brandText} strokeWidth={2} />,
+          onPress: () => {
+            void pinWidget(name as WidgetName).then(offered => {
+              if (!offered) {
+                appAlert(
+                  'Add it from your home screen',
+                  'Press and hold an empty spot on your home screen, tap Widgets, then find MacroFit.'
+                )
+              }
+            })
+          },
+        }))}
+      />
 
       {/* A weigh-in is also deleted from Health Connect, which cannot be undone from here,
           so this one asks rather than offering an Undo it could not honour. */}

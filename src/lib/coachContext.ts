@@ -1,11 +1,16 @@
 import type { AppState } from '@core/store/appState'
-import type { DiaryDay } from '@core/types'
+import type { DiaryDay, WorkoutSession } from '@core/types'
 import { getDayNutrition, getDateString, getTodayString, kgToLbs } from '@core/utils/calculations'
 import { estimateBodyComposition, latestUsableMeasurement } from '@core/utils/bodyComposition'
 import { buildTdeeEstimate } from '@core/utils/tdee'
 import { getCoachAlerts } from '@core/utils/coachAlerts'
+import { resolveUpNext } from '@core/utils/trainingProgram'
+import { countsAsWorkout, sessionPRs, weeklyGoalFor, weeklyProgress } from '@core/utils/trainingStats'
 import { suggestNextMeal } from './nextMeal'
 import type { ChatContext } from './api'
+import type { StepDay } from './healthConnect'
+import { stepsSummary, topSetsLine, waterSummary, type Activity } from './activity'
+import { programDayLabel } from './programDayLabel'
 
 /**
  * Everything the coach is shown with a message, built from the store on the phone.
@@ -49,13 +54,76 @@ const median = (values: number[]): number => {
 
 type CoachSource = Pick<
   AppState,
-  'profile' | 'goals' | 'diary' | 'weightLog' | 'bodyMeasurements' | 'currentWeightKg' | 'recommendation'
+  | 'profile'
+  | 'goals'
+  | 'diary'
+  | 'weightLog'
+  | 'bodyMeasurements'
+  | 'currentWeightKg'
+  | 'recommendation'
+  | 'workoutLog'
+  | 'trainingPrograms'
+  | 'activeProgramId'
 >
+
+/** Steps live in HealthProvider, not the store, so the caller hands them in. */
+export interface HealthSteps {
+  todaySteps: number | null
+  weekSteps: StepDay[]
+}
+
+const NO_STEPS: HealthSteps = { todaySteps: null, weekSteps: [] }
+
+/** Today's water, steps and training, as plain values for the pack and the opener. */
+export const buildActivity = (state: CoachSource, health: HealthSteps = NO_STEPS, now: Date = new Date()): Activity => {
+  const today = getDateString(now)
+  const pastMl: number[] = []
+  for (let back = 1; back <= 7; back++) {
+    const past = state.diary[dayOffset(now, back)]
+    if (past) pastMl.push(past.waterIntake ?? 0)
+  }
+
+  const log = state.workoutLog ?? []
+  const counted = log.filter(countsAsWorkout)
+  const weekStart = dayOffset(now, 6)
+  const program = state.trainingPrograms.find(p => p.id === state.activeProgramId) ?? null
+  const upNext = program ? resolveUpNext(program, today) : null
+  const progress = program ? weeklyProgress(log, weeklyGoalFor(program), today) : null
+  // A session keeps the name its plan day had, which for an unnamed day is the 'New day'
+  // placeholder; the coach gets "Day 2" instead, as every screen now shows it.
+  const sessionName = (session: WorkoutSession): string => {
+    const index = program && session.programDayId ? program.days.findIndex(d => d.id === session.programDayId) : -1
+    return index >= 0 ? programDayLabel({ name: session.name }, index) : session.name
+  }
+  const doneToday = counted.find(session => session.date === today)
+
+  return {
+    water: waterSummary(state.diary[today]?.waterIntake ?? 0, state.goals.water ?? 0, pastMl),
+    steps: stepsSummary(health.todaySteps, health.weekSteps, today),
+    training: {
+      today: {
+        planned: upNext?.status === 'train' ? programDayLabel(upNext.day, upNext.index) : null,
+        done: doneToday ? sessionName(doneToday) : null,
+      },
+      week: counted
+        .filter(session => session.date >= weekStart && session.date <= today)
+        .slice(0, 7)
+        .map(session => ({
+          date: session.date,
+          name: sessionName(session),
+          topSets: topSetsLine(session.exercises.map(ex => ({ name: ex.lift.name, sets: ex.sets }))),
+          prs: sessionPRs(session, log).map(pr => pr.liftName),
+        })),
+      weeklyGoal: progress ? { done: progress.done, target: progress.goal } : null,
+    },
+  }
+}
 
 export const buildChatContext = (
   state: CoachSource,
   memory: string[],
   mode: 'chat' | 'checkin' = 'chat',
+  health: HealthSteps = NO_STEPS,
   now: Date = new Date(),
 ): ChatContext => {
   const { profile, goals, diary, currentWeightKg, recommendation } = state
@@ -206,6 +274,7 @@ export const buildChatContext = (
       usualFoods,
       memory,
       nextMealIdea,
+      activity: buildActivity(state, health, now),
     },
   }
 }

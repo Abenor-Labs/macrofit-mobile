@@ -1,6 +1,6 @@
 import React from 'react'
 import { View } from 'react-native'
-import { Check, Flame } from 'lucide-react-native'
+import { Check, Flame } from '@/components/icons'
 
 import type { WeeklyProgress } from '@core/utils/trainingStats'
 

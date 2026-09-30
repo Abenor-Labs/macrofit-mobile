@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Pressable, StyleSheet, TextInput, View } from 'react-native'
 import { router } from 'expo-router'
-import { CheckCircle2, ChevronRight, Moon, Plus, Trash2 } from 'lucide-react-native'
+import { CheckCircle2, ChevronRight, Moon, Plus, Trash2 } from '@/components/icons'
 
 import type { TrainingProgram, TrainingStyle } from '@core/types'
 import { getTodayString } from '@core/utils/calculations'
@@ -20,6 +20,7 @@ import { ProgramSetup } from '@/features/training/ProgramSetup'
 import { findLiftById } from '@/features/training/liftNames'
 import { exitTraining } from '@/features/training/exitTraining'
 import { useLiveStripSpace } from '@/features/training/useLiveStripSpace'
+import { programDayLabel } from '@/lib/programDayLabel'
 
 const STYLE_OPTIONS = [
   { value: 'gym', label: 'Gym' },
@@ -97,7 +98,7 @@ const ProgramEditor: React.FC<{ program: TrainingProgram; active: boolean }> = (
             <Pressable
               key={day.id}
               accessibilityRole="button"
-              accessibilityLabel={`Day ${index + 1}, ${day.rest ? 'rest' : day.name}${isNext ? ', up next' : ''}. Edit`}
+              accessibilityLabel={`Day ${index + 1}, ${day.rest ? 'rest' : programDayLabel(day, index)}${isNext ? ', up next' : ''}. Edit`}
               onPress={() => openDay(day.id)}
               style={({ pressed }) => ({
                 minHeight: 64,
@@ -139,7 +140,7 @@ const ProgramEditor: React.FC<{ program: TrainingProgram; active: boolean }> = (
                   numberOfLines={1}
                   style={day.rest ? { color: theme.textMuted } : undefined}
                 >
-                  {day.rest ? 'Rest' : day.name}
+                  {day.rest ? 'Rest' : programDayLabel(day, index)}
                 </Body>
                 {!day.rest ? (
                   <Body size={12} tone="muted" numberOfLines={1}>

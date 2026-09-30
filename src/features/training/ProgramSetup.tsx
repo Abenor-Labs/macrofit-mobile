@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Pressable, View } from 'react-native'
-import { ChevronLeft, Dumbbell, PersonStanding, Plus } from 'lucide-react-native'
+import { ChevronLeft, Dumbbell, PersonStanding, Plus } from '@/components/icons'
 
 import type { TrainingStyle } from '@core/types'
 import { presetsFor, type ProgramPreset } from '@core/data/programPresets'

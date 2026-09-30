@@ -29,7 +29,7 @@ import {
   Sunrise,
   Target,
   Bell,
-} from 'lucide-react-native'
+} from '@/components/icons'
 
 import type { DiaryDay, MealType, NutritionSummary, PhaseType, Recommendation } from '@core/types'
 import {
@@ -40,6 +40,8 @@ import {
 } from '@core/utils/calculations'
 
 import { useStore } from '@/store/useStore'
+import { PerfProbe } from '@/lib/perf'
+import { useFirstFrameDone } from '@/hooks/useFirstFrameDone'
 import { formatNumber } from '@/lib/formatNumber'
 import { useAvailableUpdate } from '@/hooks/useAvailableUpdate'
 import { useActivityFeed } from '@/hooks/useActivityFeed'
@@ -94,6 +96,7 @@ type MealTotals = Record<string, { calories: number; count: number }>
 
 function DashboardScreen() {
   const theme = useTheme()
+  const belowFold = useFirstFrameDone()
 
   /*
     Today only, deliberately. A date navigator lived here briefly and was the wrong control on
@@ -184,51 +187,80 @@ function DashboardScreen() {
         menu. The card was the only one of the three that cost a slot above the day's numbers
         to advertise what the other two already offered.
       */}
-      <RecapSlot />
+      <PerfProbe id="today:RecapSlot">
+        <RecapSlot />
+      </PerfProbe>
 
-      <MacroCard
-        theme={theme}
-        nutrition={nutrition}
-        goalCalories={goals.calories}
-        proteinGoal={goals.protein}
-        carbsGoal={goals.carbs}
-        fatGoal={goals.fat}
-        date={today}
-        hasEntries={day.entries.length > 0}
-      />
+      <PerfProbe id="today:MacroCard">
+        <MacroCard
+          theme={theme}
+          nutrition={nutrition}
+          goalCalories={goals.calories}
+          proteinGoal={goals.protein}
+          carbsGoal={goals.carbs}
+          fatGoal={goals.fat}
+          date={today}
+          hasEntries={day.entries.length > 0}
+        />
+      </PerfProbe>
 
       {/* Straight under the ring: the ring says what is left, this says what to do with it.
           Renders nothing when there is no honest idea to offer. */}
-      <NextMealCard />
+      <PerfProbe id="today:NextMealCard">
+        <NextMealCard />
+      </PerfProbe>
 
-      {/* Second, not first. It is the only line on this screen that asks for a change, and
+      {/*
+        Below the first screen on a 1080×2400 phone, so drawn a frame after the cards above it:
+        launch paid for all ten cards before showing any (about 600 ms at production speed, 240 of
+        it in these seven).
+      */}
+      {belowFold && (
+        <>
+          {/* Second, not first. It is the only line on this screen that asks for a change, and
               it used to sit seventh — but a dashboard that opens on "Stalled" every morning
               leads with a scolding. The day's numbers go first; the verdict reads under them. */}
-          <WeightVerdict />
+          <PerfProbe id="today:WeightVerdict">
+            <WeightVerdict />
+          </PerfProbe>
 
           {/* Directly under the verdict because it is the evidence for it: "Stalled" is a
               claim, and what you average and how often you hit protein is why. */}
-          <WeekCard
-            theme={theme}
-            today={today}
-            goalCalories={goals.calories}
-            proteinGoal={goals.protein}
-            streakDays={streak.current}
-          />
+          <PerfProbe id="today:WeekCard">
+            <WeekCard
+              theme={theme}
+              today={today}
+              goalCalories={goals.calories}
+              proteinGoal={goals.protein}
+              streakDays={streak.current}
+            />
+          </PerfProbe>
 
-      <CoachCard theme={theme} recommendation={recommendation} />
+          <PerfProbe id="today:CoachCard">
+            <CoachCard theme={theme} recommendation={recommendation} />
+          </PerfProbe>
 
-      <MealsCard theme={theme} date={today} mealTotals={mealTotals} />
+          <PerfProbe id="today:MealsCard">
+            <MealsCard theme={theme} date={today} mealTotals={mealTotals} />
+          </PerfProbe>
 
-      <WaterCard theme={theme} date={today} intakeMl={day.waterIntake} goalMl={goals.water} />
+          <PerfProbe id="today:WaterCard">
+            <WaterCard theme={theme} date={today} intakeMl={day.waterIntake} goalMl={goals.water} />
+          </PerfProbe>
 
-      {/* Health Connect renders nothing when the platform cannot supply steps — an empty
-          "0 steps" tile would be a lie, not an empty state. */}
-      <StepsCard />
+          {/* Health Connect renders nothing when the platform cannot supply steps — an empty
+              "0 steps" tile would be a lie, not an empty state. */}
+          <PerfProbe id="today:StepsCard">
+            <StepsCard />
+          </PerfProbe>
 
-      {/* Daily weigh-in plus an honest read on whether the trend is heading toward the goal.
-          Compact here; the full breakdown lives on Profile. */}
-      <WeightTargetCard compact />
+          {/* Daily weigh-in plus an honest read on whether the trend is heading toward the goal.
+              Compact here; the full breakdown lives on Profile. */}
+          <PerfProbe id="today:WeightTargetCard">
+            <WeightTargetCard compact />
+          </PerfProbe>
+        </>
+      )}
 
     </Screen>
   )

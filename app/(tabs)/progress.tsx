@@ -11,7 +11,7 @@ import {
   TrendingUp,
   Trophy,
   Utensils,
-} from 'lucide-react-native'
+} from '@/components/icons'
 
 import { IconButton } from '@/components/Button'
 import { ScrubReadout, useChartScrub } from '@/components/charts/ChartScrub'

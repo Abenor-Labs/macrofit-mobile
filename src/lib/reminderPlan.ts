@@ -1,4 +1,4 @@
-import type { DiaryDay, MacroGoals, TrainingProgram, WeightEntry, WorkoutSession } from '@core/types'
+import type { DiaryDay, Lift, MacroGoals, TrainingProgram, WeightEntry, WorkoutSession } from '@core/types'
 import { getDayNutrition } from '@core/utils/calculations'
 import { addDays, projectSchedule } from '@core/utils/trainingProgram'
 import {
@@ -13,6 +13,8 @@ import type { NotificationPrefs } from '@/store/notificationPrefs'
 import { formatNumber } from './formatNumber'
 import { lastWeekRecap, recapLine } from './activityFeed'
 import { suggestNextMeal } from './nextMeal'
+import { trainingReminderText } from './programDayLabel'
+import { findLiftById } from '@/features/training/liftNames'
 
 /** "Egg dosa (1)" -> "Egg dosa": the count carries the serving. */
 const shortName = (name: string): string => name.replace(/\s*\([^)]*\)\s*$/, '')
@@ -54,6 +56,8 @@ export interface PlanInput {
   workoutLog: WorkoutSession[]
   activeWorkoutId: string | null
   program: TrainingProgram | null
+  /** For naming a day's lifts in its reminder: the user's own lifts, beside the library. */
+  customLifts: Lift[]
   weightUnit: 'kg' | 'lbs'
   prefs: NotificationPrefs
 }
@@ -117,15 +121,21 @@ export const planReminders = (input: PlanInput): PlannedReminder[] => {
         stats && stats.volumeKg > 0
           ? `${formatNumber(input.weightUnit === 'lbs' ? stats.volumeKg * 2.20462 : stats.volumeKg)} ${input.weightUnit}`
           : null
+      const text = trainingReminderText({
+        name: entry.day.name,
+        index: entry.index,
+        liftNames: entry.day.liftIds
+          .map(id => findLiftById(id, input.customLifts)?.name)
+          .filter((name): name is string => name !== undefined),
+        lastTime:
+          stats && volume ? `${volume} in ${Math.max(1, Math.round(stats.durationMs / 60000))} min` : null,
+      })
       add({
         id: `rem:training:${entry.date}`,
         kind: 'training',
         at: at(entry.date, prefs.trainingDayTime),
-        title: `${entry.day.name} is up`,
-        body:
-          stats && volume
-            ? `Last time: ${volume} in ${Math.max(1, Math.round(stats.durationMs / 60000))} min. Beat it.`
-            : 'Your plan has it on for today. Tap to start.',
+        title: text.title,
+        body: text.body,
         url: '/training',
         sound: 'reminder.wav',
       })
