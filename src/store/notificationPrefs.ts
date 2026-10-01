@@ -79,3 +79,28 @@ export const getNotificationPrefs = (): NotificationPrefs => {
   const { set: _set, ...prefs } = useNotificationPrefs.getState()
   return prefs
 }
+
+/**
+ * Resolves `true` once the saved choices have been read back, `false` if that has not
+ * happened within `timeoutMs`.
+ *
+ * For code that runs with nothing mounted (the widget task, the background task). Until the
+ * read lands the store holds DEFAULT_PREFS, and a reminder plan made from those cancels every
+ * reminder the user turned on. zustand never reports a failed read, hence the timeout.
+ */
+export const whenPrefsHydrated = (timeoutMs = 5000): Promise<boolean> =>
+  new Promise(resolve => {
+    if (useNotificationPrefs.persist.hasHydrated()) {
+      resolve(true)
+      return
+    }
+    const timer = setTimeout(() => {
+      off()
+      resolve(false)
+    }, timeoutMs)
+    const off = useNotificationPrefs.persist.onFinishHydration(() => {
+      clearTimeout(timer)
+      off()
+      resolve(true)
+    })
+  })

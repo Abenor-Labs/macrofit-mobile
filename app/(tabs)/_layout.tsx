@@ -28,6 +28,7 @@ import { useStore } from '@/store/useStore'
 
 import { useTheme } from '@/theme/useTheme'
 import { Body } from '@/components/Text'
+import { QUICK_LOG_SIZE } from '@/components/Layout'
 import { GlassTabBar, type GlassTabBarProps } from '@/components/GlassTabBar'
 import { PERF, PerfProbe } from '@/lib/perf'
 import { HIT_SIZE, motion, radius, shadow, spacing } from '@/theme/tokens'
@@ -298,8 +299,8 @@ const QuickLogButton: React.FC = () => {
           right: 18,
           // Clears the tab bar, whose own height already accounts for the safe area.
           bottom: fabBottom,
-          width: 56,
-          height: 56,
+          width: QUICK_LOG_SIZE,
+          height: QUICK_LOG_SIZE,
         }}
       >
         <Pressable

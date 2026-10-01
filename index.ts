@@ -1,12 +1,14 @@
 /*
-  The app's entry: Expo Router's own, plus the home-screen widgets' background task.
+  The app's entry: Expo Router's own, plus the background tasks — the home-screen widgets'
+  and the periodic one that re-arms reminders.
 
-  The task has to be registered when the bundle loads, not when a screen mounts — Android
-  starts it in a runtime where no screen ever mounts. `require` rather than `import` because
-  the widget library throws on load in a build without its native half (see
-  src/widgets/native.ts), and an import cannot be made conditional.
+  Both have to be registered when the bundle loads, not when a screen mounts — Android
+  starts them in a runtime where no screen ever mounts. The widgets' with `require` rather
+  than `import` because the widget library throws on load in a build without its native half
+  (see src/widgets/native.ts), and an import cannot be made conditional.
 */
 import 'expo-router/entry'
+import './src/lib/updateTask'
 import { widgetsAvailable } from './src/widgets/native'
 
 if (widgetsAvailable) {

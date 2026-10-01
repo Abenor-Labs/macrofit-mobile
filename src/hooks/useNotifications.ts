@@ -5,11 +5,9 @@ import { router } from 'expo-router'
 
 import { sessionSetCount } from '@core/utils/workoutMath'
 import { useStore } from '@/store/useStore'
-import { getTodayString } from '@core/utils/calculations'
-import { useNotificationPrefs, getNotificationPrefs } from '@/store/notificationPrefs'
-import { planReminders } from '@/lib/reminderPlan'
+import { useNotificationPrefs } from '@/store/notificationPrefs'
+import { syncReminders } from '@/lib/reminderSync'
 import {
-  applyReminderPlan,
   cancelRestOver,
   cancelWorkoutLeftOpen,
   routeOf,
@@ -81,21 +79,7 @@ export const useNotifications = (): void => {
     const reconcile = () => {
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => {
-        const state = useStore.getState()
-        const plan = planReminders({
-          now: new Date(),
-          today: getTodayString(),
-          diary: state.diary,
-          goals: state.goals,
-          weightLog: state.weightLog,
-          workoutLog: state.workoutLog,
-          activeWorkoutId: state.activeWorkoutId,
-          program: state.trainingPrograms.find(p => p.id === state.activeProgramId) ?? null,
-          customLifts: state.customLifts,
-          weightUnit: state.profile.weightUnit,
-          prefs: getNotificationPrefs(),
-        })
-        void applyReminderPlan(plan).catch(() => undefined)
+        void syncReminders().catch(() => undefined)
       }, 1500)
     }
 

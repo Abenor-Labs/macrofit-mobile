@@ -66,12 +66,6 @@ const HORIZON_DAYS = 7
 /** Nothing between 22:00 and 07:00. A reminder that wakes someone up gets the app muted. */
 const QUIET_START = 22
 const QUIET_END = 7
-/** At most this many reminders on any one day, highest priority first. */
-export const DAILY_CAP = 4
-
-/** Earlier in this list wins when a day is over the cap. */
-const PRIORITY: ReminderKind[] = ['training', 'streak', 'recap', 'weigh-in', 'meal', 'evening', 'water']
-
 const at = (date: string, time: string): Date => {
   const [y, m, d] = date.split('-').map(Number)
   const [hh, mm] = time.split(':').map(Number)
@@ -81,7 +75,8 @@ const at = (date: string, time: string): Date => {
 const inQuietHours = (when: Date): boolean =>
   when.getHours() >= QUIET_START || when.getHours() < QUIET_END
 
-const WATER_TIMES = ['11:00', '15:00', '19:00']
+/** Five through the day, clear of the default meal times (09:30, 13:30, 20:30). */
+const WATER_TIMES = ['10:30', '12:30', '15:00', '17:00', '19:30']
 const MEALS: { meal: 'Breakfast' | 'Lunch' | 'Dinner'; key: keyof NotificationPrefs }[] = [
   { meal: 'Breakfast', key: 'breakfastTime' },
   { meal: 'Lunch', key: 'lunchTime' },
@@ -260,7 +255,7 @@ export const planReminders = (input: PlanInput): PlannedReminder[] => {
         const when = at(date, time)
         // The goal spread across the waking day, 07:00 to 21:00.
         const expected = Math.round(
-          goals.water * Math.min(1, Math.max(0, (when.getHours() - 7) / 14))
+          goals.water * Math.min(1, Math.max(0, (when.getHours() + when.getMinutes() / 60 - 7) / 14))
         )
         const intake = day?.waterIntake ?? 0
         if (date === today && intake >= expected * 0.8) continue
@@ -280,18 +275,11 @@ export const planReminders = (input: PlanInput): PlannedReminder[] => {
     }
   }
 
-  // --- Daily cap ------------------------------------------------------------------------------
-  const byDay = new Map<string, PlannedReminder[]>()
-  for (const reminder of out) {
-    const key = reminder.at.toDateString()
-    byDay.set(key, [...(byDay.get(key) ?? []), reminder])
-  }
-  const kept: PlannedReminder[] = []
-  for (const reminders of byDay.values()) {
-    reminders
-      .sort((a, b) => PRIORITY.indexOf(a.kind) - PRIORITY.indexOf(b.kind) || a.at.getTime() - b.at.getTime())
-      .slice(0, DAILY_CAP)
-      .forEach(reminder => kept.push(reminder))
-  }
-  return kept.sort((a, b) => a.at.getTime() - b.at.getTime())
+  /*
+    No daily cap. There was one (4), and it silently dropped reminders the user had turned
+    on: with weigh-in, meals and training on, those four filled every day and the water nudge
+    never ran at all. Every reminder here is opt-in and cancels itself once the thing is done,
+    so the user's own switches are the limit.
+  */
+  return out.sort((a, b) => a.at.getTime() - b.at.getTime())
 }

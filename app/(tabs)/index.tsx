@@ -55,7 +55,7 @@ import { Surface } from '@/components/Glass'
 import { MacroRing, ProgressTrack } from '@/components/MacroRing'
 import { Body, Label, SectionTitle, StatValue } from '@/components/Text'
 import { IconButton } from '@/components/Button'
-import { Screen } from '@/components/Layout'
+import { QUICK_LOG_SIZE, Screen } from '@/components/Layout'
 import { StepsCard } from '@/components/StepsCard'
 import { WeightTargetCard, WeightVerdict } from '@/components/WeightTarget'
 import { HIT_SIZE, radius, spacing } from '@/theme/tokens'
@@ -138,6 +138,9 @@ function DashboardScreen() {
 
   return (
     <Screen
+      // The quick-log + floats above the tab bar here (and only here); without this the last
+      // card scrolls up under it and its text ends behind the button.
+      extraBottomSpace={QUICK_LOG_SIZE + spacing.md}
       title="Today"
       subtitle={`${formatDate(today)} · ${WEEKDAYS[new Date().getDay()]}`}
       right={
