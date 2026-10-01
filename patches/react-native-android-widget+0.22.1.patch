@@ -1,8 +1,273 @@
+diff --git a/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java b/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
+index 1c12d1f..340afd4 100644
+--- a/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
++++ b/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
+@@ -10,7 +10,9 @@ import android.graphics.Rect;
+ import android.net.Uri;
+ import android.os.Build;
+ import android.os.Bundle;
++import android.util.ArrayMap;
+ import android.util.Base64;
++import android.util.SizeF;
+ import android.util.TypedValue;
+ import android.view.View;
+ import android.view.ViewGroup;
+@@ -20,6 +22,7 @@ import androidx.annotation.RequiresApi;
+ 
+ import com.facebook.react.bridge.Arguments;
+ import com.facebook.react.bridge.ReactApplicationContext;
++import com.facebook.react.bridge.ReadableArray;
+ import com.facebook.react.bridge.ReadableMap;
+ import com.facebook.react.bridge.WritableArray;
+ import com.facebook.react.bridge.WritableMap;
+@@ -32,12 +35,16 @@ import com.reactnativeandroidwidget.builder.WidgetWithViews;
+ import java.io.ByteArrayOutputStream;
+ import java.util.ArrayList;
+ import java.util.List;
++import java.util.Map;
++import java.util.concurrent.atomic.AtomicInteger;
+ 
+ public class RNWidget {
+     private final ReactApplicationContext appContext;
+     private final ReadableMap config;
+     private final String widgetName;
+ 
++    private static final AtomicInteger nextClickRequestCode = new AtomicInteger((int) (System.currentTimeMillis() & 0x3fffffff));
++
+     private static final int[] listWrappers = {R.id.rn_widget_list_0_wrapper, R.id.rn_widget_list_1_wrapper};
+     private static final int[] lists = {R.id.rn_widget_list_0, R.id.rn_widget_list_1};
+ 
+@@ -60,8 +67,43 @@ public class RNWidget {
+     }
+ 
+     public void drawWidget(int widgetId) throws Exception {
++        // MacroFit: one drawing per size the launcher can show the widget at (Android 12+), and
++        // the system shows the one that fits the space the widget really has. Picking a single
++        // "portrait" size from the launcher's list was a guess, and on OnePlus it was the wrong
++        // one: drawn 183dp tall into a 139dp slot, the bottom row was cropped off.
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && config.hasKey("sizes")) {
++            ReadableArray sizes = config.getArray("sizes");
++            if (sizes != null && sizes.size() > 0) {
++                Map<SizeF, RemoteViews> sized = new ArrayMap<>();
++                for (int i = 0; i < sizes.size(); i++) {
++                    ReadableMap entry = sizes.getMap(i);
++                    double width = entry.getDouble("width");
++                    double height = entry.getDouble("height");
++                    sized.put(
++                        new SizeF((float) width, (float) height),
++                        buildRemoteViews(widgetId, entry, (int) Math.floor(width), (int) Math.floor(height), "_s" + i)
++                    );
++                }
++                AppWidgetManager.getInstance(appContext).updateAppWidget(widgetId, new RemoteViews(sized));
++                return;
++            }
++        }
++
++        AppWidgetManager.getInstance(appContext).updateAppWidget(
++            widgetId,
++            buildRemoteViews(
++                widgetId,
++                config,
++                RNWidgetUtil.getWidgetWidth(appContext, widgetId),
++                RNWidgetUtil.getWidgetHeight(appContext, widgetId),
++                ""
++            )
++        );
++    }
++
++    private RemoteViews buildRemoteViews(int widgetId, ReadableMap config, int width, int height, String suffix) throws Exception {
+         ReadableMap light = config.getMap("light");
+-        ReadableMap dark = config.getMap("dark");
++        ReadableMap dark = config.hasKey("dark") ? config.getMap("dark") : null;
+ 
+         ReadableMap configClone = Arguments.makeNativeMap(light.toHashMap());
+         RemoteViews remoteWidgetView = new RemoteViews(appContext.getPackageName(), R.layout.rn_widget);
+@@ -69,12 +111,12 @@ public class RNWidget {
+         WidgetWithViews widgetWithViews = WidgetFactory.buildWidgetFromRoot(
+             appContext,
+             configClone,
+-            RNWidgetUtil.getWidgetWidth(appContext, widgetId),
+-            RNWidgetUtil.getWidgetHeight(appContext, widgetId)
++            width,
++            height
+         );
+ 
+         Bitmap bitmap = drawViewToBitmap(widgetWithViews.getRootView());
+-        Uri bitmapUri = saveBitmapToDisk(widgetId, "light", bitmap);
++        Uri bitmapUri = saveBitmapToDisk(widgetId, "light" + suffix, bitmap);
+         remoteWidgetView.setImageViewUri(R.id.rn_widget_image_light, bitmapUri);
+ 
+         if (widgetWithViews.getRootAccessibilityLabel() != null) {
+@@ -85,12 +127,12 @@ public class RNWidget {
+             WidgetWithViews darkWidgetWithViews = WidgetFactory.buildWidgetFromRoot(
+                 appContext,
+                 Arguments.makeNativeMap(dark.toHashMap()),
+-                RNWidgetUtil.getWidgetWidth(appContext, widgetId),
+-                RNWidgetUtil.getWidgetHeight(appContext, widgetId)
++                width,
++                height
+             );
+ 
+             Bitmap darkBitmap = drawViewToBitmap(darkWidgetWithViews.getRootView());
+-            Uri darkBitmapUri = saveBitmapToDisk(widgetId, "dark", darkBitmap);
++            Uri darkBitmapUri = saveBitmapToDisk(widgetId, "dark" + suffix, darkBitmap);
+             remoteWidgetView.setImageViewUri(R.id.rn_widget_image_dark, darkBitmapUri);
+ 
+             List<CollectionView> lightCollectionViews = widgetWithViews.getCollectionViews();
+@@ -112,12 +154,11 @@ public class RNWidget {
+         }
+ 
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+-            addClickableAreas(widgetId, remoteWidgetView, widgetWithViews);
++            addClickableAreas(widgetId, remoteWidgetView, widgetWithViews, width);
+         }
+-        addCollectionViews(widgetId, remoteWidgetView, widgetWithViews);
++        addCollectionViews(widgetId, remoteWidgetView, widgetWithViews, width, height);
+ 
+-        AppWidgetManager.getInstance(appContext)
+-            .updateAppWidget(widgetId, remoteWidgetView);
++        return remoteWidgetView;
+     }
+ 
+     public WritableMap createPreview(int width, int height) throws Exception {
+@@ -152,18 +193,18 @@ public class RNWidget {
+     }
+ 
+     @RequiresApi(Build.VERSION_CODES.N)
+-    private void addClickableAreas(int widgetId, RemoteViews remoteWidgetView, WidgetWithViews widgetWithViews) {
++    private void addClickableAreas(int widgetId, RemoteViews remoteWidgetView, WidgetWithViews widgetWithViews, int width) {
+         remoteWidgetView.removeAllViews(R.id.rn_widget_clickable_container);
+         ViewGroup rootView = (ViewGroup) widgetWithViews.getRootView();
+         List<ClickableView> clickableViews = widgetWithViews.getClickableViews();
+         for (int i = 0; i < clickableViews.size(); i++) {
+             ClickableView clickableView = clickableViews.get(i);
+-            addClickableArea(remoteWidgetView, rootView, clickableView, widgetId);
++            addClickableArea(remoteWidgetView, rootView, clickableView, widgetId, width);
+         }
+     }
+ 
+     @RequiresApi(Build.VERSION_CODES.N)
+-    private void addClickableArea(RemoteViews widgetView, ViewGroup rootWidget, ClickableView clickableView, int widgetId) {
++    private void addClickableArea(RemoteViews widgetView, ViewGroup rootWidget, ClickableView clickableView, int widgetId, int width) {
+         View clickableWidget = clickableView.getView();
+         Rect offsetViewBounds = new Rect();
+         clickableWidget.getDrawingRect(offsetViewBounds);
+@@ -174,7 +215,7 @@ public class RNWidget {
+             R.id.rn_widget_clickable_positioner,
+             offsetViewBounds.left,
+             offsetViewBounds.top,
+-            RNWidgetUtil.dpToPx(appContext, RNWidgetUtil.getWidgetWidth(appContext, widgetId)) - offsetViewBounds.right,
++            RNWidgetUtil.dpToPx(appContext, width) - offsetViewBounds.right,
+             0
+         );
+ 
+@@ -207,7 +248,11 @@ public class RNWidget {
+         intent.putExtra("clickActionData", Arguments.toBundle(clickableView.getClickActionData()));
+         PendingIntent pendingIntent = PendingIntent.getBroadcast(
+             appContext,
+-            (int) System.currentTimeMillis(),
++            // MacroFit: a request code per tap target. These intents differ only in extras, which
++            // PendingIntent identity ignores, so two targets built in the same millisecond shared
++            // a code and FLAG_CANCEL_CURRENT cancelled the first; a drawing per size builds twice
++            // as many at once.
++            nextClickRequestCode.incrementAndGet(),
+             intent,
+             PendingIntent.FLAG_CANCEL_CURRENT
+                 | PendingIntent.FLAG_MUTABLE
+@@ -215,18 +260,18 @@ public class RNWidget {
+         widgetView.setOnClickPendingIntent(button, pendingIntent);
+     }
+ 
+-    private void addCollectionViews(int widgetId, RemoteViews remoteWidgetView, WidgetWithViews widgetWithViews) {
++    private void addCollectionViews(int widgetId, RemoteViews remoteWidgetView, WidgetWithViews widgetWithViews, int width, int height) {
+         remoteWidgetView.removeAllViews(R.id.rn_widget_collection_container);
+ 
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+             remoteWidgetView.setViewLayoutWidth(
+                 R.id.rn_widget_collection_container,
+-                RNWidgetUtil.getWidgetWidth(appContext, widgetId),
++                width,
+                 TypedValue.COMPLEX_UNIT_DIP
+             );
+             remoteWidgetView.setViewLayoutHeight(
+                 R.id.rn_widget_collection_container,
+-                RNWidgetUtil.getWidgetHeight(appContext, widgetId),
++                height,
+                 TypedValue.COMPLEX_UNIT_DIP
+             );
+         }
+@@ -236,11 +281,11 @@ public class RNWidget {
+ 
+         for (int i = 0; i < Math.min(collectionViews.size(), RNWidgetCollectionService.MAX_COLLECTION_WIDGETS); i++) {
+             CollectionView collectionView = collectionViews.get(i);
+-            addCollectionView(remoteWidgetView, rootView, collectionView, widgetId, i);
++            addCollectionView(remoteWidgetView, rootView, collectionView, widgetId, i, width, height);
+         }
+     }
+ 
+-    private void addCollectionView(RemoteViews remoteWidgetView, ViewGroup rootView, CollectionView collectionView, int widgetId, int collectionId) {
++    private void addCollectionView(RemoteViews remoteWidgetView, ViewGroup rootView, CollectionView collectionView, int widgetId, int collectionId, int width, int height) {
+         View collectionWidget = collectionView.getView();
+         Rect offsetViewBounds = new Rect();
+         collectionWidget.getDrawingRect(offsetViewBounds);
+@@ -252,8 +297,8 @@ public class RNWidget {
+             R.id.rn_widget_list_positioner,
+             offsetViewBounds.left,
+             offsetViewBounds.top,
+-            RNWidgetUtil.dpToPx(appContext, RNWidgetUtil.getWidgetWidth(appContext, widgetId)) - offsetViewBounds.right,
+-            RNWidgetUtil.dpToPx(appContext, RNWidgetUtil.getWidgetHeight(appContext, widgetId)) - offsetViewBounds.bottom
++            RNWidgetUtil.dpToPx(appContext, width) - offsetViewBounds.right,
++            RNWidgetUtil.dpToPx(appContext, height) - offsetViewBounds.bottom
+         );
+ 
+         for (int i = 0; i < listWrappers.length; i++) {
+diff --git a/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetJsCommunication.java b/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetJsCommunication.java
+index d26a3ee..1c83423 100644
+--- a/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetJsCommunication.java
++++ b/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetJsCommunication.java
+@@ -72,6 +72,8 @@ public class RNWidgetJsCommunication {
+             .putInt("widgetId", widgetId)
+             .putInt("width", RNWidgetUtil.getWidgetWidth(context, widgetId))
+             .putInt("height", RNWidgetUtil.getWidgetHeight(context, widgetId))
++            // MacroFit: every size the launcher can show it at; JS draws one per size.
++            .putString("sizes", RNWidgetUtil.getWidgetSizesJson(context, widgetId))
+             .putString("widgetAction", widgetAction)
+             .putAll(additionalData)
+             .build();
 diff --git a/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java b/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java
-index c138d81..afe6bfc 100644
+index c138d81..3a47332 100644
 --- a/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java
 +++ b/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java
-@@ -132,6 +132,9 @@ public class RNWidgetProvider extends AppWidgetProvider {
+@@ -82,8 +82,11 @@ public class RNWidgetProvider extends AppWidgetProvider {
+         int oldHeight = sharedPref.getInt(widgetId + "-height", 0);
+         int newWidth = RNWidgetUtil.getWidgetWidth(context, widgetId);
+         int newHeight = RNWidgetUtil.getWidgetHeight(context, widgetId);
++        // MacroFit: a resize can change any of the sizes drawn for, not only the one above.
++        String oldSizes = sharedPref.getString(widgetId + "-sizes", "");
+ 
+-        return oldWidth != newWidth || oldHeight != newHeight;
++        return oldWidth != newWidth || oldHeight != newHeight
++            || !oldSizes.equals(RNWidgetUtil.getWidgetSizesJson(context, widgetId));
+     }
+ 
+     private void storeWidgetSize(Context context, int widgetId) {
+@@ -97,6 +100,7 @@ public class RNWidgetProvider extends AppWidgetProvider {
+ 
+         editor.putInt(widgetId + "-width", width);
+         editor.putInt(widgetId + "-height", height);
++        editor.putString(widgetId + "-sizes", RNWidgetUtil.getWidgetSizesJson(context, widgetId));
+ 
+         editor.apply();
+     }
+@@ -109,6 +113,7 @@ public class RNWidgetProvider extends AppWidgetProvider {
+ 
+         editor.remove(widgetId + "-width");
+         editor.remove(widgetId + "-height");
++        editor.remove(widgetId + "-sizes");
+ 
+         editor.apply();
+     }
+@@ -132,6 +137,9 @@ public class RNWidgetProvider extends AppWidgetProvider {
      private void openUri(Context context, String uri) {
          try {
              Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(uri));
@@ -13,7 +278,7 @@ index c138d81..afe6bfc 100644
              context.startActivity(intent);
          } catch (Exception e) {
 diff --git a/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetUtil.java b/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetUtil.java
-index 2a34305..bbeaee4 100644
+index 2a34305..d0a09ce 100644
 --- a/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetUtil.java
 +++ b/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RNWidgetUtil.java
 @@ -6,7 +6,10 @@ import android.appwidget.AppWidgetManager;
@@ -43,7 +308,7 @@ index 2a34305..bbeaee4 100644
              return getWidgetSizeInDp(context, widgetId, AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH);
          } else {
              return getWidgetSizeInDp(context, widgetId, AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH);
-@@ -29,12 +35,34 @@ public class RNWidgetUtil {
+@@ -29,12 +35,62 @@ public class RNWidgetUtil {
      public static int getWidgetHeight(Context context, int widgetId) {
          boolean isPortrait = context.getResources().getConfiguration().orientation == ORIENTATION_PORTRAIT;
          if (isPortrait) {
@@ -75,9 +340,52 @@ index 2a34305..bbeaee4 100644
 +        return portrait;
 +    }
 +
++    /**
++     * MacroFit: every size the launcher can show this widget at (Android 12+), without repeats,
++     * or an empty list. The widget is drawn once per size and the system shows the drawing that
++     * fits (see RNWidget.drawWidget), so nothing depends on guessing which one is current.
++     */
++    public static List<SizeF> getWidgetSizes(Context context, int widgetId) {
++        List<SizeF> result = new ArrayList<>();
++        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return result;
++        Bundle options = AppWidgetManager.getInstance(context).getAppWidgetOptions(widgetId);
++        ArrayList<SizeF> sizes = options.getParcelableArrayList(AppWidgetManager.OPTION_APPWIDGET_SIZES);
++        if (sizes != null) {
++            for (SizeF size : sizes) {
++                if (size.getWidth() > 0 && size.getHeight() > 0 && !result.contains(size)) result.add(size);
++            }
++        }
++        return result;
++    }
++
++    /** getWidgetSizes as JSON, `[[w,h],...]`, for WorkManager data and for spotting a change. */
++    public static String getWidgetSizesJson(Context context, int widgetId) {
++        StringBuilder json = new StringBuilder("[");
++        for (SizeF size : getWidgetSizes(context, widgetId)) {
++            if (json.length() > 1) json.append(',');
++            json.append('[').append(size.getWidth()).append(',').append(size.getHeight()).append(']');
++        }
++        return json.append(']').toString();
++    }
++
      public static int dpToPx(Context context, double dpValue) {
          return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, (float) dpValue, context.getResources().getDisplayMetrics()));
      }
+@@ -59,6 +115,14 @@ public class RNWidgetUtil {
+             widgetMap.putInt("widgetId", id);
+             widgetMap.putInt("height", getWidgetHeight(context, id));
+             widgetMap.putInt("width", getWidgetWidth(context, id));
++            WritableArray sizes = Arguments.createArray();
++            for (SizeF size : getWidgetSizes(context, id)) {
++                WritableMap sizeMap = Arguments.createMap();
++                sizeMap.putDouble("width", size.getWidth());
++                sizeMap.putDouble("height", size.getHeight());
++                sizes.pushMap(sizeMap);
++            }
++            widgetMap.putArray("sizes", sizes);
+             widgetMap.putMap("screenInfo", getScreenInfo(context));
+ 
+             writableArray.pushMap(widgetMap);
 diff --git a/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/oss/HeadlessJsTaskWorker.java b/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/oss/HeadlessJsTaskWorker.java
 index 269a75d..1d87c1b 100644
 --- a/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/oss/HeadlessJsTaskWorker.java
@@ -96,3 +404,252 @@ index 269a75d..1d87c1b 100644
              reactHost.addReactInstanceEventListener(new ReactInstanceEventListener() {
                  public void onReactContextInitialized(ReactContext reactContext) {
                      HeadlessJsTaskWorker.this.invokeStartTask(reactContext, taskConfig);
+diff --git a/node_modules/react-native-android-widget/lib/typescript/api/types.d.ts b/node_modules/react-native-android-widget/lib/typescript/api/types.d.ts
+index 5485868..ae00d92 100644
+--- a/node_modules/react-native-android-widget/lib/typescript/api/types.d.ts
++++ b/node_modules/react-native-android-widget/lib/typescript/api/types.d.ts
+@@ -38,9 +38,24 @@ export interface WidgetInfo {
+      * Information about the device
+      */
+     screenInfo: ScreenInfo;
++    /**
++     * MacroFit: every size the launcher can show the widget at, in dp (Android 12+; empty
++     * before). Draw one widget per size and the system shows the one that fits.
++     */
++    sizes?: WidgetSize[];
++}
++export interface WidgetSize {
++    width: number;
++    height: number;
+ }
+-export type WidgetRepresentation = React.JSX.Element | {
++export type SingleWidgetRepresentation = React.JSX.Element | {
+     light: React.JSX.Element;
+     dark: React.JSX.Element | null;
+ };
++export type WidgetRepresentation = SingleWidgetRepresentation | {
++    /** MacroFit: one drawing per size from `WidgetInfo.sizes`. */
++    sizes: (WidgetSize & {
++        widget: SingleWidgetRepresentation;
++    })[];
++};
+ //# sourceMappingURL=types.d.ts.map
+\ No newline at end of file
+diff --git a/node_modules/react-native-android-widget/src/api/build-widget-tree.ts b/node_modules/react-native-android-widget/src/api/build-widget-tree.ts
+index 60d3f8f..acec760 100644
+--- a/node_modules/react-native-android-widget/src/api/build-widget-tree.ts
++++ b/node_modules/react-native-android-widget/src/api/build-widget-tree.ts
+@@ -1,4 +1,50 @@
+ import * as React from 'react';
++import type {
++  SingleWidgetRepresentation,
++  WidgetRepresentation,
++  WidgetSize,
++} from './types';
++
++/**
++ * MacroFit: what the native side draws from a representation — light and dark, plus one entry
++ * per size when there are several. The first size is also drawn alone, for Android before 12.
++ */
++export function buildWidgetConfig(
++  widget: WidgetRepresentation
++): Record<string, unknown> {
++  if ('sizes' in widget && widget.sizes.length > 0) {
++    const sizes = widget.sizes.map(({ width, height, widget: one }) => ({
++      width,
++      height,
++      ...buildSingleWidgetConfig(one),
++    }));
++    return { light: sizes[0]!.light, dark: sizes[0]!.dark, sizes };
++  }
++  return buildSingleWidgetConfig(widget as SingleWidgetRepresentation);
++}
++
++function buildSingleWidgetConfig(widget: SingleWidgetRepresentation) {
++  return 'light' in widget
++    ? {
++        light: buildWidgetTree(widget.light),
++        dark: widget.dark ? buildWidgetTree(widget.dark) : null,
++      }
++    : { light: buildWidgetTree(widget), dark: null };
++}
++
++/** MacroFit: the sizes a background task receives, `[[w,h],...]` as a string. */
++export function parseWidgetSizes(json: unknown): WidgetSize[] {
++  if (Array.isArray(json)) return json as WidgetSize[];
++  if (typeof json !== 'string') return [];
++  try {
++    return (JSON.parse(json) as [number, number][]).map(([width, height]) => ({
++      width,
++      height,
++    }));
++  } catch {
++    return [];
++  }
++}
+ 
+ export interface WidgetTree {
+   type:
+diff --git a/node_modules/react-native-android-widget/src/api/register-widget-task-handler.tsx b/node_modules/react-native-android-widget/src/api/register-widget-task-handler.tsx
+index f03854b..0334806 100644
+--- a/node_modules/react-native-android-widget/src/api/register-widget-task-handler.tsx
++++ b/node_modules/react-native-android-widget/src/api/register-widget-task-handler.tsx
+@@ -1,12 +1,14 @@
+ import * as React from 'react';
+ import { AppRegistry } from 'react-native';
+ import { AndroidWidget } from '../AndroidWidget';
+-import { buildWidgetTree } from './build-widget-tree';
++import { buildWidgetConfig, parseWidgetSizes } from './build-widget-tree';
+ import type { WidgetInfo, WidgetRepresentation } from './types';
+ 
+ const HEADLESS_TASK_KEY = 'RNWidgetBackgroundTask';
+ 
+-interface NativeTaskInfo extends WidgetInfo {
++interface NativeTaskInfo extends Omit<WidgetInfo, 'sizes'> {
++  /** `[[w,h],...]`: WorkManager data holds strings, not arrays. */
++  sizes?: string;
+   widgetAction:
+     | 'WIDGET_ADDED'
+     | 'WIDGET_UPDATE'
+@@ -59,27 +61,16 @@ export function registerWidgetTaskHandler(handler: WidgetTaskHandler): void {
+     widgetAction,
+     clickAction,
+     clickActionData,
+-    ...widgetInfo
++    sizes,
++    ...nativeInfo
+   }: NativeTaskInfo) {
++    const widgetInfo: WidgetInfo = { ...nativeInfo, sizes: parseWidgetSizes(sizes) };
++
+     function renderWidget(widgetComponent: WidgetRepresentation) {
+       if (widgetAction === 'WIDGET_DELETED') return;
+ 
+-      const lightWidget =
+-        'light' in widgetComponent
+-          ? buildWidgetTree(widgetComponent.light)
+-          : buildWidgetTree(widgetComponent);
+-      const darkWidget =
+-        'dark' in widgetComponent
+-          ? buildWidgetTree(widgetComponent.dark as React.JSX.Element)
+-          : null;
+-
+-      const config = {
+-        light: lightWidget,
+-        dark: darkWidget,
+-      };
+-
+       AndroidWidget.drawWidgetById(
+-        config,
++        buildWidgetConfig(widgetComponent),
+         widgetInfo.widgetName,
+         widgetInfo.widgetId
+       );
+diff --git a/node_modules/react-native-android-widget/src/api/request-widget-update-by-id.tsx b/node_modules/react-native-android-widget/src/api/request-widget-update-by-id.tsx
+index 61bcfc3..35c2e97 100644
+--- a/node_modules/react-native-android-widget/src/api/request-widget-update-by-id.tsx
++++ b/node_modules/react-native-android-widget/src/api/request-widget-update-by-id.tsx
+@@ -1,6 +1,5 @@
+-import * as React from 'react';
+ import { AndroidWidget } from '../AndroidWidget';
+-import { buildWidgetTree } from './build-widget-tree';
++import { buildWidgetConfig } from './build-widget-tree';
+ import type { WidgetInfo, WidgetRepresentation } from './types';
+ 
+ export interface RequestWidgetUpdateByIdProps {
+@@ -48,19 +47,9 @@ export async function requestWidgetUpdateById({
+ 
+   const widgetComponent = await renderWidget(widgetInfo);
+ 
+-  const lightWidget =
+-    'light' in widgetComponent
+-      ? buildWidgetTree(widgetComponent.light)
+-      : buildWidgetTree(widgetComponent);
+-  const darkWidget =
+-    'dark' in widgetComponent
+-      ? buildWidgetTree(widgetComponent.dark as React.JSX.Element)
+-      : null;
+-
+-  const config = {
+-    light: lightWidget,
+-    dark: darkWidget,
+-  };
+-
+-  AndroidWidget.drawWidgetById(config, widgetName, widgetInfo.widgetId);
++  AndroidWidget.drawWidgetById(
++    buildWidgetConfig(widgetComponent),
++    widgetName,
++    widgetInfo.widgetId
++  );
+ }
+diff --git a/node_modules/react-native-android-widget/src/api/request-widget-update.tsx b/node_modules/react-native-android-widget/src/api/request-widget-update.tsx
+index 393405d..6edbc97 100644
+--- a/node_modules/react-native-android-widget/src/api/request-widget-update.tsx
++++ b/node_modules/react-native-android-widget/src/api/request-widget-update.tsx
+@@ -1,6 +1,5 @@
+-import type React from 'react';
+ import { AndroidWidget } from '../AndroidWidget';
+-import { buildWidgetTree } from './build-widget-tree';
++import { buildWidgetConfig } from './build-widget-tree';
+ import type { WidgetInfo, WidgetRepresentation } from './types';
+ 
+ export interface RequestWidgetUpdateProps {
+@@ -42,20 +41,10 @@ export async function requestWidgetUpdate({
+   widgetsInfo.forEach(async (info: WidgetInfo) => {
+     const widgetComponent = await renderWidget(info);
+ 
+-    const lightWidget =
+-      'light' in widgetComponent
+-        ? buildWidgetTree(widgetComponent.light)
+-        : buildWidgetTree(widgetComponent);
+-    const darkWidget =
+-      'dark' in widgetComponent
+-        ? buildWidgetTree(widgetComponent.dark as React.JSX.Element)
+-        : null;
+-
+-    const config = {
+-      light: lightWidget,
+-      dark: darkWidget,
+-    };
+-
+-    AndroidWidget.drawWidgetById(config, widgetName, info.widgetId);
++    AndroidWidget.drawWidgetById(
++      buildWidgetConfig(widgetComponent),
++      widgetName,
++      info.widgetId
++    );
+   });
+ }
+diff --git a/node_modules/react-native-android-widget/src/api/types.ts b/node_modules/react-native-android-widget/src/api/types.ts
+index 36355df..d42efcb 100644
+--- a/node_modules/react-native-android-widget/src/api/types.ts
++++ b/node_modules/react-native-android-widget/src/api/types.ts
+@@ -40,11 +40,28 @@ export interface WidgetInfo {
+    * Information about the device
+    */
+   screenInfo: ScreenInfo;
++  /**
++   * MacroFit: every size the launcher can show the widget at, in dp (Android 12+; empty
++   * before). Draw one widget per size and the system shows the one that fits.
++   */
++  sizes?: WidgetSize[];
+ }
+ 
+-export type WidgetRepresentation =
++export interface WidgetSize {
++  width: number;
++  height: number;
++}
++
++export type SingleWidgetRepresentation =
+   | React.JSX.Element
+   | {
+       light: React.JSX.Element;
+       dark: React.JSX.Element | null;
+     };
++
++export type WidgetRepresentation =
++  | SingleWidgetRepresentation
++  | {
++      /** MacroFit: one drawing per size from `WidgetInfo.sizes`. */
++      sizes: (WidgetSize & { widget: SingleWidgetRepresentation })[];
++    };

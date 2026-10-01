@@ -6,7 +6,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated'
-import { Tabs, useRouter, useSegments } from 'expo-router'
+import { Tabs, useIsFocused, useRouter, useSegments } from 'expo-router'
 import { useSnackbar } from '@/components/Snackbar'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
@@ -376,8 +376,16 @@ export default function TabsLayout() {
     nothing is animating, both are built in the background, a second apart so neither competes
     with the other, and freezeOnBlur freezes each as soon as it has mounted. A later tap only
     shows it.
+
+    Only while these tabs are what is on screen. Under a modal — Add food or the Coach opened
+    by a widget tap on a cold start — the prefetch resolves against the root stack instead,
+    which preloads a whole second tab navigator; that copy's layout runs this same effect and
+    replaces itself with another, for ever. On a OnePlus 10T the Java heap filled in about 72
+    seconds and the app died, having shown a blank screen or never opened the camera.
   */
+  const isFocused = useIsFocused()
   useEffect(() => {
+    if (!isFocused) return
     let timer: ReturnType<typeof setTimeout> | undefined
     const task = InteractionManager.runAfterInteractions(() => {
       router.prefetch('/diary')
@@ -387,7 +395,7 @@ export default function TabsLayout() {
       task.cancel()
       if (timer !== undefined) clearTimeout(timer)
     }
-  }, [router])
+  }, [router, isFocused])
 
   /*
     Workout is a launcher, not a tab. Training is its own app — own tab bar, own colours,

@@ -9,8 +9,11 @@
   also the moment every gate has been passed. On a warm start the tabs are already mounted
   and take it straight away.
 
-  Import-free, because `+native-intent` runs before the app has loaded anything.
+  Import-free, because `+native-intent` runs before the app has loaded anything (the one
+  import below is a type, and is gone from the bundle).
 */
+
+import type { CapturedPhoto } from '@/lib/mealPhoto'
 
 const SCHEME = 'macrofit'
 
@@ -19,6 +22,25 @@ export const widgetLink = (route: string): string => `${SCHEME}://widget${route}
 
 /** Today's tab. Not `/`: that path is the launch gate in app/index.tsx, not the tab. */
 export const TODAY_ROUTE = '/today'
+
+/** The Photo button. The camera opens before the Coach does; see useWidgetLaunch. */
+export const PHOTO_ROUTE = '/chat?snap=camera'
+/** The Coach's `snap` once the widget has already taken the photo. */
+export const SNAP_TAKEN = 'taken'
+
+let takenPhoto: CapturedPhoto | null = null
+
+/** Hands a photo the widget took to the Coach, which opens next. */
+export const handOffWidgetPhoto = (photo: CapturedPhoto): void => {
+  takenPhoto = photo
+}
+
+/** That photo, once. */
+export const takeWidgetPhoto = (): CapturedPhoto | null => {
+  const photo = takenPhoto
+  takenPhoto = null
+  return photo
+}
 
 const WIDGET_LINK = /^(?:[a-z][a-z0-9+.-]*:)?\/*widget(\/[^#]*)?$/i
 

@@ -2,7 +2,7 @@ import React from 'react'
 import { FlexWidget, SvgWidget, TextWidget } from 'react-native-android-widget'
 import { formatNumber } from '@/lib/formatNumber'
 import { iconSvg, ringSvg, type IconName } from './art'
-import { widgetLink, TODAY_ROUTE } from './links'
+import { widgetLink, PHOTO_ROUTE, TODAY_ROUTE } from './links'
 import { WIDGET_WATER_ML, type TodayModel } from './model'
 import { FONT, type WidgetPalette } from './palette'
 
@@ -66,7 +66,7 @@ const ACTIONS: Action[] = [
     label: 'Photo',
     shortLabel: 'Photo',
     accessibilityLabel: 'Log a meal from a photo',
-    click: { clickAction: 'OPEN_URI', clickActionData: { uri: widgetLink('/chat?snap=camera') } },
+    click: { clickAction: 'OPEN_URI', clickActionData: { uri: widgetLink(PHOTO_ROUTE) } },
   },
   {
     // Written by the widget's background task without opening the app: water is the one log
@@ -94,28 +94,45 @@ const Headline: React.FC<{
   palette: WidgetPalette
   size: number
   align: 'start' | 'center'
-}> = ({ model, palette, size, align }) => {
+  /** Caption beside the number, for a slot too short to stack them. */
+  inline?: boolean
+}> = ({ model, palette, size, align, inline = false }) => {
   const over = model.eaten > model.goal
   const value = over ? model.eaten - model.goal : Math.max(0, model.goal - model.eaten)
+  const caption = (
+    <TextWidget
+      text={over ? 'KCAL OVER' : 'KCAL LEFT'}
+      allowFontScaling={false}
+      maxLines={1}
+      style={{
+        fontFamily: FONT.semibold,
+        fontSize: 11,
+        letterSpacing: 0.8,
+        color: over ? palette.critical : palette.textSecondary,
+        ...(inline ? { marginLeft: 6 } : {}),
+      }}
+    />
+  )
+  const number = (
+    <TextWidget
+      text={formatNumber(value)}
+      allowFontScaling={false}
+      maxLines={1}
+      style={{ fontFamily: FONT.display, fontSize: size, color: over ? palette.critical : palette.text }}
+    />
+  )
+  if (inline) {
+    return (
+      <FlexWidget style={{ flexDirection: 'row', alignItems: 'center' }}>
+        {number}
+        {caption}
+      </FlexWidget>
+    )
+  }
   return (
     <FlexWidget style={{ alignItems: align === 'center' ? 'center' : 'flex-start' }}>
-      <TextWidget
-        text={over ? 'KCAL OVER' : 'KCAL LEFT'}
-        allowFontScaling={false}
-        maxLines={1}
-        style={{
-          fontFamily: FONT.semibold,
-          fontSize: 11,
-          letterSpacing: 0.8,
-          color: over ? palette.critical : palette.textSecondary,
-        }}
-      />
-      <TextWidget
-        text={formatNumber(value)}
-        allowFontScaling={false}
-        maxLines={1}
-        style={{ fontFamily: FONT.display, fontSize: size, color: over ? palette.critical : palette.text }}
-      />
+      {caption}
+      {number}
     </FlexWidget>
   )
 }
@@ -165,14 +182,16 @@ const ActionButton: React.FC<{
   palette: WidgetPalette
   /** Omitted: an icon-only round button. */
   width?: number
-}> = ({ action, palette, width }) => (
+  /** Height, and width when round. */
+  size?: number
+}> = ({ action, palette, width, size = BUTTON }) => (
   <FlexWidget
     {...action.click}
     accessibilityLabel={action.accessibilityLabel}
     style={{
-      height: BUTTON,
-      width: width ?? BUTTON,
-      borderRadius: BUTTON / 2,
+      height: size,
+      width: width ?? size,
+      borderRadius: size / 2,
       backgroundColor: palette.chip,
       flexDirection: 'row',
       alignItems: 'center',
@@ -231,7 +250,9 @@ const Shell: React.FC<{
   size: WidgetSize
   children: React.ReactNode
   accessibilityLabel: string
-}> = ({ palette, size, children, accessibilityLabel }) => (
+  /** Top and bottom padding, where PAD would not leave room for one line. */
+  paddingVertical?: number
+}> = ({ palette, size, children, accessibilityLabel, paddingVertical = PAD }) => (
   <FlexWidget
     clickAction="OPEN_URI"
     clickActionData={todayUri}
@@ -240,8 +261,9 @@ const Shell: React.FC<{
       width: size.width,
       height: size.height,
       backgroundColor: palette.surface,
-      borderRadius: 24,
-      padding: PAD,
+      borderRadius: Math.min(24, size.height / 2),
+      paddingHorizontal: PAD,
+      paddingVertical,
     }}
   >
     {children}
@@ -256,19 +278,24 @@ export const TodayWidget: React.FC<{ model: TodayModel; size: WidgetSize; palett
   const inner = { width: size.width - PAD * 2, height: size.height - PAD * 2 }
 
   if (model.kind === 'empty') {
+    // Under 42dp of room for the title (24) and a line (16), the line alone.
+    const oneLine = inner.height < 42
     return (
       <Shell palette={palette} size={size} accessibilityLabel="Open MacroFit to set your targets">
         <FlexWidget style={{ width: inner.width, height: inner.height, justifyContent: 'center' }}>
+          {oneLine ? null : (
+            <TextWidget
+              text="MacroFit"
+              allowFontScaling={false}
+              style={{ fontFamily: FONT.display, fontSize: 18, color: palette.text }}
+            />
+          )}
           <TextWidget
-            text="MacroFit"
+            text={oneLine ? 'Open MacroFit to set your targets.' : 'Open the app to set your targets.'}
             allowFontScaling={false}
-            style={{ fontFamily: FONT.display, fontSize: 18, color: palette.text }}
-          />
-          <TextWidget
-            text="Open the app to set your targets."
-            allowFontScaling={false}
-            maxLines={2}
-            style={{ fontFamily: FONT.medium, fontSize: 12, color: palette.textMuted, marginTop: 2 }}
+            maxLines={oneLine ? 1 : 2}
+            truncate="END"
+            style={{ fontFamily: FONT.medium, fontSize: 12, color: palette.textMuted, ...(oneLine ? {} : { marginTop: 2 }) }}
           />
         </FlexWidget>
       </Shell>
@@ -287,24 +314,32 @@ export const TodayWidget: React.FC<{ model: TodayModel; size: WidgetSize; palett
     buttons: the caption over the 20pt number (15 + 26), and as many round buttons as fit
     beside it — all three from four cells wide, then water alone (the log that needs no
     screen), then none. The number is the one thing a strip is never without.
+
+    Under 65dp even that stack does not fit — OnePlus leaves a one-row widget 40dp inside the
+    padding it does not report (see render.tsx) — so the caption moves beside the number and
+    the padding and buttons shrink to one line of at most 32dp.
   */
   if (inner.height - ACTION_ROW < CAPTION + 27) {
-    // "KCAL LEFT", the wider of the two lines.
-    const numberWidth = 72
-    const fit = Math.floor((inner.width - numberWidth + 6) / (BUTTON + 6))
+    const tight = size.height < PAD * 2 + CAPTION + 26
+    const button = tight ? Math.max(24, Math.min(BUTTON, size.height - 8)) : BUTTON
+    const paddingVertical = tight ? Math.max(2, Math.floor((size.height - button) / 2)) : PAD
+    const row = { width: inner.width, height: size.height - paddingVertical * 2 }
+    // "KCAL LEFT" alone, or "1,758 KCAL LEFT" on one line.
+    const numberWidth = tight ? 130 : 72
+    const fit = Math.floor((row.width - numberWidth + 6) / (button + 6))
     const shown = fit >= 3 ? ACTIONS : fit >= 1 ? ACTIONS.filter(a => a.key === 'water') : []
     return (
-      <Shell palette={palette} size={size} accessibilityLabel={label}>
+      <Shell palette={palette} size={size} accessibilityLabel={label} paddingVertical={paddingVertical}>
         <FlexWidget
-          style={{ width: inner.width, height: inner.height, flexDirection: 'row', alignItems: 'center' }}
+          style={{ width: row.width, height: row.height, flexDirection: 'row', alignItems: 'center' }}
         >
           <FlexWidget style={{ flex: 1 }}>
-            <Headline model={model} palette={palette} size={20} align="start" />
+            <Headline model={model} palette={palette} size={20} align="start" inline={tight} />
           </FlexWidget>
           {shown.length > 0 ? (
             <FlexWidget style={{ flexDirection: 'row', flexGap: 6 }}>
               {shown.map(action => (
-                <ActionButton key={action.key} action={action} palette={palette} />
+                <ActionButton key={action.key} action={action} palette={palette} size={button} />
               ))}
             </FlexWidget>
           ) : null}

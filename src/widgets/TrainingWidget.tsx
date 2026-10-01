@@ -107,15 +107,16 @@ const StartButton: React.FC<{
   button: NonNullable<Content['button']>
   palette: WidgetPalette
   width?: number
-}> = ({ button, palette, width }) => (
+  height?: number
+}> = ({ button, palette, width, height = BUTTON }) => (
   <FlexWidget
     clickAction="OPEN_URI"
     clickActionData={{ uri: button.uri }}
     accessibilityLabel={button.accessibilityLabel}
     style={{
-      height: BUTTON,
+      height,
       ...(width === undefined ? { paddingHorizontal: 16 } : { width }),
-      borderRadius: BUTTON / 2,
+      borderRadius: height / 2,
       backgroundColor: palette.accent,
       flexDirection: 'row',
       alignItems: 'center',
@@ -146,7 +147,7 @@ const Title: React.FC<{ content: Content; palette: WidgetPalette; size: number; 
       truncate="END"
       style={{ fontFamily: FONT.display, fontSize: size, color: palette.text }}
     />
-    {content.detail ? (
+    {content.detail && detailLines > 0 ? (
       <TextWidget
         text={content.detail}
         allowFontScaling={false}
@@ -167,7 +168,7 @@ export const TrainingWidget: React.FC<{ model: TrainingModel; size: WidgetSize; 
   const week = 'week' in model ? model.week : null
   const inner = { width: size.width - PAD * 2, height: size.height - PAD * 2 }
 
-  const shell = (children: React.ReactNode) => (
+  const shell = (children: React.ReactNode, paddingVertical = PAD) => (
     <FlexWidget
       clickAction="OPEN_URI"
       clickActionData={trainingUri}
@@ -176,8 +177,9 @@ export const TrainingWidget: React.FC<{ model: TrainingModel; size: WidgetSize; 
         width: size.width,
         height: size.height,
         backgroundColor: palette.surface,
-        borderRadius: 24,
-        padding: PAD,
+        borderRadius: Math.min(24, size.height / 2),
+        paddingHorizontal: PAD,
+        paddingVertical,
       }}
     >
       {children}
@@ -186,21 +188,33 @@ export const TrainingWidget: React.FC<{ model: TrainingModel; size: WidgetSize; 
 
   // The button needs ~90dp; under 170 it would squeeze the title out, and the card itself
   // still opens Training.
-  const titleRow = (titleSize: number) => (
+  const titleRow = (titleSize: number, detailLines = 1, buttonHeight = BUTTON) => (
     <FlexWidget style={{ width: inner.width, flexDirection: 'row', alignItems: 'center' }}>
       <FlexWidget style={{ flex: 1, marginRight: 10 }}>
-        <Title content={content} palette={palette} size={titleSize} detailLines={1} />
+        <Title content={content} palette={palette} size={titleSize} detailLines={detailLines} />
       </FlexWidget>
-      {content.button && inner.width >= 170 ? <StartButton button={content.button} palette={palette} /> : null}
+      {content.button && inner.width >= 170 ? (
+        <StartButton button={content.button} palette={palette} height={buttonHeight} />
+      ) : null}
     </FlexWidget>
   )
 
-  // One row high: what is next, and the button.
+  /*
+    One row high: what is next, and the button. Under 65dp the title and its detail line (24 +
+    17) no longer fit inside the padding — OnePlus leaves a one-row widget 40dp (see render.tsx)
+    — so the title goes alone, on one line of at most 32dp with the padding cut to match.
+  */
   if (inner.height < 72) {
+    const tight = size.height < PAD * 2 + 41
+    const button = tight ? Math.max(24, Math.min(BUTTON, size.height - 8)) : BUTTON
+    const paddingVertical = tight ? Math.max(2, Math.floor((size.height - button) / 2)) : PAD
     return shell(
-      <FlexWidget style={{ width: inner.width, height: inner.height, justifyContent: 'center' }}>
-        {titleRow(18)}
-      </FlexWidget>
+      <FlexWidget
+        style={{ width: inner.width, height: size.height - paddingVertical * 2, justifyContent: 'center' }}
+      >
+        {titleRow(18, tight ? 0 : 1, button)}
+      </FlexWidget>,
+      paddingVertical
     )
   }
 
