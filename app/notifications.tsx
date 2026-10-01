@@ -13,7 +13,6 @@ import { Body, Label } from '@/components/Text'
 import { Button } from '@/components/Button'
 import { useNotificationPrefs, type NotificationPrefs } from '@/store/notificationPrefs'
 import { CHANNELS, ensureNotificationPermission } from '@/lib/notifications'
-import { DAILY_CAP } from '@/lib/reminderPlan'
 
 const HAIRLINE = StyleSheet.hairlineWidth * 2
 
@@ -309,7 +308,7 @@ export default function NotificationSettings() {
       </View>
 
       <Body size={12} tone="muted" style={{ textAlign: 'center', paddingHorizontal: spacing.md }}>
-        {`Quiet from 10 pm to 7 am, and never more than ${DAILY_CAP} reminders a day. Each one is dropped the moment you've already done the thing it's about.`}
+        {"Quiet from 10 pm to 7 am. Each reminder is dropped the moment you've already done the thing it's about."}
       </Body>
 
       <Button label="Send a test notification" variant="secondary" full onPress={() => void sendTest()} />

@@ -18,7 +18,7 @@ import { HIT_SIZE, fonts, radius } from '@/theme/tokens'
 import { LiquidGlassPane } from './LiquidGlass'
 import { Body } from './Text'
 
-type Variant = 'primary' | 'secondary' | 'ghost'
+type Variant = 'primary' | 'secondary' | 'ghost' | 'destructive'
 
 export interface ButtonProps {
   label: string
@@ -48,6 +48,11 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
  *
  * `secondary` is regular glass and `ghost` is clear and borderless, which is the one place
  * a fully transparent pane is correct: a ghost button is meant to be barely there.
+ *
+ * `destructive` is the primary's construction in the critical colour, for the few commits
+ * nothing can undo (deleting an account). Its label flips with the theme because the two
+ * criticals sit on opposite sides of mid-grey: white on light mode's #B91C1C is 6.5:1, but
+ * on dark mode's #F87171 it is under 3:1, where the canvas colour clears 7:1.
  */
 export const Button: React.FC<ButtonProps> = ({
   label,
@@ -78,13 +83,24 @@ export const Button: React.FC<ButtonProps> = ({
 
   const inactive = disabled || loading
 
+  const solid = variant === 'primary' || variant === 'destructive'
   const tint =
     variant === 'primary'
       ? // 0.92, not 1: the last 8% is what keeps the lens visible at the pane's edges.
         `${theme.brand}EB`
-      : undefined
+      : variant === 'destructive'
+        ? `${theme.status.critical}EB`
+        : undefined
   const textColor =
-    variant === 'primary' ? theme.brandOn : variant === 'ghost' ? theme.textSecondary : theme.text
+    variant === 'primary'
+      ? theme.brandOn
+      : variant === 'destructive'
+        ? theme.mode === 'dark'
+          ? theme.canvas
+          : '#FFFFFF'
+        : variant === 'ghost'
+          ? theme.textSecondary
+          : theme.text
 
   return (
     <AnimatedPressable
@@ -161,7 +177,7 @@ export const Button: React.FC<ButtonProps> = ({
               top: 0,
               bottom: 0,
               backgroundColor:
-                variant === 'primary'
+                solid
                   ? 'rgba(255,255,255,0.18)'
                   : theme.mode === 'dark'
                     ? 'rgba(238,241,239,0.10)'

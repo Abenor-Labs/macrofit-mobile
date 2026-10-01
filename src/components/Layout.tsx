@@ -20,6 +20,9 @@ import { Glass, Island } from './Material'
 /** Height the floating tab bar occupies, so scroll content can clear it. */
 export const TAB_BAR_SPACE = 76
 
+/** The quick-log + that floats above the tab bar on Today. */
+export const QUICK_LOG_SIZE = 56
+
 export interface ScreenProps {
   title?: string
   subtitle?: string

@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { registerWidgetTaskHandler, type WidgetTaskHandler } from 'react-native-android-widget'
 import { getTodayString } from '@core/utils/calculations'
+import { syncRemindersInBackground } from '@/lib/reminderSync'
 import { licenceLocalEdit } from '@/lib/syncKeys'
 import { STORAGE_KEY, useStore, whenStoreHydrated } from '@/store/useStore'
 import { WIDGET_WATER_ML } from './model'
@@ -35,6 +36,10 @@ const addWaterFromWidget = async (): Promise<void> => {
   await AsyncStorage.getItem(STORAGE_KEY)
 }
 
+/** Per runtime: the two widgets' hourly redraws usually land in the same one. */
+const REMINDER_SYNC_GAP_MS = 10 * 60 * 1000
+let lastReminderSync = 0
+
 const handler: WidgetTaskHandler = async ({ widgetInfo, widgetAction, clickAction, renderWidget: draw }) => {
   if (widgetAction === 'WIDGET_DELETED') return
 
@@ -47,6 +52,14 @@ const handler: WidgetTaskHandler = async ({ widgetInfo, widgetAction, clickActio
   }
 
   draw(renderWidget(useStore.getState(), widgetInfo))
+
+  // The hourly redraw is the one thing that reliably wakes this app while nobody uses it, so
+  // it also re-arms the reminders: a schedule the system wiped overnight comes back within
+  // the hour rather than at the next launch. Both widgets redraw on the hour; once is enough.
+  if (widgetAction === 'WIDGET_UPDATE' && readable && Date.now() - lastReminderSync > REMINDER_SYNC_GAP_MS) {
+    lastReminderSync = Date.now()
+    await syncRemindersInBackground()
+  }
 }
 
 registerWidgetTaskHandler(handler)

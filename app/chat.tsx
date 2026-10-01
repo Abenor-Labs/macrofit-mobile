@@ -50,7 +50,8 @@ import {
   type MealOffer,
   type TargetProposal,
 } from '@/store/coachStore'
-import { capturePhoto, type PhotoSource } from '@/lib/mealPhoto'
+import { capturePhoto, type CapturedPhoto, type PhotoSource } from '@/lib/mealPhoto'
+import { SNAP_TAKEN, takeWidgetPhoto } from '@/widgets/links'
 import { appAlert } from '@/components/AppAlert'
 import { PhotoReview, type PhotoReviewSelection } from '@/components/PhotoReview'
 import { useStore } from '@/store/useStore'
@@ -568,7 +569,11 @@ export default function ChatScreen() {
       return
     }
 
-    const { uri, base64 } = capture.photo
+    await analyzePhoto(capture.photo)
+  }
+
+  /** Puts the photo in the thread and asks the model what is on the plate. */
+  const analyzePhoto = async ({ uri, base64 }: CapturedPhoto) => {
     setMessages(prev => [
       ...prev,
       { id: uuidv4(), role: 'user', text: '', photo: uri, fromPhoto: true },
@@ -633,19 +638,26 @@ export default function ChatScreen() {
   }
 
   /*
-    The home-screen widget's Photo button: `?snap=camera` opens the camera on arrival, so the
-    meal is being photographed one tap from the home screen. Acted on once; the param is
-    cleared so returning to this screen does not open the camera again.
+    The home-screen widget's Photo button. The widget takes the photo itself, over Today, and
+    arrives with `?snap=taken` to have it analysed (see src/widgets/hooks.ts); `?snap=camera`
+    is where the camera could not be opened first and this screen asks for it, explaining a
+    refusal the way its own camera button does. Acted on once; the param is cleared so coming
+    back to this screen does nothing again. Not for a guest: the coach needs an account.
   */
   const { snap } = useLocalSearchParams<{ snap?: string }>()
   const snapHandled = useRef(false)
   useEffect(() => {
-    if (snap !== 'camera' || snapHandled.current) return
+    if (!snap || snapHandled.current || user === null) return
     snapHandled.current = true
     router.setParams({ snap: undefined })
-    void runPhoto('camera')
+    if (snap === SNAP_TAKEN) {
+      const photo = takeWidgetPhoto()
+      if (photo) void analyzePhoto(photo)
+    } else if (snap === 'camera') {
+      void runPhoto('camera')
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on the param alone
-  }, [snap])
+  }, [snap, user])
 
   /*
     Writes the items the user kept, then turns the card back into an ordinary receipt.

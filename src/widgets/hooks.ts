@@ -1,9 +1,19 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { AppState } from 'react-native'
 import { useRouter, type Href } from 'expo-router'
 import { useStore } from '@/store/useStore'
+import { useAuth } from '@/lib/AuthProvider'
+import { capturePhoto } from '@/lib/mealPhoto'
+import { appAlert } from '@/components/AppAlert'
 import { refreshWidgets, widgetsAvailable } from './index'
-import { onWidgetRoute, takeWidgetRoute, TODAY_ROUTE } from './links'
+import {
+  handOffWidgetPhoto,
+  onWidgetRoute,
+  PHOTO_ROUTE,
+  SNAP_TAKEN,
+  takeWidgetRoute,
+  TODAY_ROUTE,
+} from './links'
 
 /**
  * Keeps the home-screen widgets in step with the store while the app is running.
@@ -47,6 +57,30 @@ export const useWidgetSync = (): void => {
   }, [])
 }
 
+/*
+  The widget's Photo button: the camera first, straight over Today, and the Coach only once
+  there is a photo for it. Opening the Coach and having it open the camera showed Today, then
+  the Coach sliding in, then the camera — the app visibly navigating itself to get there.
+  Cancelled, it stays on Today. Refused, the Coach opens and explains, as for its own button.
+  A guest never gets here: the Coach, which needs an account, says so instead.
+*/
+const snapThenCoach = async (router: ReturnType<typeof useRouter>): Promise<void> => {
+  let capture
+  try {
+    capture = await capturePhoto('camera')
+  } catch (err: unknown) {
+    appAlert('Could not prepare that photo', err instanceof Error ? err.message : 'Try taking it again.')
+    return
+  }
+  if (capture.status === 'canceled') return
+  if (capture.status === 'denied') {
+    router.push(PHOTO_ROUTE as Href)
+    return
+  }
+  handOffWidgetPhoto(capture.photo)
+  router.push(`/chat?snap=${SNAP_TAKEN}` as Href)
+}
+
 /** A tap on a widget is acted on only while it is fresh: not minutes later, after setup. */
 const ROUTE_TTL_MS = 2 * 60 * 1000
 
@@ -56,6 +90,9 @@ const ROUTE_TTL_MS = 2 * 60 * 1000
  */
 export const useWidgetLaunch = (): void => {
   const router = useRouter()
+  const { user } = useAuth()
+  const signedIn = useRef(user !== null)
+  signedIn.current = user !== null
   useEffect(() => {
     let frame: number | null = null
     const go = () => {
@@ -64,6 +101,7 @@ export const useWidgetLaunch = (): void => {
       // Back from the target returns to Today, whatever was open when the widget was tapped.
       if (router.canDismiss()) router.dismissAll()
       if (parked.route === TODAY_ROUTE) router.navigate('/(tabs)')
+      else if (parked.route === PHOTO_ROUTE && signedIn.current) void snapThenCoach(router)
       else router.push(parked.route as Href)
     }
     // A frame's grace: on a cold start this mounts in the same commit that replaced the gate.

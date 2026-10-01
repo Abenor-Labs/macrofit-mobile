@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useEffect, useMemo } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { StyleSheet, View, useWindowDimensions } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import Animated, {
+  cancelAnimation,
   Easing,
   interpolate,
   useAnimatedStyle,
@@ -55,6 +56,8 @@ import { jade } from '@/theme/tokens'
  */
 interface AuroraDrift {
   values: [SharedValue<number>, SharedValue<number>, SharedValue<number>]
+  /** Called by each mounted orb; the clocks run only while at least one is mounted. */
+  acquire: () => () => void
 }
 
 const AuroraDriftContext = createContext<AuroraDrift | null>(null)
@@ -71,11 +74,26 @@ export const AuroraDriftProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const a = useSharedValue(0)
   const b = useSharedValue(0)
   const c = useSharedValue(0)
+  const [users, setUsers] = useState(0)
 
+  /*
+    Runs only while something shows it. The provider sits at the root, and the tabs — where
+    people spend nearly all their time — have no Aurora at all; three infinite timings there
+    kept the UI thread waking every frame for nothing, on screen and, measured on a phone,
+    for hours after the app was sent to the background (~2.7% of a core, continuously).
+    Restarted from rest: a repeat reverses to wherever it began, so starting mid-swing would
+    shrink every loop after it. The restart is when a screen with an Aurora mounts, so no
+    visible orb jumps.
+  */
+  const active = !still && users > 0
   useEffect(() => {
-    if (still) return
     const drivers = [a, b, c]
+    if (!active) {
+      drivers.forEach(value => cancelAnimation(value))
+      return
+    }
     drivers.forEach((value, index) => {
+      value.value = 0
       value.value = withRepeat(
         withTiming(1, {
           duration: PERIODS[index] * 1000,
@@ -85,9 +103,14 @@ export const AuroraDriftProvider: React.FC<{ children: React.ReactNode }> = ({ c
         true
       )
     })
-  }, [a, b, c, still])
+  }, [a, b, c, active])
 
-  const value = useMemo<AuroraDrift>(() => ({ values: [a, b, c] }), [a, b, c])
+  const acquire = useCallback(() => {
+    setUsers(n => n + 1)
+    return () => setUsers(n => n - 1)
+  }, [])
+
+  const value = useMemo<AuroraDrift>(() => ({ values: [a, b, c], acquire }), [a, b, c, acquire])
 
   return <AuroraDriftContext.Provider value={value}>{children}</AuroraDriftContext.Provider>
 }
@@ -152,6 +175,8 @@ const Orb: React.FC<OrbProps> = ({ color, size, left, top, travel, index, still 
   const shared = useContext(AuroraDriftContext)
   const local = useSharedValue(0)
   const drift = shared ? shared.values[index] : local
+
+  useEffect(() => shared?.acquire(), [shared])
 
   useEffect(() => {
     if (still || shared) return
