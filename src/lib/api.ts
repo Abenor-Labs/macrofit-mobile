@@ -299,6 +299,8 @@ export interface ApiFailure {
   status: number
   /** False when the request never reached a server, which is the only real offline case. */
   reachedServer: boolean
+  /** True when this side gave up waiting; a retry would only wait again. */
+  timedOut?: boolean
 }
 
 /**
@@ -482,11 +484,48 @@ const performPost = async (
   return { status: response.status, raw: await response.text() }
 }
 
+/** Below this much of the caller's budget, a failed attempt is reported instead of retried. */
+const MIN_RETRY_BUDGET_MS = 12_000
+
+/** Short enough not to feel like a second wait; long enough for a flapping radio to settle. */
+const RETRY_PAUSE_MS = 800
+
+/**
+ * True for a failure a second attempt usually gets past: a request that never connected
+ * (but did not time out), or a 5xx from the server or the platform in front of it.
+ *
+ * Safe to resend: the endpoints are stateless, and nothing a reply asks for is applied
+ * until a reply arrives, so a lost or failed one has changed nothing.
+ */
+const isRetryable = (error: unknown): boolean => {
+  if (!(error instanceof ApiError)) return false
+  const { status, reachedServer, timedOut } = error.failure
+  if (!reachedServer) return !timedOut
+  return status === 500 || status === 502 || status === 503 || status === 504
+}
+
 /**
  * POSTs `body` as JSON to `path` on the configured API origin and returns the parsed
  * reply, or throws an `Error` whose message is safe to show the user.
+ *
+ * A transient failure is retried once, silently, inside the same `timeoutMs`. Before this,
+ * one dropped packet or one 502 from the model provider put an error bubble with a Retry
+ * button in front of the user, and tapping it almost always worked: the app was making
+ * people do its retrying for it.
  */
 const postJson = async (path: string, body: unknown, timeoutMs: number): Promise<unknown> => {
+  const end = Date.now() + timeoutMs
+  try {
+    return await postJsonOnce(path, body, timeoutMs)
+  } catch (error) {
+    if (!isRetryable(error) || end - Date.now() < MIN_RETRY_BUDGET_MS + RETRY_PAUSE_MS) throw error
+    await new Promise(resolve => setTimeout(resolve, RETRY_PAUSE_MS))
+    return postJsonOnce(path, body, end - Date.now())
+  }
+}
+
+/** One attempt of `postJson`. */
+const postJsonOnce = async (path: string, body: unknown, timeoutMs: number): Promise<unknown> => {
   const url = `${requireApiUrl()}${path}`
   const controller = new AbortController()
   let timedOut = false
@@ -516,10 +555,11 @@ const postJson = async (path: string, body: unknown, timeoutMs: number): Promise
     // right to say so. Everything past this point did reach one, and must not.
     if (timedOut) {
       throw new ApiError({
-        message: `This took longer than ${Math.round(timeoutMs / 1000)} seconds. Check your connection and try again.`,
+        message: 'This is taking too long. Check your connection and try again.',
         detail: `${path} aborted after ${timeoutMs}ms`,
         status: 0,
         reachedServer: false,
+        timedOut: true,
       })
     }
     throw new ApiError({

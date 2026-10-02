@@ -392,8 +392,7 @@ export default function ChatScreen() {
     `send` rebuilds history from whatever survives, so leaving it would send the same user turn
     to the model twice and show it twice in the transcript.
   */
-  const retry = (failedMessageId: string, retryText: string) => {
-    if (loading) return
+  const dropFailedTurn = (failedMessageId: string) =>
     setMessages(prev => {
       const index = prev.findIndex(m => m.id === failedMessageId)
       if (index === -1) return prev
@@ -401,8 +400,29 @@ export default function ChatScreen() {
       const from = previous?.role === 'user' ? index - 1 : index
       return [...prev.slice(0, from), ...prev.slice(index + 1)]
     })
+
+  const retry = (failedMessageId: string, retryText: string) => {
+    if (loading) return
+    dropFailedTurn(failedMessageId)
     setInput(retryText)
     scrollToEnd()
+  }
+
+  /*
+    The photo behind each failed photo turn, by the failed message's id, so Retry can send it
+    again instead of making the user re-shoot the plate. A ref, not the message: the thread
+    is persisted, and a few hundred kilobytes of base64 per failure does not belong on disk.
+    It lasts as long as the screen; after that the failed bubble simply has no Retry.
+  */
+  const failedPhotos = useRef(new Map<string, CapturedPhoto>())
+
+  const retryPhoto = (failedMessageId: string) => {
+    const photo = failedPhotos.current.get(failedMessageId)
+    if (loading || !photo) return
+    failedPhotos.current.delete(failedMessageId)
+    // The photo bubble goes too; analyzePhoto puts it back in front of the new attempt.
+    dropFailedTurn(failedMessageId)
+    void analyzePhoto(photo)
   }
 
   const send = async (override?: string, mode: 'chat' | 'checkin' = 'chat') => {
@@ -611,13 +631,12 @@ export default function ChatScreen() {
       ])
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Something went wrong.'
-      /*
-        No `retryText`: a retry would have to re-send an image this screen no longer holds,
-        and re-picking it is exactly what the camera button in the composer already does.
-      */
+      // No `retryText`: the retry re-sends the image, held in failedPhotos rather than here.
+      const id = uuidv4()
+      failedPhotos.current.set(id, { uri, base64 })
       setMessages(prev => [
         ...prev,
-        { id: uuidv4(), role: 'assistant', text: message, failed: true, fromPhoto: true },
+        { id, role: 'assistant', text: message, failed: true, fromPhoto: true },
       ])
     } finally {
       setLoading(false)
@@ -938,11 +957,13 @@ export default function ChatScreen() {
                               {message.text}
                             </Body>
                           </View>
-                          {message.retryText ? (
+                          {message.retryText || failedPhotos.current.has(message.id) ? (
                             <Pressable
                               accessibilityRole="button"
-                              accessibilityLabel="Retry this message"
-                              onPress={() => retry(message.id, message.retryText!)}
+                              accessibilityLabel={message.retryText ? 'Retry this message' : 'Retry this photo'}
+                              onPress={() =>
+                                message.retryText ? retry(message.id, message.retryText) : retryPhoto(message.id)
+                              }
                               style={{
                                 flexDirection: 'row',
                                 alignItems: 'center',
