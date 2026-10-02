@@ -84,11 +84,12 @@ void loadDeviceFlags()
   search failed at busy times and worked fine at quiet ones.
 
   The user agent is required by Open Food Facts, which refuses clients that do not identify
-  themselves.
+  themselves. Their format is `AppName/Version (contact email)`, so they can reach a person
+  before blocking an app that misbehaves.
 */
 configureFoodApis({
   usdaApiKey: USDA_API_KEY,
-  userAgent: `MacroFit-Android/${Application.nativeApplicationVersion ?? 'dev'} (https://github.com/warpirate/macrofit-mobile)`,
+  userAgent: `MacroFit-Android/${Application.nativeApplicationVersion ?? 'dev'} (mahamadsuhail9666@gmail.com)`,
 })
 
 /**
