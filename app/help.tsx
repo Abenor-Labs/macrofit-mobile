@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Pressable, StyleSheet, View } from 'react-native'
+import { Linking, Pressable, StyleSheet, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import {
   Activity,
@@ -43,6 +43,9 @@ import { Screen } from '@/components/Layout'
  * numbers are an estimate, which is the thing a help screen exists to say out loud.
  */
 
+/** Kept in the public repo so it can change without an app release, and so the Play listing can link the same page. */
+const PRIVACY_POLICY_URL = 'https://github.com/Abenor-Labs/macrofit-mobile/blob/main/PRIVACY.md'
+
 interface Topic {
   id: string
   icon: React.ReactNode
@@ -62,7 +65,7 @@ const buildTopics = (theme: Theme): Topic[] => {
       icon: icon(Search),
       title: 'Getting food into the diary',
       body: [
-        'Four ways, and they all end up in the same place. Add food searches a built-in list of Indian dishes and everyday foods, and looks up packaged products online when the name is not one it already holds.',
+        'Four ways, and they all end up in the same place. Add food searches a built-in list of Indian dishes and everyday foods as you type. For a packaged product, press search on the keyboard or tap Search packaged foods at the end of the list, and it looks the brand up online.',
         'The assistant is usually faster for a real meal. Describe it the way you would say it out loud — "two chapatis and chicken curry, and four eggs for snacks" — and it works out the items and the amounts. Every reply that wrote something to your diary carries an Undo, because it acts on its own reading of what you meant.',
         'The camera button in the assistant reads a photo of a plate. It lists what it can see with an estimate for each item, and nothing is written until you confirm it — uncheck anything that was never there, adjust the counts, then log. Estimating from a picture is genuinely approximate, so treat the numbers as a starting point rather than a measurement.',
         'Tap any entry in the Diary to change the serving count, or to remove it. Removing shows a snackbar with a way back for a few seconds.',
@@ -124,6 +127,16 @@ const buildTopics = (theme: Theme): Topic[] => {
       body: [
         'This build is installed directly rather than from an app store, so nothing notices a new version on its own. Open Profile and use App version to check.',
         'A new version downloads inside the app, then hands the file to Android, which asks you before installing anything. Your diary, weigh-ins and workouts are kept.',
+      ],
+    },
+    {
+      id: 'sources',
+      icon: icon(Bookmark),
+      title: 'Where the food numbers come from',
+      body: [
+        'The built-in Indian dishes use values from IFCT 2017, the Indian Food Composition Tables published by the National Institute of Nutrition, Hyderabad, composed into typical home recipes. Home cooking varies a lot with oil and portion, so treat them as a starting point you can edit.',
+        'Everyday foods come from USDA FoodData Central, which is public domain.',
+        'Packaged products come from Open Food Facts, a free database built by volunteers and shared under the Open Database License (ODbL). Anyone can add to it, so a label may be wrong or out of date. Check it against the pack when it matters.',
       ],
     },
   ]
@@ -246,6 +259,25 @@ export default function HelpScreen() {
           built from and recalculates them. Nothing you have logged is touched.
         </Body>
       </View>
+
+      <Pressable
+        accessibilityRole="link"
+        accessibilityLabel="Read the privacy policy"
+        onPress={() => void Linking.openURL(PRIVACY_POLICY_URL)}
+        style={({ pressed }) => ({
+          minHeight: HIT_SIZE,
+          justifyContent: 'center',
+          paddingHorizontal: spacing.lg,
+          opacity: pressed ? 0.6 : 1,
+        })}
+      >
+        <Body size={13} tone="secondary">
+          What the app stores and who it shares it with:{' '}
+          <Body size={13} weight="semibold" style={{ color: theme.brandText }}>
+            Privacy policy
+          </Body>
+        </Body>
+      </Pressable>
     </Screen>
   )
 }

@@ -16,6 +16,7 @@ import {
   ArrowLeft,
   Check,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Minus,
   Plus,
@@ -158,17 +159,37 @@ interface RemoteHit {
 }
 
 /**
- * Both remote databases, as one state.
+ * The USDA search, which follows the keyboard.
  *
- * They used to be two sections with two spinners, two error rows and two empty rows, all of
- * which could be on screen at once — five sections in a list whose whole job is to answer
- * one question. `failed` counts how many sources gave up, so the list can stay quiet when
- * one of them still produced results.
+ * Both remote databases still render as one section ("More results"), ranked together; they
+ * just no longer share a trigger. See `OffState` for why Open Food Facts waits to be asked.
  */
 type RemoteState =
   | { status: 'idle' }
   | { status: 'loading' }
-  | { status: 'ready'; hits: RemoteHit[]; failed: number }
+  | { status: 'ready'; hits: Food[]; failed: boolean }
+
+/**
+ * The Open Food Facts search, which runs only when the user asks for it.
+ *
+ * WHY NOT SEARCH-AS-YOU-TYPE: Open Food Facts allows 10 searches a minute per IP and its API
+ * docs say outright not to drive search-as-you-type with it, because clients that do get
+ * blocked. Typing "masala dosa" with a pause or two, plus the world-host fallback when the
+ * India host finds nothing, spent that budget in one search, and a blocked phone just saw
+ * the packaged section go quietly empty. So it is asked once, on the keyboard's search key
+ * or the "Search packaged foods" row, and the answer is cached for the session.
+ *
+ * `query` is the query the answer belongs to; the list shows it only while the search box
+ * still says that.
+ */
+type OffState =
+  | { status: 'idle' }
+  | { status: 'loading'; query: string }
+  | { status: 'ready'; query: string; hits: Food[] }
+  | { status: 'failed'; query: string }
+
+/** Session cache, keyed by lowercased query, so re-asking the same search is free. */
+const offCache = new Map<string, Food[]>()
 
 /**
  * Where a row sits inside its section's grouped surface. A FlatList cannot wrap a run of
@@ -187,6 +208,7 @@ type Row =
   | ({ kind: 'remote-skeleton'; key: string; index: number } & GroupEdges)
   | { kind: 'remote-error'; key: string }
   | { kind: 'remote-empty'; key: string }
+  | { kind: 'off-ask'; key: string; retry: boolean }
 
 /** Enough placeholder rows to hold the space most online answers fill, without implying a count. */
 const SKELETON_ROWS = 3
@@ -261,7 +283,8 @@ const ChoiceChip: React.FC<{
 const SearchBar: React.FC<{
   value: string
   onChange: (next: string) => void
-}> = ({ value, onChange }) => {
+  onSubmit: () => void
+}> = ({ value, onChange, onSubmit }) => {
   const theme = useTheme()
   return (
     <View
@@ -286,6 +309,7 @@ const SearchBar: React.FC<{
         autoCorrect={false}
         autoCapitalize="none"
         returnKeyType="search"
+        onSubmitEditing={onSubmit}
         accessibilityLabel="Search foods and brands"
         style={{
           flex: 1,
@@ -474,6 +498,8 @@ export default function FoodSearchScreen() {
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
   const [remote, setRemote] = useState<RemoteState>({ status: 'idle' })
+  const [offQuery, setOffQuery] = useState<string | null>(null)
+  const [off, setOff] = useState<OffState>({ status: 'idle' })
   const [retryToken, setRetryToken] = useState(0)
 
   const [selected, setSelected] = useState<Food | null>(null)
@@ -505,43 +531,58 @@ export default function FoodSearchScreen() {
     setRemote({ status: 'loading' })
     let cancelled = false
 
-    /*
-      Both sources are asked at once and settled together. `allSettled`, not `all`: they
-      answer different questions — USDA is a composition table, Open Food Facts is a barcode
-      catalogue — so one being down is no reason to discard what the other found.
-
-      They also fail independently and often. Open Food Facts is community-run and slower;
-      USDA rate-limits. A user who gets eight useful branded matches should not be shown an
-      error because the other database timed out.
-    */
-    void Promise.allSettled([
-      searchUSDA(debounced, 10),
-      searchOpenFoodFacts(debounced, 10),
-    ]).then(([usdaResult, offResult]) => {
-      if (cancelled || requestRef.current !== requestId) return
-
-      const hits: RemoteHit[] = []
-      let failed = 0
-
-      if (usdaResult.status === 'fulfilled') {
-        for (const food of usdaResult.value) hits.push({ food, source: 'usda' })
-      } else {
-        failed += 1
+    searchUSDA(debounced, 10).then(
+      foods => {
+        if (cancelled || requestRef.current !== requestId) return
+        setRemote({ status: 'ready', hits: foods, failed: false })
+      },
+      () => {
+        if (cancelled || requestRef.current !== requestId) return
+        setRemote({ status: 'ready', hits: [], failed: true })
       }
-
-      if (offResult.status === 'fulfilled') {
-        for (const food of offResult.value) hits.push({ food, source: 'off' })
-      } else {
-        failed += 1
-      }
-
-      setRemote({ status: 'ready', hits: rankRemote(hits, debounced), failed })
-    })
+    )
 
     return () => {
       cancelled = true
     }
   }, [debounced, retryToken])
+
+  useEffect(() => {
+    if (offQuery === null) return
+
+    const key = offQuery.toLowerCase()
+    const cached = offCache.get(key)
+    if (cached) {
+      setOff({ status: 'ready', query: offQuery, hits: cached })
+      return
+    }
+
+    setOff({ status: 'loading', query: offQuery })
+    let cancelled = false
+
+    searchOpenFoodFacts(offQuery, 10).then(
+      foods => {
+        offCache.set(key, foods)
+        if (!cancelled) setOff({ status: 'ready', query: offQuery, hits: foods })
+      },
+      () => {
+        if (!cancelled) setOff({ status: 'failed', query: offQuery })
+      }
+    )
+
+    return () => {
+      cancelled = true
+    }
+  }, [offQuery, retryToken])
+
+  // The keyboard's search key and the "Search packaged foods" row both land here. The
+  // debounce is skipped so the USDA rows and the packaged rows answer the same query.
+  const searchPackaged = useCallback(() => {
+    const trimmed = query.trim()
+    if (trimmed.length < REMOTE_MIN_QUERY) return
+    setDebounced(trimmed)
+    setOffQuery(trimmed)
+  }, [query])
 
   const customMatches = useMemo(() => {
     if (debounced.length === 0) return customFoods.slice(0, 12)
@@ -599,7 +640,33 @@ export default function FoodSearchScreen() {
     if (debounced.length >= REMOTE_MIN_QUERY) {
       out.push({ kind: 'section', key: 'section-remote', title: 'More results' })
 
-      if (remote.status === 'loading' || remote.status === 'idle') {
+      // Packaged results only count while the search box still says what they answered.
+      const offNow = off.status !== 'idle' && off.query === debounced ? off : null
+      const usdaLoading = remote.status === 'loading' || remote.status === 'idle'
+      const offLoading = offNow?.status === 'loading'
+
+      const hits: RemoteHit[] = []
+      if (remote.status === 'ready') {
+        for (const food of remote.hits) hits.push({ food, source: 'usda' })
+      }
+      if (offNow?.status === 'ready') {
+        for (const food of offNow.hits) hits.push({ food, source: 'off' })
+      }
+
+      const fresh = rankRemote(hits, debounced).filter(hit => !seen.has(hit.food.id))
+      for (const hit of fresh) {
+        seen.add(hit.food.id)
+        out.push({
+          kind: 'food',
+          key: `remote-${hit.food.id}`,
+          food: hit.food,
+          source: hit.source,
+          first: false,
+          last: false,
+        })
+      }
+
+      if (usdaLoading || offLoading) {
         for (let index = 0; index < SKELETON_ROWS; index += 1) {
           out.push({
             kind: 'remote-skeleton',
@@ -610,27 +677,18 @@ export default function FoodSearchScreen() {
           })
         }
       } else {
-        const fresh = remote.hits.filter(hit => !seen.has(hit.food.id))
-        for (const hit of fresh) {
-          seen.add(hit.food.id)
-          out.push({
-            kind: 'food',
-            key: `remote-${hit.food.id}`,
-            food: hit.food,
-            source: hit.source,
-            first: false,
-            last: false,
-          })
-        }
         // Only a total failure is worth saying. One source down while the other answered is
         // not something the user can act on, and an error row above real results reads as if
         // those results are suspect.
-        if (fresh.length === 0) {
-          out.push(
-            remote.failed === 2
-              ? { kind: 'remote-error', key: 'remote-error' }
-              : { kind: 'remote-empty', key: 'remote-empty' }
-          )
+        const usdaFailed = remote.status === 'ready' && remote.failed
+        const offFailed = offNow?.status === 'failed'
+        if (fresh.length === 0 && usdaFailed && offFailed) {
+          out.push({ kind: 'remote-error', key: 'remote-error' })
+        } else if (offNow === null || offFailed) {
+          // Not asked yet, or asked and failed: offer it, once, at the end of the section.
+          out.push({ kind: 'off-ask', key: 'off-ask', retry: offFailed })
+        } else if (fresh.length === 0) {
+          out.push({ kind: 'remote-empty', key: 'remote-empty' })
         }
       }
     }
@@ -645,7 +703,7 @@ export default function FoodSearchScreen() {
         ? { ...row, first: !grouped(out[i - 1]), last: !grouped(out[i + 1]) }
         : row
     )
-  }, [recentMatches, customMatches, presetMatches, debounced, remote])
+  }, [recentMatches, customMatches, presetMatches, debounced, remote, off])
 
   const hasResults = rows.some(row => row.kind === 'food')
 
@@ -809,7 +867,9 @@ export default function FoodSearchScreen() {
           </View>
         </View>
 
-        {selected === null && <SearchBar value={query} onChange={setQuery} />}
+        {selected === null && (
+          <SearchBar value={query} onChange={setQuery} onSubmit={searchPackaged} />
+        )}
       </View>
     </GlassSurface>
   )
@@ -859,6 +919,43 @@ export default function FoodSearchScreen() {
             onPress={() => setRetryToken(token => token + 1)}
           />
         </Surface>
+      )
+    }
+
+    if (item.kind === 'off-ask') {
+      return (
+        <Pressable
+          onPress={searchPackaged}
+          accessibilityRole="button"
+          accessibilityLabel={
+            item.retry ? 'Try packaged foods again' : 'Search packaged foods'
+          }
+          style={({ pressed }) => ({ marginTop: spacing.sm, opacity: pressed ? 0.7 : 1 })}
+        >
+          <Surface
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: spacing.md,
+              minHeight: HIT_SIZE,
+              paddingHorizontal: spacing.md,
+              paddingVertical: spacing.sm,
+            }}
+          >
+            <Search size={18} color={theme.brand} strokeWidth={2} />
+            <View style={{ flex: 1 }}>
+              <Body size={15} weight="semibold">
+                {item.retry ? 'Try packaged foods again' : 'Search packaged foods'}
+              </Body>
+              <Body size={12} tone="muted">
+                {item.retry
+                  ? 'Open Food Facts did not answer. Wait a moment and tap again.'
+                  : 'Brands and barcoded products, from Open Food Facts'}
+              </Body>
+            </View>
+            <ChevronRight size={18} color={theme.textMuted} strokeWidth={2} />
+          </Surface>
+        </Pressable>
       )
     }
 
