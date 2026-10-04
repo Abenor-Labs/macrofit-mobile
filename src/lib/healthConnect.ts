@@ -835,20 +835,47 @@ const MEAL_TYPE_CODES: Record<MealType, number> = {
 const nutritionRecordId = (date: string, meal: MealType): string =>
   `macrofit-nutrition-${date}-${meal.toLowerCase().replace(/[^a-z]/g, '')}`
 
+/** A plausible hour for each meal, used only when the log time is not on the diary's day. */
+const MEAL_HOUR: Record<MealType, number> = {
+  Breakfast: 8,
+  Lunch: 13,
+  Snacks: 16,
+  'Pre-Workout': 17,
+  'Post-Workout': 19,
+  Dinner: 20,
+}
+
 /**
- * Sends a day's logged meals to Health Connect, one record per meal type.
+ * When a meal is said to have happened, in epoch ms.
  *
- * Returns how many records were written, so a caller can tell "nothing to write" from "the
- * write failed" — a distinction a boolean cannot carry.
+ * An entry's timestamp is when it was LOGGED, and the diary lets people log yesterday's dinner
+ * this morning. Sent as-is, that dinner landed on today in Google Fit — while its record id
+ * claimed yesterday — so both days were wrong. The log time is kept when it falls on the
+ * diary's day; otherwise the meal is placed at a usual hour on the day it belongs to.
+ */
+const mealTimeOn = (date: string, meal: MealType, loggedAt: number): number => {
+  if (getDateString(new Date(loggedAt)) === date) return loggedAt
+  const at = noonOn(date)
+  at.setHours(MEAL_HOUR[meal], 0, 0, 0)
+  return at.getTime()
+}
+
+/**
+ * Makes Health Connect hold exactly a day's logged meals, one record per meal type.
+ *
+ * Meal types no longer in the day are deleted, not left behind. Before this, removing the
+ * only breakfast entry here left breakfast in Google Fit for good, and clearing a day changed
+ * nothing at all because an empty day returned before touching Health Connect.
+ *
+ * Returns false on failure, so the caller retries rather than marking the day sent.
  *
  * Sodium, potassium and cholesterol go out in milligrams because Health Connect takes a unit
  * beside the value and the app already stores them that way. Converting to grams first would
  * round 140 mg of sodium to 0.1 g and lose a digit for no reason.
  */
-export const writeNutritionForDay = async (day: DiaryDay): Promise<number> => {
+export const writeNutritionForDay = async (day: DiaryDay): Promise<boolean> => {
   const hc = await loadModule()
-  if (!hc) return 0
-  if (day.entries.length === 0) return 0
+  if (!hc) return false
   try {
     await hc.initialize()
 
@@ -872,7 +899,7 @@ export const writeNutritionForDay = async (day: DiaryDay): Promise<number> => {
     for (const entry of day.entries) {
       const n = entry.servings
       const f = entry.food
-      const at = entry.timestamp
+      const at = mealTimeOn(day.date, entry.mealType, entry.timestamp)
       const acc: MealTotals = byMeal.get(entry.mealType) ?? {
         from: at,
         to: at,
@@ -938,21 +965,44 @@ export const writeNutritionForDay = async (day: DiaryDay): Promise<number> => {
       },
     }))
 
-    if (records.length === 0) return 0
-    await hc.insertRecords(records as Parameters<typeof hc.insertRecords>[0])
-    return records.length
+    if (records.length > 0) {
+      await hc.insertRecords(records as Parameters<typeof hc.insertRecords>[0])
+    }
+    const gone = (Object.keys(MEAL_TYPE_CODES) as MealType[])
+      .filter(meal => !byMeal.has(meal))
+      .map(meal => nutritionRecordId(day.date, meal))
+    if (gone.length > 0) {
+      try {
+        await hc.deleteRecordsByUuids('Nutrition', [], gone)
+      } catch {
+        // Most of these ids were never written. Should a provider refuse unknown ids rather than
+        // ignore them, failing the day here would re-send it on every change, forever.
+      }
+    }
+    return true
   } catch {
-    return 0
+    return false
   }
 }
 
-/** Writes a day's water intake. Skipped at zero: an empty record says nothing worth storing. */
+/**
+ * Makes Health Connect hold a day's water intake. At zero the record is deleted rather than
+ * skipped: water reset to nothing here must not stay at a litre in Google Fit.
+ */
 export const writeHydrationMl = async (date: string, ml: number): Promise<boolean> => {
   const hc = await loadModule()
   if (!hc) return false
-  if (!Number.isFinite(ml) || ml <= 0) return false
+  if (!Number.isFinite(ml)) return false
   try {
     await hc.initialize()
+    if (ml <= 0) {
+      try {
+        await hc.deleteRecordsByUuids('Hydration', [], [`macrofit-hydration-${date}`])
+      } catch {
+        // Usually never written. Same reasoning as the meal deletes in writeNutritionForDay.
+      }
+      return true
+    }
     const { startTime, endTime } = localDayRange(date)
     await hc.insertRecords([
       {
@@ -974,6 +1024,24 @@ export const writeHydrationMl = async (date: string, ml: number): Promise<boolea
 }
 
 // --- Workouts ----------------------------------------------------------------------------
+
+const workoutRecordId = (sessionId: string): string => `macrofit-workout-${sessionId}`
+
+/**
+ * Removes a workout this app wrote. Called where a session is deleted, because a deleted
+ * session otherwise stays in Google Fit indefinitely. Never throws; a session that was never
+ * sent is simply not found.
+ */
+export const deleteExerciseSession = async (sessionId: string): Promise<void> => {
+  const hc = await loadModule()
+  if (!hc) return
+  try {
+    await hc.initialize()
+    await hc.deleteRecordsByUuids('ExerciseSession', [], [workoutRecordId(sessionId)])
+  } catch {
+    // Not sent, already gone, or no permission. The local delete is what the user asked for.
+  }
+}
 
 /** Health Connect's code for weightlifting. The app logs lifts, so this is not a guess. */
 const EXERCISE_TYPE_WEIGHTLIFTING = 81
@@ -1000,7 +1068,7 @@ export const writeExerciseSession = async (session: WorkoutSession): Promise<boo
         title: session.name,
         ...(session.notes === undefined ? {} : { notes: session.notes }),
         metadata: {
-          clientRecordId: `macrofit-workout-${session.id}`,
+          clientRecordId: workoutRecordId(session.id),
           clientRecordVersion: Date.now(),
         },
       },

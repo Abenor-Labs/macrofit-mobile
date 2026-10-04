@@ -13,7 +13,7 @@ import {
 } from '@/components/icons'
 
 import { useStore } from '@/store/useStore'
-import { useHealthSync } from '@/hooks/useHealthSync'
+import { settleCurrentWeight, useHealthSync } from '@/hooks/useHealthSync'
 import {
   isFullyDenied,
   openHealthConnectInstall,
@@ -451,6 +451,8 @@ export default function OnboardingScreen() {
         // Days the user logged themselves always win over a device reading.
         const existing = new Set(useStore.getState().weightLog.map(entry => entry.date))
         for (const entry of history) if (!existing.has(entry.date)) addWeightEntry(entry)
+        // The loop leaves "current" on the last day it imported, not on today's weigh-in.
+        settleCurrentWeight()
       })()
     }
     // Not recalculateGoals(): that applies the shared flat +/-500 and would overwrite the
