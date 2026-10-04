@@ -13,6 +13,7 @@ import { Surface } from '@/components/Glass'
 import { Body, Label, StatValue } from '@/components/Text'
 import { Button } from '@/components/Button'
 import { Field } from '@/components/Layout'
+import { deleteExerciseSession } from '@/lib/healthConnect'
 import { formatDuration, fromKg, groupDigits, weightUnitLabel, type WeightUnit } from './format'
 
 interface SetGroup {
@@ -215,7 +216,12 @@ export const HistoryCard: React.FC<{ session: WorkoutSession; unit: WeightUnit }
                 <Button
                   label="Delete for good"
                   variant="ghost"
-                  onPress={() => deleteWorkout(session.id)}
+                  onPress={() => {
+                    deleteWorkout(session.id)
+                    // A finished session was sent to Health Connect; leaving it there would keep
+                    // a deleted workout in Google Fit.
+                    void deleteExerciseSession(session.id)
+                  }}
                   icon={<Trash2 size={16} color={theme.status.critical} strokeWidth={2} />}
                   style={{ flex: 1 }}
                 />

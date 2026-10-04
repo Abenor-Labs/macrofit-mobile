@@ -11,7 +11,7 @@ import { AppState, type AppStateStatus } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useStore, whenStoreHydrated } from '@/store/useStore'
 import { useAuth } from '@/lib/AuthProvider'
-import type { DiaryDay } from '@core/types'
+import type { DiaryDay, WorkoutSession } from '@core/types'
 import { getDateString } from '@core/utils/calculations'
 import {
   getAvailability,
@@ -104,17 +104,61 @@ const REFRESH_THROTTLE_MS = 60_000
 const WEIGHT_PULLED_THROUGH_KEY = 'health.weightPulledThrough'
 
 /**
- * How far back the automatic weight sync looks, in both directions.
+ * How far back every automatic sync looks, in both directions.
  *
  * Thirty days because Android 14+ allows that much without the history permission, so the sync
- * behaves the same whether or not it was granted. Anything older is what "Import weight
- * history" is for.
+ * behaves the same whether or not it was granted. It also bounds the outbound work: the diary
+ * sync used to walk every day ever logged on every launch — a year of history meant hundreds of
+ * sequential writes, enough to trip Health Connect's rate limit and fail the writes that
+ * mattered. Anything older is what "Import weight history" is for.
  */
-const WEIGHT_SYNC_DAYS = 30
+const SYNC_WINDOW_DAYS = 30
 
 const LBS_PER_KG = 2.20462
 
+/**
+ * What has already been sent to Health Connect, remembered across launches.
+ *
+ * Held in memory only, every cold start re-sent everything in the window. Persisted, a launch
+ * sends nothing unless something changed or an earlier write failed. Per device, like the
+ * Health Connect store it describes.
+ */
+interface SentLedger {
+  /** Diary date -> fingerprint of what was sent. */
+  days: Record<string, string>
+  /** Workout session id -> fingerprint of what was sent. */
+  workouts: Record<string, string>
+  /** Weigh-in date -> display weight that was sent. */
+  weights: Record<string, number>
+}
+
+const SENT_LEDGER_KEY = 'health.sent.v1'
+
+const emptyLedger = (): SentLedger => ({ days: {}, workouts: {}, weights: {} })
+
+const windowStart = (): string =>
+  getDateString(new Date(Date.now() - SYNC_WINDOW_DAYS * 86_400_000))
+
+/**
+ * Points currentWeightKg at the newest weigh-in in the log.
+ *
+ * addWeightEntry sets the current weight to whatever it was last handed, even an older day, so
+ * any import that fills in last Tuesday would otherwise make last Tuesday "current" — and every
+ * TDEE and target built on it.
+ */
+export const settleCurrentWeight = (): void => {
+  const { weightLog, profile, setCurrentWeight } = useStore.getState()
+  const newest = weightLog[0]
+  if (newest) {
+    setCurrentWeight(profile.weightUnit === 'lbs' ? newest.weight / LBS_PER_KG : newest.weight)
+  }
+}
+
 const HealthContext = createContext<HealthSyncState | null>(null)
+
+/** Changes when anything Health Connect holds about a session does, so an edit is re-sent. */
+const workoutFingerprint = (session: WorkoutSession): string =>
+  `${session.startedAt}|${session.endedAt}|${session.name}|${session.notes ?? ''}`
 
 /**
  * Bridges Android Health Connect into the store.
@@ -135,7 +179,6 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const weightLog = useStore(s => s.weightLog)
   const weightUnit = useStore(s => s.profile.weightUnit)
   const addWeightEntry = useStore(s => s.addWeightEntry)
-  const setCurrentWeight = useStore(s => s.setCurrentWeight)
   const diary = useStore(s => s.diary)
   const workoutLog = useStore(s => s.workoutLog)
 
@@ -221,7 +264,7 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     // Taken before the read, so a weigh-in saved while the read is in flight is caught next time.
     const startedAt = Date.now()
-    const changed = await readWeighInsChangedSince(useStore.getState().profile, since, WEIGHT_SYNC_DAYS)
+    const changed = await readWeighInsChangedSince(useStore.getState().profile, since, SYNC_WINDOW_DAYS)
     if (changed === null) return
 
     const state = useStore.getState()
@@ -235,19 +278,10 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       applied++
     }
 
-    /*
-      addWeightEntry sets the current weight to whatever it was last handed, even an older day,
-      so a pull that fills in last Tuesday would otherwise make last Tuesday "current". Re-derive
-      it from the newest entry in the log.
-    */
-    if (applied > 0) {
-      const { weightLog: log, profile: p } = useStore.getState()
-      const newest = log[0]
-      if (newest) setCurrentWeight(p.weightUnit === 'lbs' ? newest.weight / LBS_PER_KG : newest.weight)
-    }
+    if (applied > 0) settleCurrentWeight()
 
     void AsyncStorage.setItem(WEIGHT_PULLED_THROUGH_KEY, String(startedAt)).catch(() => {})
-  }, [addWeightEntry, setCurrentWeight])
+  }, [addWeightEntry])
 
   const pullingWeightsRef = useRef(false)
 
@@ -360,6 +394,7 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const existing = new Set(weightLog.map(e => e.date))
       const fresh = history.filter(e => !existing.has(e.date))
       for (const entry of fresh) addWeightEntry(entry)
+      if (fresh.length > 0) settleCurrentWeight()
       if (mounted.current) setImportedWeights(fresh.length)
     } finally {
       if (mounted.current) setBusy(false)
@@ -374,31 +409,61 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   /*
     OUTBOUND SYNC
 
-    Both effects below watch store state rather than being called from the screens that change
+    The effects below watch store state rather than being called from the screens that change
     it. That is deliberate: food reaches the diary from search, from the barcode scanner, from
     a photo, from a meal template and from the chat assistant, and a workout can end from the
     workout screen or by being abandoned. Hooking each of those sites means the sync works
     until someone adds a seventh, and then silently does not.
 
-    The cost is that this runs on every store change, so both are debounced and both remember
-    what they last sent.
+    The cost is that this runs on every store change, so each is debounced, limited to the sync
+    window, and checked against the ledger of what was already sent. An entry is marked sent
+    only after its write succeeded, so a failure is retried on the next change or launch.
   */
-
-  /** Cheap identity of a day's loggable content. Changes exactly when a write is warranted. */
-  const diaryFingerprint = (day: DiaryDay): string =>
-    `${day.waterIntake}|${day.entries.map(e => `${e.id}:${e.servings}`).join(',')}`
-
-  const syncedDaysRef = useRef<Record<string, string>>({})
+  const ledgerRef = useRef<SentLedger>(emptyLedger())
+  const [ledgerReady, setLedgerReady] = useState(false)
 
   useEffect(() => {
+    void (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(SENT_LEDGER_KEY)
+        if (raw) ledgerRef.current = { ...emptyLedger(), ...(JSON.parse(raw) as Partial<SentLedger>) }
+      } catch {
+        // An unreadable ledger only means re-sending the window once. Every write is an upsert.
+      }
+      if (mounted.current) setLedgerReady(true)
+    })()
+  }, [])
+
+  const saveLedger = useCallback(() => {
+    const cutoff = windowStart()
+    const ledger = ledgerRef.current
+    const live = new Set(useStore.getState().workoutLog.map(s => s.id))
+    for (const date of Object.keys(ledger.days)) if (date < cutoff) delete ledger.days[date]
+    for (const date of Object.keys(ledger.weights)) if (date < cutoff) delete ledger.weights[date]
+    for (const id of Object.keys(ledger.workouts)) if (!live.has(id)) delete ledger.workouts[id]
+    void AsyncStorage.setItem(SENT_LEDGER_KEY, JSON.stringify(ledger)).catch(() => {})
+  }, [])
+
+  /**
+   * Cheap identity of a day's loggable content, and of which parts of it may be sent. The
+   * grants are part of it so that allowing water later sends the water already logged.
+   */
+  const diaryFingerprint = (day: DiaryDay): string =>
+    `${grants.writeNutrition ? 'n' : '-'}${grants.writeHydration ? 'h' : '-'}|${day.waterIntake}|` +
+    day.entries.map(e => `${e.id}:${e.servings}`).join(',')
+
+  useEffect(() => {
+    if (!ledgerReady) return
     if (!grants.writeNutrition && !grants.writeHydration) return
 
     /*
-      Every changed day, not just today. Logging yesterday's dinner from the diary's date
-      picker is ordinary, and a today-only sync would drop it without saying so.
+      Every changed day in the window, not just today. Logging yesterday's dinner from the
+      diary's date picker is ordinary, and a today-only sync would drop it without saying so.
+      Emptied days are included: that is how a deleted meal leaves Health Connect too.
     */
+    const cutoff = windowStart()
     const stale = Object.values(diary).filter(
-      day => syncedDaysRef.current[day.date] !== diaryFingerprint(day),
+      day => day.date >= cutoff && ledgerRef.current.days[day.date] !== diaryFingerprint(day),
     )
     if (stale.length === 0) return
 
@@ -406,34 +471,45 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const timer = setTimeout(() => {
       void (async () => {
         for (const day of stale) {
-          if (grants.writeNutrition) await writeNutritionForDay(day)
-          if (grants.writeHydration && day.waterIntake > 0) {
-            await writeHydrationMl(day.date, day.waterIntake)
-          }
-          // Recorded after the write, so a failure is retried on the next change rather than
-          // being marked done and never attempted again.
-          syncedDaysRef.current[day.date] = diaryFingerprint(day)
+          const fingerprint = diaryFingerprint(day)
+          const meals = grants.writeNutrition ? await writeNutritionForDay(day) : true
+          const water = grants.writeHydration ? await writeHydrationMl(day.date, day.waterIntake) : true
+          if (meals && water) ledgerRef.current.days[day.date] = fingerprint
         }
+        saveLedger()
       })()
     }, 3000)
 
     return () => clearTimeout(timer)
-  }, [diary, grants.writeNutrition, grants.writeHydration])
-
-  const syncedWorkoutsRef = useRef<Set<string>>(new Set())
+    // diaryFingerprint reads the two grants already listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diary, grants.writeNutrition, grants.writeHydration, ledgerReady, saveLedger])
 
   useEffect(() => {
-    if (!grants.writeExercise) return
-    void (async () => {
-      for (const session of workoutLog) {
+    if (!ledgerReady || !grants.writeExercise) return
+    const since = Date.now() - SYNC_WINDOW_DAYS * 86_400_000
+    const pending = workoutLog.filter(
+      session =>
         // Still running: Health Connect has no open-ended session to write.
-        if (session.endedAt === undefined) continue
-        if (syncedWorkoutsRef.current.has(session.id)) continue
-        const ok = await writeExerciseSession(session)
-        if (ok) syncedWorkoutsRef.current.add(session.id)
-      }
-    })()
-  }, [workoutLog, grants.writeExercise])
+        session.endedAt !== undefined &&
+        session.endedAt >= since &&
+        ledgerRef.current.workouts[session.id] !== workoutFingerprint(session),
+    )
+    if (pending.length === 0) return
+
+    const timer = setTimeout(() => {
+      void (async () => {
+        for (const session of pending) {
+          if (await writeExerciseSession(session)) {
+            ledgerRef.current.workouts[session.id] = workoutFingerprint(session)
+          }
+        }
+        saveLedger()
+      })()
+    }, 3000)
+
+    return () => clearTimeout(timer)
+  }, [workoutLog, grants.writeExercise, ledgerReady, saveLedger])
 
   /*
     OUTBOUND WEIGHT SYNC
@@ -447,16 +523,14 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     Google Fit a duplicate under this app's name. The write is an upsert keyed by date, so the
     overlap with useLogWeight's own write costs a redundant call, never a duplicate record.
   */
-  const pushedWeightsRef = useRef<Record<string, number>>({})
-
   useEffect(() => {
-    if (!grants.writeWeight) return
-    const cutoff = getDateString(new Date(Date.now() - WEIGHT_SYNC_DAYS * 86_400_000))
+    if (!ledgerReady || !grants.writeWeight) return
+    const cutoff = windowStart()
     const pending = weightLog.filter(
       entry =>
         entry.date >= cutoff &&
         entry.notes !== IMPORTED_WEIGHT_NOTE &&
-        pushedWeightsRef.current[entry.date] !== entry.weight,
+        ledgerRef.current.weights[entry.date] !== entry.weight,
     )
     if (pending.length === 0) return
 
@@ -468,13 +542,14 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             kg: weightUnit === 'lbs' ? entry.weight / LBS_PER_KG : entry.weight,
           })),
         )
-        // Only on success, so a failed write is retried on the next change or launch.
-        if (ok) for (const entry of pending) pushedWeightsRef.current[entry.date] = entry.weight
+        if (!ok) return
+        for (const entry of pending) ledgerRef.current.weights[entry.date] = entry.weight
+        saveLedger()
       })()
     }, 3000)
 
     return () => clearTimeout(timer)
-  }, [weightLog, weightUnit, grants.writeWeight])
+  }, [weightLog, weightUnit, grants.writeWeight, ledgerReady, saveLedger])
 
   const readBasics = useCallback(async (): Promise<HealthBasics> => {
     setBusy(true)

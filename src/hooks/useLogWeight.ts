@@ -3,7 +3,7 @@ import * as Haptics from 'expo-haptics'
 
 import { useStore } from '@/store/useStore'
 import { useSnackbar } from '@/components/Snackbar'
-import { deleteWeightForDate, writeWeightKg } from '@/lib/healthConnect'
+import { deleteWeightForDate, IMPORTED_WEIGHT_NOTE, writeWeightKg } from '@/lib/healthConnect'
 import { useHealthSync } from './useHealthSync'
 
 /**
@@ -54,12 +54,35 @@ export const useLogWeight = (): LogWeightApi => {
     ({ date, displayWeight }: LogWeightInput) => {
       if (!Number.isFinite(displayWeight) || displayWeight <= 0) return
 
+      // Logging a day that already has a weigh-in replaces it, so undo has to put it back.
+      const previous = useStore.getState().weightLog.find(e => e.date === date)
+
       addWeightEntry({ date, weight: displayWeight })
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
 
       const shown = `${displayWeight} ${weightUnit}`
 
       const undo = () => {
+        if (previous) {
+          /*
+            Restore rather than delete. Undo used to remove the day outright, so correcting
+            this morning's weight and pressing Undo lost both numbers — here and, through the
+            delete below, in Google Fit.
+
+            Health Connect is put back explicitly rather than left to the provider's sync: an
+            undo inside its debounce leaves its ledger holding the restored value, so it would
+            see nothing to send while Health Connect still held the undone one.
+          */
+          const { id: _id, ...restored } = previous
+          addWeightEntry(restored)
+          if (restored.notes === IMPORTED_WEIGHT_NOTE) {
+            // The reading belongs to another app and is still there; only ours has to go.
+            void deleteWeightForDate(date)
+          } else if (grants.writeWeight) {
+            void writeWeightKg(toKg(restored.weight), date)
+          }
+          return
+        }
         // Read fresh: the entry was just created and its id is generated inside the store.
         const entry = useStore.getState().weightLog.find(e => e.date === date)
         if (entry) removeWeightEntry(entry.id)
