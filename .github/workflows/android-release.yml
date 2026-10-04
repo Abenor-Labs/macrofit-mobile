@@ -106,10 +106,19 @@ jobs:
           mkdir -p release
           cp android/app/build/outputs/apk/release/app-release.apk "release/MacroFit-${{ inputs.tag }}.apk"
 
+      # The app's update notification shows the notes' first line, and Profile → App version
+      # shows the rest, so a release without them reaches phones as a bare "Tap to see what is
+      # new". Refuse to publish one: write release-notes/<tag>.md before running this.
+      - name: Check the release notes exist
+        working-directory: macrofit-mobile
+        run: |
+          test -s "release-notes/${{ inputs.tag }}.md" || { echo "release-notes/${{ inputs.tag }}.md is missing" >&2; exit 1; }
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag }}
           name: MacroFit ${{ inputs.tag }}
+          body_path: macrofit-mobile/release-notes/${{ inputs.tag }}.md
           files: macrofit-mobile/release/MacroFit-${{ inputs.tag }}.apk
           make_latest: true
