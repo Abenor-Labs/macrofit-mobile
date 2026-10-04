@@ -1,0 +1,17 @@
+diff --git a/node_modules/react-native-health-connect/android/src/main/java/dev/matinzd/healthconnect/permissions/PermissionUtils.kt b/node_modules/react-native-health-connect/android/src/main/java/dev/matinzd/healthconnect/permissions/PermissionUtils.kt
+index 0d9d342..366ee1b 100644
+--- a/node_modules/react-native-health-connect/android/src/main/java/dev/matinzd/healthconnect/permissions/PermissionUtils.kt
++++ b/node_modules/react-native-health-connect/android/src/main/java/dev/matinzd/healthconnect/permissions/PermissionUtils.kt
+@@ -66,6 +66,12 @@ class PermissionUtils {
+         ) {
+           pushMap(ReactPermission(AccessType.READ, "BackgroundAccessPermission").toReadableMap())
+         }
++
++        // Requested through parsePermissions above but never reported back, so a granted
++        // history permission read as refused.
++        if (grantedPermissions.contains(HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY)) {
++          pushMap(ReactPermission(AccessType.READ, "ReadHealthDataHistory").toReadableMap())
++        }
+       }
+     }
+   }
