@@ -97,6 +97,18 @@
           ],
           "widgets": [
             {
+              "name": "MacroFit",
+              "label": "MacroFit",
+              "previewImage": "./assets/widgets/macrofit-preview.png",
+              "description": "Food and training on one card that follows your day",
+              "minWidth": "110dp",
+              "minHeight": "40dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 2,
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000
+            },
+            {
               "name": "Today",
               "label": "Today",
               "previewImage": "./assets/widgets/today-preview.png",
