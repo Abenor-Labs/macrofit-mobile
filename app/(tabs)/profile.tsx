@@ -1313,8 +1313,8 @@ function ProfileScreen() {
             <>
               <Body size={13} tone="secondary">
                 {health.grants.readSteps
-                  ? 'Steps are read automatically. You can also pull in bodyweight recorded by your phone or scale — days you already logged yourself are never overwritten.'
-                  : 'You can pull in bodyweight recorded by your phone or scale — days you already logged yourself are never overwritten.'}
+                  ? 'Steps and new weigh-ins from other apps sync automatically. Import pulls in older bodyweight history — days you already logged yourself are never overwritten.'
+                  : 'New weigh-ins from other apps sync automatically. Import pulls in older bodyweight history — days you already logged yourself are never overwritten.'}
               </Body>
               {!health.grants.readHistory && (
                 <Body size={12} tone="muted">

@@ -472,7 +472,17 @@ export const readLatestWeightKg = async (): Promise<number | null> => {
  * instant. Google Fit then shows whichever one it likes, and `readWeightHistory` re-imports
  * the pile on the next sync — the sync feature corrupting the data it was added to share.
  */
-const weightRecordId = (date: string): string => `macrofit-weight-${date}`
+const WEIGHT_RECORD_PREFIX = 'macrofit-weight-'
+const weightRecordId = (date: string): string => `${WEIGHT_RECORD_PREFIX}${date}`
+
+/**
+ * The note every weigh-in pulled from Health Connect carries.
+ *
+ * It is how the sync tells the user's own entries from imported ones: an imported day may be
+ * replaced when the other app corrects it, and is never pushed back out — pushing it would hand
+ * Google Fit a second copy of its own reading under this app's name.
+ */
+export const IMPORTED_WEIGHT_NOTE = 'Imported from Health Connect'
 
 /**
  * Noon local, so a weigh-in sits unambiguously inside the day it belongs to.
@@ -496,25 +506,34 @@ const noonOn = (date: string): Date => {
  * could not, because the user goes looking for the number in Google Fit and concludes the app
  * is broken.
  */
-export const writeWeightKg = async (kg: number, date: string): Promise<boolean> => {
+export const writeWeightKg = async (kg: number, date: string): Promise<boolean> =>
+  writeWeightsKg([{ date, kg }])
+
+/**
+ * Writes several weigh-ins in one call, upserted by date like `writeWeightKg`.
+ *
+ * The background sync sends whatever has not reached Health Connect yet — weigh-ins logged
+ * before the write permission was granted, or from a path that never asked for the write — and
+ * one insert for the lot costs one trip to the provider rather than one per day.
+ */
+export const writeWeightsKg = async (entries: { date: string; kg: number }[]): Promise<boolean> => {
+  const valid = entries.filter(e => Number.isFinite(e.kg) && e.kg > 0)
+  if (valid.length === 0) return false
   const hc = await loadModule()
   if (!hc) return false
-  if (!Number.isFinite(kg) || kg <= 0) return false
   try {
     await hc.initialize()
-    await hc.insertRecords([
-      {
-        recordType: 'Weight',
+    // Health Connect keeps the highest version it has seen for an id, so a later edit has to
+    // claim a larger number or it is discarded as stale.
+    const version = Date.now()
+    await hc.insertRecords(
+      valid.map(({ date, kg }) => ({
+        recordType: 'Weight' as const,
         time: noonOn(date).toISOString(),
-        weight: { unit: 'kilograms', value: kg },
-        metadata: {
-          clientRecordId: weightRecordId(date),
-          // Health Connect keeps the highest version it has seen for an id, so a later edit
-          // has to claim a larger number or it is discarded as stale.
-          clientRecordVersion: Date.now(),
-        },
-      },
-    ])
+        weight: { unit: 'kilograms' as const, value: Math.round(kg * 100) / 100 },
+        metadata: { clientRecordId: weightRecordId(date), clientRecordVersion: version },
+      })),
+    )
     return true
   } catch {
     return false
@@ -554,9 +573,39 @@ export const deleteWeightForDate = async (date: string): Promise<void> => {
 export const readWeightHistory = async (
   profile: UserProfile,
   days = 365,
-): Promise<Omit<WeightEntry, 'id'>[]> => {
+): Promise<Omit<WeightEntry, 'id'>[]> =>
+  (await readWeighIns(profile, days, { othersOnly: false, modifiedAfter: 0 })) ?? []
+
+/**
+ * Weigh-ins another app wrote or edited after `modifiedAfter` (epoch ms), or null on failure.
+ *
+ * This is what makes a weight typed into Google Fit show up here without anyone pressing
+ * Import. It differs from `readWeightHistory` in the three ways a repeating background pull
+ * has to:
+ *
+ *  - It skips this app's own records. They are copies of entries already in the log, and
+ *    re-reading them would resurrect a weigh-in the user deleted here whenever the matching
+ *    Health Connect delete had failed.
+ *  - It returns only days whose latest reading changed since the last pull. A plain "days not
+ *    yet logged" rule would also bring back every imported day the user deliberately deleted,
+ *    on every foreground, forever.
+ *  - It returns null rather than [] when the read fails, so the caller does not move its
+ *    watermark past changes it never actually saw.
+ */
+export const readWeighInsChangedSince = async (
+  profile: UserProfile,
+  modifiedAfter: number,
+  days = 30,
+): Promise<Omit<WeightEntry, 'id'>[] | null> =>
+  readWeighIns(profile, days, { othersOnly: true, modifiedAfter })
+
+const readWeighIns = async (
+  profile: UserProfile,
+  days: number,
+  options: { othersOnly: boolean; modifiedAfter: number },
+): Promise<Omit<WeightEntry, 'id'>[] | null> => {
   const hc = await loadModule()
-  if (!hc) return []
+  if (!hc) return null
   try {
     await hc.initialize()
     const end = new Date()
@@ -570,29 +619,44 @@ export const readWeightHistory = async (
       },
     })
 
-    const perDay = new Map<string, { at: number; kg: number }>()
+    const perDay = new Map<string, { at: number; kg: number; modified: number }>()
     for (const record of result.records) {
+      if (options.othersOnly && record.metadata?.clientRecordId?.startsWith(WEIGHT_RECORD_PREFIX)) {
+        continue
+      }
       const at = new Date(record.time)
       if (Number.isNaN(at.getTime())) continue
       const kg = record.weight?.inKilograms
       if (typeof kg !== 'number' || !Number.isFinite(kg) || kg <= 0) continue
+      // A record without a readable modification time is treated as new: importing it twice is
+      // idempotent, never importing it is the bug this function exists to fix.
+      const modified = new Date(record.metadata?.lastModifiedTime ?? '').getTime()
       const key = getDateString(at)
       const existing = perDay.get(key)
-      if (!existing || at.getTime() > existing.at) perDay.set(key, { at: at.getTime(), kg })
+      if (!existing || at.getTime() > existing.at) {
+        perDay.set(key, {
+          at: at.getTime(),
+          kg,
+          modified: Number.isNaN(modified) ? Number.POSITIVE_INFINITY : modified,
+        })
+      }
     }
 
     const toDisplay = (kg: number): number =>
       profile.weightUnit === 'lbs' ? kg * 2.20462 : kg
 
+    // Filtered after picking each day's latest, not before: an edit to an earlier reading on a
+    // day that has a later one changes nothing the log would show.
     return [...perDay.entries()]
+      .filter(([, { modified }]) => modified > options.modifiedAfter)
       .map(([date, { kg }]) => ({
         date,
         weight: Math.round(toDisplay(kg) * 10) / 10,
-        notes: 'Imported from Health Connect',
+        notes: IMPORTED_WEIGHT_NOTE,
       }))
       .sort((a, b) => a.date.localeCompare(b.date))
   } catch {
-    return []
+    return null
   }
 }
 
