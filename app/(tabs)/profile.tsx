@@ -1539,6 +1539,7 @@ function ProfileScreen() {
         onClose={() => setWidgetSheetOpen(false)}
         options={(
           [
+            { name: 'MacroFit', label: 'MacroFit · food and training on one card', Icon: Sparkles },
             { name: 'Today', label: 'Today · calories and macros left', Icon: Utensils },
             { name: 'Training', label: 'Training · your next session', Icon: Dumbbell },
           ] as const

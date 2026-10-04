@@ -76,7 +76,7 @@ const contentFor = (model: TrainingModel): Content => {
   }
 }
 
-const Dots: React.FC<{ week: WeekDots; palette: WidgetPalette }> = ({ week, palette }) => (
+export const Dots: React.FC<{ week: WeekDots; palette: WidgetPalette }> = ({ week, palette }) => (
   <FlexWidget style={{ flexDirection: 'row', alignItems: 'center' }}>
     <TextWidget
       text={`${week.done}/${week.goal}`}

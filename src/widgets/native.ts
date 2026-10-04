@@ -19,5 +19,5 @@ export const widgetsAvailable: boolean = (() => {
 })()
 
 /** The names the widgets are registered under in app.json. */
-export const WIDGET_NAMES = ['Today', 'Training'] as const
+export const WIDGET_NAMES = ['Today', 'Training', 'MacroFit'] as const
 export type WidgetName = (typeof WIDGET_NAMES)[number]

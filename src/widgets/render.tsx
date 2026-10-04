@@ -7,7 +7,9 @@ import type {
 import type { AppState } from '@core/store/appState'
 import { getTodayString } from '@core/utils/calculations'
 import { addDays } from '@core/utils/trainingProgram'
-import { todayModel, trainingModel } from './model'
+import { halfToShow } from './half'
+import { oneModel, todayModel, trainingModel } from './model'
+import { OneWidget } from './OneWidget'
 import { todayPalettes, trainingPalette } from './palette'
 import { TodayWidget, type WidgetSize } from './TodayWidget'
 import { TrainingWidget } from './TrainingWidget'
@@ -23,13 +25,32 @@ import { TrainingWidget } from './TrainingWidget'
  * `today` is read here, at draw time, never cached: the hourly redraw after midnight is what
  * moves the widget onto the new day when nobody has opened the app.
  */
+/** The half MacroFit's moment calls for right now, or null before setup. */
+export const macroFitHome = (state: AppState): 'food' | 'train' | null => {
+  const today = getTodayString()
+  const one = oneModel(state, today, addDays(today, 1), new Date())
+  return one.kind === 'day' ? one.home : null
+}
+
 export const renderWidget = (
   state: AppState,
   info: Pick<WidgetInfo, 'widgetName' | 'width' | 'height' | 'sizes'>
 ): WidgetRepresentation => {
   const today = getTodayString()
+  const now = new Date()
+  // MacroFit: worked out once, drawn at every size. The training half is always workout mode's
+  // near-black and lime; the food half follows the phone's mode, like Today.
+  const one = info.widgetName === 'MacroFit' ? oneModel(state, today, addDays(today, 1), now) : null
+  const half = one?.kind === 'day' ? halfToShow(one.home, now.getTime()) : 'food'
 
   const draw = (size: WidgetSize): SingleWidgetRepresentation => {
+    if (one) {
+      if (half === 'train') return <OneWidget model={one} half="train" size={size} palette={trainingPalette} />
+      return {
+        light: <OneWidget model={one} half="food" size={size} palette={todayPalettes.light} />,
+        dark: <OneWidget model={one} half="food" size={size} palette={todayPalettes.dark} />,
+      }
+    }
     if (info.widgetName === 'Training') {
       return <TrainingWidget model={trainingModel(state, today, addDays(today, 1))} size={size} palette={trainingPalette} />
     }

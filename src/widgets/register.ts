@@ -4,8 +4,9 @@ import { getTodayString } from '@core/utils/calculations'
 import { syncRemindersInBackground } from '@/lib/reminderSync'
 import { licenceLocalEdit } from '@/lib/syncKeys'
 import { STORAGE_KEY, useStore, whenStoreHydrated } from '@/store/useStore'
+import { chooseHalf, loadHalfChoice, SHOW_FOOD, SHOW_TRAIN } from './half'
 import { WIDGET_WATER_ML } from './model'
-import { renderWidget } from './render'
+import { macroFitHome, renderWidget } from './render'
 import { refreshWidgets } from './update'
 
 /*
@@ -46,11 +47,19 @@ const handler: WidgetTaskHandler = async ({ widgetInfo, widgetAction, clickActio
   const readable = await whenStoreHydrated()
   if (widgetAction === 'WIDGET_CLICK' && clickAction === 'ADD_WATER' && readable) {
     await addWaterFromWidget()
-    // Every copy of Today shows the new total, not only the one that was tapped.
-    await refreshWidgets(['Today'])
+    // Every copy of Today and MacroFit shows the new total, not only the one that was tapped.
+    await refreshWidgets(['Today', 'MacroFit'])
+    return
+  }
+  // MacroFit's Train and Food buttons on the other half: show that half on every copy.
+  if (widgetAction === 'WIDGET_CLICK' && (clickAction === SHOW_TRAIN || clickAction === SHOW_FOOD)) {
+    const half = clickAction === SHOW_TRAIN ? 'train' : 'food'
+    await chooseHalf(half, (readable ? macroFitHome(useStore.getState()) : null) ?? half)
+    await refreshWidgets(['MacroFit'])
     return
   }
 
+  if (widgetInfo.widgetName === 'MacroFit') await loadHalfChoice()
   draw(renderWidget(useStore.getState(), widgetInfo))
 
   // The hourly redraw is the one thing that reliably wakes this app while nobody uses it, so

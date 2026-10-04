@@ -1,5 +1,6 @@
 import { requestPinWidget, requestWidgetUpdate } from 'react-native-android-widget'
 import { useStore } from '@/store/useStore'
+import { loadHalfChoice } from './half'
 import { WIDGET_NAMES, type WidgetName } from './native'
 import { renderWidget } from './render'
 
@@ -10,6 +11,8 @@ import { renderWidget } from './render'
 
 /** Redraw every placed copy of the named widgets from the store as it is now. */
 export const refreshWidgets = async (names: readonly WidgetName[] = WIDGET_NAMES): Promise<void> => {
+  // MacroFit's drawing reads which half was last asked for; this runtime may not know yet.
+  if (names.includes('MacroFit')) await loadHalfChoice()
   for (const widgetName of names) {
     await requestWidgetUpdate({
       widgetName,

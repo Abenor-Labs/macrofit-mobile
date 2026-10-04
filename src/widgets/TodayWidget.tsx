@@ -80,7 +80,7 @@ const ACTIONS: Action[] = [
   },
 ]
 
-type DayModel = Extract<TodayModel, { kind: 'day' }>
+export type DayModel = Extract<TodayModel, { kind: 'day' }>
 
 /**
  * The calories left (or over), captioned above rather than after.
@@ -89,7 +89,7 @@ type DayModel = Extract<TodayModel, { kind: 'day' }>
  * reads as "that much eaten", and a small grey "kcal left" trailing it was read past. A caption
  * over the figure, the way the app captions its own figures, is read first.
  */
-const Headline: React.FC<{
+export const Headline: React.FC<{
   model: DayModel
   palette: WidgetPalette
   size: number
@@ -137,7 +137,7 @@ const Headline: React.FC<{
   )
 }
 
-const Ring: React.FC<{ model: DayModel; palette: WidgetPalette; size: number }> = ({ model, palette, size }) => {
+export const Ring: React.FC<{ model: DayModel; palette: WidgetPalette; size: number }> = ({ model, palette, size }) => {
   const stroke = Math.max(5, Math.round(size / 12))
   const color = { Protein: palette.macro.protein, Carbs: palette.macro.carbs, Fat: palette.macro.fat }
   return (
@@ -153,7 +153,7 @@ const Ring: React.FC<{ model: DayModel; palette: WidgetPalette; size: number }> 
   )
 }
 
-const MacroRow: React.FC<{ label: string; value: string; color: `#${string}`; palette: WidgetPalette }> = ({
+export const MacroRow: React.FC<{ label: string; value: string; color: `#${string}`; palette: WidgetPalette }> = ({
   label,
   value,
   color,
