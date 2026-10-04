@@ -8,12 +8,15 @@ import React, {
   useState,
 } from 'react'
 import { AppState, type AppStateStatus } from 'react-native'
-import { useStore } from '@/store/useStore'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { useStore, whenStoreHydrated } from '@/store/useStore'
+import { useAuth } from '@/lib/AuthProvider'
 import type { DiaryDay } from '@core/types'
 import { getDateString } from '@core/utils/calculations'
 import {
   getAvailability,
   getGrants,
+  IMPORTED_WEIGHT_NOTE,
   isFullyGranted,
   NO_GRANTS,
   openHealthSettings,
@@ -23,12 +26,14 @@ import {
   readLatestWeightKg,
   readSteps,
   readTodaySteps,
+  readWeighInsChangedSince,
   readWeightHistory,
   requestPermissions,
   writeBodyFatPct,
   writeExerciseSession,
   writeHydrationMl,
   writeNutritionForDay,
+  writeWeightsKg,
   type EnergyBurned,
   type HealthAvailability,
   type HealthGrants,
@@ -92,6 +97,23 @@ export interface HealthSyncState {
  */
 const REFRESH_THROTTLE_MS = 60_000
 
+/**
+ * Epoch ms up to which other apps' weigh-ins have been pulled in. Per device, not per account:
+ * it records what this phone's Health Connect has already been read for.
+ */
+const WEIGHT_PULLED_THROUGH_KEY = 'health.weightPulledThrough'
+
+/**
+ * How far back the automatic weight sync looks, in both directions.
+ *
+ * Thirty days because Android 14+ allows that much without the history permission, so the sync
+ * behaves the same whether or not it was granted. Anything older is what "Import weight
+ * history" is for.
+ */
+const WEIGHT_SYNC_DAYS = 30
+
+const LBS_PER_KG = 2.20462
+
 const HealthContext = createContext<HealthSyncState | null>(null)
 
 /**
@@ -111,7 +133,9 @@ const HealthContext = createContext<HealthSyncState | null>(null)
 export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const profile = useStore(s => s.profile)
   const weightLog = useStore(s => s.weightLog)
+  const weightUnit = useStore(s => s.profile.weightUnit)
   const addWeightEntry = useStore(s => s.addWeightEntry)
+  const setCurrentWeight = useStore(s => s.setCurrentWeight)
   const diary = useStore(s => s.diary)
   const workoutLog = useStore(s => s.workoutLog)
 
@@ -159,6 +183,90 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setMeasuredBodyFatPct(fat)
   }, [])
 
+  const lastWeightPullRef = useRef(0)
+
+  /*
+    Account data still loading means the log is about to be replaced by the server's copy. A
+    pull merged into the local copy first would be overwritten, and with the watermark already
+    advanced it would never be fetched again — so the pull waits for both loads to settle.
+  */
+  const { loading: authLoading, hydrating: authHydrating } = useAuth()
+  const accountSettled = !authLoading && !authHydrating
+  const accountSettledRef = useRef(accountSettled)
+  accountSettledRef.current = accountSettled
+
+  /*
+    INBOUND WEIGHT SYNC
+
+    Without this, a weight typed into Google Fit reached MacroFit only if the user found
+    "Import weight history" in Profile and pressed it — which nobody does daily, so the two apps
+    simply disagreed. It now runs wherever steps refresh: on launch and on every return to the
+    foreground, which is exactly when someone who just weighed in elsewhere comes back.
+
+    Rules, in order:
+     - Only changes since the last pull (see readWeighInsChangedSince), so an imported day the
+       user deleted here stays deleted.
+     - A day the user logged in MacroFit is theirs and is never overwritten, matching what the
+       manual import has always promised.
+     - A day that was itself imported is replaced when the other app corrects it.
+  */
+  const pullWeightsOnce = useCallback(async () => {
+    lastWeightPullRef.current = Date.now()
+    if (!(await whenStoreHydrated())) return
+    let since = 0
+    try {
+      since = Number(await AsyncStorage.getItem(WEIGHT_PULLED_THROUGH_KEY)) || 0
+    } catch {
+      // Unreadable storage means a full 30-day pull. Idempotent, so merely slower.
+    }
+    // Taken before the read, so a weigh-in saved while the read is in flight is caught next time.
+    const startedAt = Date.now()
+    const changed = await readWeighInsChangedSince(useStore.getState().profile, since, WEIGHT_SYNC_DAYS)
+    if (changed === null) return
+
+    const state = useStore.getState()
+    const byDate = new Map(state.weightLog.map(entry => [entry.date, entry]))
+    let applied = 0
+    for (const entry of changed) {
+      const mine = byDate.get(entry.date)
+      if (mine && mine.notes !== IMPORTED_WEIGHT_NOTE) continue
+      if (mine && mine.weight === entry.weight) continue
+      addWeightEntry(entry)
+      applied++
+    }
+
+    /*
+      addWeightEntry sets the current weight to whatever it was last handed, even an older day,
+      so a pull that fills in last Tuesday would otherwise make last Tuesday "current". Re-derive
+      it from the newest entry in the log.
+    */
+    if (applied > 0) {
+      const { weightLog: log, profile: p } = useStore.getState()
+      const newest = log[0]
+      if (newest) setCurrentWeight(p.weightUnit === 'lbs' ? newest.weight / LBS_PER_KG : newest.weight)
+    }
+
+    void AsyncStorage.setItem(WEIGHT_PULLED_THROUGH_KEY, String(startedAt)).catch(() => {})
+  }, [addWeightEntry, setCurrentWeight])
+
+  const pullingWeightsRef = useRef(false)
+
+  const pullWeights = useCallback(async () => {
+    // Launch fires this from the probe and from the settle effect at once; one is enough.
+    if (pullingWeightsRef.current) return
+    pullingWeightsRef.current = true
+    try {
+      await pullWeightsOnce()
+    } finally {
+      pullingWeightsRef.current = false
+    }
+  }, [pullWeightsOnce])
+
+  // The launch probe usually lands before account data does; this is the pull it deferred.
+  useEffect(() => {
+    if (accountSettled && grants.readWeight) void pullWeights()
+  }, [accountSettled, grants.readWeight, pullWeights])
+
   /** Re-reads permissions and, if steps are allowed, the step counts. Cheap and silent. */
   const probe = useCallback(
     async (options?: { force?: boolean }) => {
@@ -170,6 +278,14 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const next = await getGrants()
       if (!mounted.current) return
       setGrants(next)
+
+      if (
+        next.readWeight &&
+        accountSettledRef.current &&
+        (options?.force || Date.now() - lastWeightPullRef.current > REFRESH_THROTTLE_MS)
+      ) {
+        void pullWeights()
+      }
 
       /*
         Any read at all, not steps specifically.
@@ -190,7 +306,7 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const due = options?.force || Date.now() - lastRefreshRef.current > REFRESH_THROTTLE_MS
       if (due) await refreshSteps()
     },
-    [refreshSteps],
+    [refreshSteps, pullWeights],
   )
 
   // Probe once on mount. Cheap, and silent when unsupported.
@@ -222,11 +338,12 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (!mounted.current) return next
       setGrants(next)
       if (next.readSteps) await refreshSteps()
+      if (next.readWeight && accountSettledRef.current) void pullWeights()
       return next
     } finally {
       if (mounted.current) setBusy(false)
     }
-  }, [refreshSteps])
+  }, [refreshSteps, pullWeights])
 
   const openSettings = useCallback(async () => {
     await openHealthSettings()
@@ -317,6 +434,47 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     })()
   }, [workoutLog, grants.writeExercise])
+
+  /*
+    OUTBOUND WEIGHT SYNC
+
+    useLogWeight writes the moment a weigh-in is saved, but it is not the only way one is saved:
+    the Coach logs weight straight into the store, setup records the starting weight, and any
+    weigh-in made before Write weight was granted was never sent at all. Watching the log covers
+    all of them, including the next path someone adds.
+
+    Imported days are skipped — they came from Health Connect, and sending them back would give
+    Google Fit a duplicate under this app's name. The write is an upsert keyed by date, so the
+    overlap with useLogWeight's own write costs a redundant call, never a duplicate record.
+  */
+  const pushedWeightsRef = useRef<Record<string, number>>({})
+
+  useEffect(() => {
+    if (!grants.writeWeight) return
+    const cutoff = getDateString(new Date(Date.now() - WEIGHT_SYNC_DAYS * 86_400_000))
+    const pending = weightLog.filter(
+      entry =>
+        entry.date >= cutoff &&
+        entry.notes !== IMPORTED_WEIGHT_NOTE &&
+        pushedWeightsRef.current[entry.date] !== entry.weight,
+    )
+    if (pending.length === 0) return
+
+    const timer = setTimeout(() => {
+      void (async () => {
+        const ok = await writeWeightsKg(
+          pending.map(entry => ({
+            date: entry.date,
+            kg: weightUnit === 'lbs' ? entry.weight / LBS_PER_KG : entry.weight,
+          })),
+        )
+        // Only on success, so a failed write is retried on the next change or launch.
+        if (ok) for (const entry of pending) pushedWeightsRef.current[entry.date] = entry.weight
+      })()
+    }, 3000)
+
+    return () => clearTimeout(timer)
+  }, [weightLog, weightUnit, grants.writeWeight])
 
   const readBasics = useCallback(async (): Promise<HealthBasics> => {
     setBusy(true)
