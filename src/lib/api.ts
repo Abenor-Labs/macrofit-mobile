@@ -376,6 +376,13 @@ const describeFailure = (
     // Not JSON. Whatever this is, it did not come from one of our handlers.
   }
 
+  /*
+    A 500 is a handler that threw, and its `error` is the exception's own text — a provider's
+    "404 status code (no body)" reached people's screens that way. The handlers' written
+    sentences come with 4xx and 503, so a 500's text is kept for `detail` only.
+  */
+  if (status === 500) handlerMessage = null
+
   let message: string
   if (status === 401) message = hadSession ? SESSION_EXPIRED_MESSAGE : NEEDS_ACCOUNT_MESSAGE
   else if (handlerMessage !== null) message = handlerMessage
@@ -789,6 +796,8 @@ export const postChat = async (
  * trusts it over the photo for what the food is and how much was eaten. A server from before
  * notes ignores it.
  */
+const PHOTO_FAILED_MESSAGE = "Couldn't read that photo just now. Tap Retry, or try again in a moment."
+
 export const postAnalyzePhoto = async (
   imageBase64: string,
   mealType?: MealType,
@@ -797,11 +806,20 @@ export const postAnalyzePhoto = async (
   // Fail here rather than paying a round-trip for a guaranteed 400.
   if (imageBase64.trim().length === 0) throw new Error('No image data to analyze.')
 
-  const payload = await postJson(
-    '/api/analyze-photo',
-    { imageBase64, mealType, ...(note ? { note } : {}) },
-    PHOTO_TIMEOUT_MS,
-  )
+  let payload: unknown
+  try {
+    payload = await postJson(
+      '/api/analyze-photo',
+      { imageBase64, mealType, ...(note ? { note } : {}) },
+      PHOTO_TIMEOUT_MS,
+    )
+  } catch (error) {
+    // A server-side failure says what happened to the photo, not to "the service".
+    if (error instanceof ApiError && error.failure.reachedServer && error.failure.status >= 500) {
+      throw new ApiError({ ...error.failure, message: PHOTO_FAILED_MESSAGE })
+    }
+    throw error
+  }
   if (!isRecord(payload) || !Array.isArray(payload.foods)) {
     throw new Error('The photo service returned an unexpected response.')
   }
