@@ -988,7 +988,7 @@ export default function ChatScreen() {
                             <View style={{ marginTop: 2 }}>
                               <AlertTriangle size={16} color={theme.status.critical} strokeWidth={2.2} />
                             </View>
-                            <Body size={15} style={{ flex: 1, color: theme.status.critical }}>
+                            <Body size={15} style={{ flexShrink: 1, color: theme.status.critical }}>
                               {message.text}
                             </Body>
                           </View>
