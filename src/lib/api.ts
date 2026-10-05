@@ -784,17 +784,22 @@ export const postChat = async (
  *
  * `imageBase64` is either a bare base64 payload or a full `data:` URL — the handler accepts
  * both. An empty array is a valid result: it means nothing recognisable was in the frame.
+ *
+ * `note` is what the person typed with the photo ("2 idlis, skipped the chutney"). The model
+ * trusts it over the photo for what the food is and how much was eaten. A server from before
+ * notes ignores it.
  */
 export const postAnalyzePhoto = async (
   imageBase64: string,
   mealType?: MealType,
+  note?: string,
 ): Promise<AnalyzedFood[]> => {
   // Fail here rather than paying a round-trip for a guaranteed 400.
   if (imageBase64.trim().length === 0) throw new Error('No image data to analyze.')
 
   const payload = await postJson(
     '/api/analyze-photo',
-    { imageBase64, mealType },
+    { imageBase64, mealType, ...(note ? { note } : {}) },
     PHOTO_TIMEOUT_MS,
   )
   if (!isRecord(payload) || !Array.isArray(payload.foods)) {

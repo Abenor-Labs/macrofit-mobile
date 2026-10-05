@@ -279,6 +279,12 @@ export default function ChatScreen() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [photoSheetOpen, setPhotoSheetOpen] = useState(false)
+  /*
+    A photo waiting in the composer. Picking one no longer sends it: it sits above the message
+    box so the person can say what the photo cannot ("2 idlis", "ate half", "that's ragi
+    mudde"), and Send takes both. Sending it bare is still one tap.
+  */
+  const [pendingPhoto, setPendingPhoto] = useState<CapturedPhoto | null>(null)
   const keyboardVisible = useKeyboardState(state => state.isVisible)
   /*
     Where the composer's KeyboardAvoidingView starts on screen. It sits under the Coach header,
@@ -414,18 +420,27 @@ export default function ChatScreen() {
     is persisted, and a few hundred kilobytes of base64 per failure does not belong on disk.
     It lasts as long as the screen; after that the failed bubble simply has no Retry.
   */
-  const failedPhotos = useRef(new Map<string, CapturedPhoto>())
+  const failedPhotos = useRef(new Map<string, { photo: CapturedPhoto; note: string }>())
 
   const retryPhoto = (failedMessageId: string) => {
-    const photo = failedPhotos.current.get(failedMessageId)
-    if (loading || !photo) return
+    const failed = failedPhotos.current.get(failedMessageId)
+    if (loading || !failed) return
     failedPhotos.current.delete(failedMessageId)
     // The photo bubble goes too; analyzePhoto puts it back in front of the new attempt.
     dropFailedTurn(failedMessageId)
-    void analyzePhoto(photo)
+    void analyzePhoto(failed.photo, failed.note)
   }
 
   const send = async (override?: string, mode: 'chat' | 'checkin' = 'chat') => {
+    // A waiting photo goes with whatever was typed, as its note.
+    if (pendingPhoto && override === undefined) {
+      if (loading) return
+      const photo = pendingPhoto
+      setPendingPhoto(null)
+      setInput('')
+      void analyzePhoto(photo, input.trim())
+      return
+    }
     const text = (override ?? input).trim()
     if (text.length === 0 || loading) return
 
@@ -589,14 +604,14 @@ export default function ChatScreen() {
       return
     }
 
-    await analyzePhoto(capture.photo)
+    setPendingPhoto(capture.photo)
   }
 
-  /** Puts the photo in the thread and asks the model what is on the plate. */
-  const analyzePhoto = async ({ uri, base64 }: CapturedPhoto) => {
+  /** Puts the photo (and its note) in the thread and asks the model what is on the plate. */
+  const analyzePhoto = async ({ uri, base64 }: CapturedPhoto, note = '') => {
     setMessages(prev => [
       ...prev,
-      { id: uuidv4(), role: 'user', text: '', photo: uri, fromPhoto: true },
+      { id: uuidv4(), role: 'user', text: note, photo: uri, fromPhoto: true, at: Date.now() },
     ])
     setLoading(true)
     scrollToEnd()
@@ -609,7 +624,7 @@ export default function ChatScreen() {
     const meal = mealForNow()
 
     try {
-      const foods = await postAnalyzePhoto(base64, meal)
+      const foods = await postAnalyzePhoto(base64, meal, note || undefined)
 
       setMessages(prev => [
         ...prev,
@@ -633,7 +648,7 @@ export default function ChatScreen() {
       const message = err instanceof Error ? err.message : 'Something went wrong.'
       // No `retryText`: the retry re-sends the image, held in failedPhotos rather than here.
       const id = uuidv4()
-      failedPhotos.current.set(id, { uri, base64 })
+      failedPhotos.current.set(id, { photo: { uri, base64 }, note })
       setMessages(prev => [
         ...prev,
         { id, role: 'assistant', text: message, failed: true, fromPhoto: true },
@@ -671,7 +686,7 @@ export default function ChatScreen() {
     router.setParams({ snap: undefined })
     if (snap === SNAP_TAKEN) {
       const photo = takeWidgetPhoto()
-      if (photo) void analyzePhoto(photo)
+      if (photo) setPendingPhoto(photo)
     } else if (snap === 'camera') {
       void runPhoto('camera')
     }
@@ -903,24 +918,44 @@ export default function ChatScreen() {
                   }}
                 >
                   {message.photo ? (
-                    /* The photo replaces the text bubble rather than sitting inside one —
-                       there is no text on a photo turn, and an empty pane under the image
-                       would read as a failed render. */
-                    <Image
-                      accessible
-                      accessibilityLabel="The meal photo you sent"
-                      source={{ uri: message.photo }}
-                      resizeMode="cover"
-                      style={{
-                        width: PHOTO_BUBBLE,
-                        height: PHOTO_BUBBLE,
-                        borderRadius: radius.control,
-                        borderTopRightRadius: 4,
-                        borderWidth: StyleSheet.hairlineWidth * 2,
-                        borderColor: theme.border,
-                        backgroundColor: theme.surface,
-                      }}
-                    />
+                    /* The photo stands on its own rather than inside a bubble; a note sent with
+                       it sits under it as an ordinary message of yours, so the two read as one
+                       turn: this plate, and what you said about it. */
+                    <View style={{ alignItems: 'flex-end', gap: 6, maxWidth: '92%' }}>
+                      <Image
+                        accessible
+                        accessibilityLabel={
+                          message.text ? `The meal photo you sent, with the note: ${message.text}` : 'The meal photo you sent'
+                        }
+                        source={{ uri: message.photo }}
+                        resizeMode="cover"
+                        style={{
+                          width: PHOTO_BUBBLE,
+                          height: PHOTO_BUBBLE,
+                          borderRadius: radius.control,
+                          borderTopRightRadius: 4,
+                          borderWidth: StyleSheet.hairlineWidth * 2,
+                          borderColor: theme.border,
+                          backgroundColor: theme.surface,
+                        }}
+                      />
+                      {message.text ? (
+                        <View
+                          importantForAccessibility="no-hide-descendants"
+                          style={{
+                            paddingHorizontal: 14,
+                            paddingVertical: 10,
+                            borderRadius: radius.control,
+                            borderTopRightRadius: 4,
+                            backgroundColor: theme.brand,
+                          }}
+                        >
+                          <Body size={15} style={{ color: theme.brandOn }}>
+                            {message.text}
+                          </Body>
+                        </View>
+                      ) : null}
+                    </View>
                   ) : (
                     /* Role is carried by side, by surface and by the avatar icon — three
                        signals, so it survives without color. */
@@ -1210,7 +1245,7 @@ export default function ChatScreen() {
           <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.glass.overlay }]} />
           {/* Quick asks, chosen for the moment (a due check-in comes first). Hidden while typing
               and while a reply is on its way, so they never compete with the message itself. */}
-          {!loading && input.length === 0 ? (
+          {!loading && input.length === 0 && !pendingPhoto ? (
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -1248,11 +1283,47 @@ export default function ChatScreen() {
             </ScrollView>
           ) : null}
 
+          {pendingPhoto ? (
+            /* The photo waiting to go. The note is typed in the message box below, which is
+               why this says so instead of repeating a field of its own. */
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: spacing.md,
+                padding: spacing.sm,
+                borderRadius: radius.control,
+                borderWidth: StyleSheet.hairlineWidth * 2,
+                borderColor: theme.border,
+                backgroundColor: theme.surface,
+              }}
+            >
+              <Image
+                accessible
+                accessibilityLabel="Your meal photo, ready to send"
+                source={{ uri: pendingPhoto.uri }}
+                resizeMode="cover"
+                style={{ width: 56, height: 56, borderRadius: radius.control - 4, backgroundColor: theme.border }}
+              />
+              <View style={{ flex: 1, gap: 2 }}>
+                <Body size={15} weight="semibold">
+                  Photo ready
+                </Body>
+                <Body size={13} tone="secondary">
+                  Add a note if you like: how much you ate, or what's in it.
+                </Body>
+              </View>
+              <IconButton accessibilityLabel="Remove the photo" onPress={() => setPendingPhoto(null)} disabled={loading}>
+                <X size={18} color={theme.textSecondary} strokeWidth={2} />
+              </IconButton>
+            </View>
+          ) : null}
+
           <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-end' }}>
             {/* Bordered rather than bare: an IconButton is invisible until pressed, which is
                 right for chrome and wrong for the only entry point a whole feature has. */}
             <IconButton
-              accessibilityLabel="Add a meal photo"
+              accessibilityLabel={pendingPhoto ? 'Choose a different photo' : 'Add a meal photo'}
               onPress={attachPhoto}
               disabled={loading}
               style={{
@@ -1267,7 +1338,7 @@ export default function ChatScreen() {
               <Field
                 value={input}
                 onChangeText={setInput}
-                placeholder="What did you eat? Ask anything"
+                placeholder={pendingPhoto ? 'e.g. 2 idlis, skipped the chutney' : 'What did you eat? Ask anything'}
                 accessibilityLabel="Message the coach"
                 editable={!loading}
                 // Multiline on purpose: "I had a cup of oatmeal and two eggs for
@@ -1280,7 +1351,7 @@ export default function ChatScreen() {
             <Button
               label="Send"
               onPress={() => void send()}
-              disabled={input.trim().length === 0}
+              disabled={input.trim().length === 0 && !pendingPhoto}
               loading={loading}
               haptic
               icon={<Send size={15} color={theme.brandOn} strokeWidth={2.2} />}
