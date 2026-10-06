@@ -187,7 +187,40 @@ function scoreFood(food: Food, query: string): number {
   if (aliases?.some(alias => alias.includes(query))) return 3.5
   if (food.brand?.toLowerCase().includes(query)) return 4
   if (food.category.toLowerCase().includes(query)) return 5
+  // Last resort, a misspelling: "pomogranite" still finds Pomegranate.
+  const typed = query.split(/\s+/).filter(Boolean)
+  const misspelt = [name, ...(aliases ?? [])].some(text => {
+    const words = text.split(/[^a-z]+/).filter(Boolean)
+    return typed.every(t => words.some(word => word.startsWith(t) || isTypoOf(t, word)))
+  })
+  if (misspelt) return 6
   return -1
+}
+
+/** Edit distance between two short words, giving up (Infinity) once it passes `max`. */
+const editDistance = (a: string, b: string, max: number): number => {
+  if (Math.abs(a.length - b.length) > max) return Infinity
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i)
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i]
+    for (let j = 1; j <= b.length; j += 1) {
+      current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+    }
+    if (Math.min(...current) > max) return Infinity
+    previous = current
+  }
+  return previous[b.length]
+}
+
+/**
+ * Whether `typed` is a misspelling of the food word `word`: same first letter, and one edit
+ * apart for five letters or more, two for eight or more. Shorter words are left alone, since
+ * one letter turns "rice" into "dice" and "dal" into anything.
+ */
+export const isTypoOf = (typed: string, word: string): boolean => {
+  if (typed.length < 5 || word.length < 5 || typed[0] !== word[0]) return false
+  const max = Math.min(typed.length, word.length) >= 8 ? 2 : 1
+  return editDistance(typed, word, max) <= max
 }
 
 export function searchFoods(query: string, limit = 20): Food[] {

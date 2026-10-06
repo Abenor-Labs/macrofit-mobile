@@ -548,6 +548,7 @@ export default function ChatScreen() {
           at: Date.now(),
           actions: logged,
           discarded: reply.discardedActions,
+          ...(reply.missed ? { missed: true, retryText: text } : {}),
           offer,
           proposal,
           memoryNotes: memoryNotes.length > 0 ? memoryNotes : undefined,
@@ -1186,6 +1187,52 @@ export default function ChatScreen() {
                       <Body size={13} style={{ flex: 1, color: theme.status.warning }}>
                         {`Not saved: ${message.discarded} ${message.discarded === 1 ? 'item was' : 'items were'} missing a name, a serving count or a weight unit, so ${message.discarded === 1 ? 'it was' : 'they were'} not written to your diary. Say it again with the amount and I will retry.`}
                       </Body>
+                    </View>
+                  ) : null}
+
+                  {/* Food was reported and nothing reached the diary: say so, with a one-tap retry. */}
+                  {message.missed && !(message.discarded !== undefined && message.discarded > 0) ? (
+                    <View
+                      style={{
+                        alignSelf: 'stretch',
+                        flexDirection: 'row',
+                        gap: spacing.sm,
+                        alignItems: 'center',
+                        borderRadius: radius.control,
+                        borderWidth: StyleSheet.hairlineWidth * 2,
+                        borderColor: theme.border,
+                        padding: spacing.md,
+                      }}
+                    >
+                      <AlertTriangle size={16} color={theme.status.warning} strokeWidth={2.2} />
+                      <Body size={13} style={{ flex: 1, color: theme.status.warning }}>
+                        Not saved to your diary yet.
+                      </Body>
+                      {message.retryText ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Log this again"
+                          disabled={loading}
+                          onPress={() => void send(message.retryText)}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 4,
+                            minHeight: HIT_SIZE,
+                            paddingVertical: 4,
+                            paddingHorizontal: 10,
+                            borderRadius: radius.pill,
+                            borderWidth: StyleSheet.hairlineWidth * 2,
+                            borderColor: theme.border,
+                            opacity: loading ? 0.5 : 1,
+                          }}
+                        >
+                          <RotateCcw size={12} color={theme.textSecondary} strokeWidth={2.2} />
+                          <Body size={12} weight="medium" style={{ color: theme.textSecondary }}>
+                            Retry
+                          </Body>
+                        </Pressable>
+                      ) : null}
                     </View>
                   ) : null}
                 </View>

@@ -64,6 +64,12 @@ export interface ChatEntry {
   failed?: boolean
   /** The user text that triggered this failed turn, so a retry can re-send it. */
   retryText?: string
+  /**
+   * The user reported food and nothing reached the diary. Shown as "Not saved" with a
+   * one-tap retry that re-sends `retryText`, so a missed log is seen in the chat, not
+   * discovered later in the diary.
+   */
+  missed?: boolean
   /** Local URI of an attached meal photo, shown in place of a text bubble. */
   photo?: string
   /** Vision results awaiting confirmation. */
