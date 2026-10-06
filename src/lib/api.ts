@@ -192,6 +192,8 @@ export interface ChatResponse {
    * the user a warning rather than a clean success.
    */
   discardedActions: number
+  /** The server judged the message a food report and nothing was written to the diary. */
+  missed: boolean
 }
 
 /** Rolling per-day mean intake over a recent window, computed on the client. */
@@ -783,7 +785,11 @@ export const postChat = async (
   // The server refuses unusable tool calls itself (unknown food id, targets outside safe
   // limits) and reports how many; those overclaim in `text` just as client-side drops do.
   const refused = typeof payload.refused === 'number' && payload.refused > 0 ? payload.refused : 0
-  return { text, actions, discardedActions: rawActions.length - actions.length + refused }
+  // Judged on what survived validation here, so a write the server sent but this client
+  // refused still counts as missed.
+  const wrote = actions.some(a => a.tool === 'log_food' || a.tool === 'log_weight' || a.tool === 'log_water' || a.tool === 'remove_food')
+  const missed = payload.missed === true && !wrote
+  return { text, actions, discardedActions: rawActions.length - actions.length + refused, missed }
 }
 
 /**
